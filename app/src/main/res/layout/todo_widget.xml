@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/todo_widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FFFFFF"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/todo_widget_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Todo"
+            android:textColor="#202124"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/todo_widget_open"
+            android:layout_width="72dp"
+            android:layout_height="34dp"
+            android:text="&#xC5F4;&#xAE30;"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/todo_widget_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:text="&#xBBF8;&#xC644;&#xB8CC; &#xD560; &#xC77C;&#xC774; &#xC5C6;&#xC2B5;&#xB2C8;&#xB2E4;."
+        android:textColor="#777777"
+        android:textSize="13sp" />
+
+    <LinearLayout
+        android:id="@+id/todo_widget_row_1"
+        style="@style/TodoWidgetRow">
+
+        <TextView
+            android:id="@+id/todo_widget_title_1"
+            style="@style/TodoWidgetTitle" />
+
+        <TextView
+            android:id="@+id/todo_widget_time_1"
+            style="@style/TodoWidgetTime" />
+
+        <Button
+            android:id="@+id/todo_widget_start_1"
+            style="@style/TodoWidgetSmallButton"
+            android:text="&#xC2DC;&#xC791;" />
+
+        <Button
+            android:id="@+id/todo_widget_done_1"
+            style="@style/TodoWidgetSmallButton"
+            android:text="&#xC644;&#xB8CC;" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/todo_widget_row_2"
+        style="@style/TodoWidgetRow">
+
+        <TextView
+            android:id="@+id/todo_widget_title_2"
+            style="@style/TodoWidgetTitle" />
+
+        <TextView
+            android:id="@+id/todo_widget_time_2"
+            style="@style/TodoWidgetTime" />
+
+        <Button
+            android:id="@+id/todo_widget_start_2"
+            style="@style/TodoWidgetSmallButton"
+            android:text="&#xC2DC;&#xC791;" />
+
+        <Button
+            android:id="@+id/todo_widget_done_2"
+            style="@style/TodoWidgetSmallButton"
+            android:text="&#xC644;&#xB8CC;" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/todo_widget_row_3"
+        style="@style/TodoWidgetRow">
+
+        <TextView
+            android:id="@+id/todo_widget_title_3"
+            style="@style/TodoWidgetTitle" />
+
+        <TextView
+            android:id="@+id/todo_widget_time_3"
+            style="@style/TodoWidgetTime" />
+
+        <Button
+            android:id="@+id/todo_widget_start_3"
+            style="@style/TodoWidgetSmallButton"
+            android:text="&#xC2DC;&#xC791;" />
+
+        <Button
+            android:id="@+id/todo_widget_done_3"
+            style="@style/TodoWidgetSmallButton"
+            android:text="&#xC644;&#xB8CC;" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/todo_widget_row_4"
+        style="@style/TodoWidgetRow">
+
+        <TextView
+            android:id="@+id/todo_widget_title_4"
+            style="@style/TodoWidgetTitle" />
+
+        <TextView
+            android:id="@+id/todo_widget_time_4"
+            style="@style/TodoWidgetTime" />
+
+        <Button
+            android:id="@+id/todo_widget_start_4"
+            style="@style/TodoWidgetSmallButton"
+            android:text="&#xC2DC;&#xC791;" />
+
+        <Button
+            android:id="@+id/todo_widget_done_4"
+            style="@style/TodoWidgetSmallButton"
+            android:text="&#xC644;&#xB8CC;" />
+    </LinearLayout>
+</LinearLayout>
