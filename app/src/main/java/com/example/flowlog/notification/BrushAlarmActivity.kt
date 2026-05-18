@@ -22,6 +22,7 @@ class BrushAlarmActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         showOverLockScreen()
+        ActivityTimerNotifier(this).clearBrushDoneTimer()
         setContentView(buildContentView())
         startAlarmSound()
     }

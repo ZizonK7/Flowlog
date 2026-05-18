@@ -119,25 +119,76 @@ class ReminderScheduler(private val context: Context) {
         requestCode: Int,
         delayMillis: Long
     ): Long {
-        return scheduleReminder(
-            category = "TOOTHBRUSH",
-            reminderType = ToothbrushReminderReceiver.TYPE_BRUSH_DONE,
-            reminderDelayMillis = delayMillis,
-            requestCode = requestCode
+        ensureNotificationChannel()
+
+        val triggerAtMillis = System.currentTimeMillis() + delayMillis
+        val alarmScreenIntent = Intent(context, BrushAlarmActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val alarmScreenPendingIntent = PendingIntent.getActivity(
+            context,
+            requestCode,
+            alarmScreenIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+
+        scheduleAlarm(triggerAtMillis, alarmScreenPendingIntent, alarmScreenPendingIntent)
+        scheduleInProcessBrushDoneAlarm(requestCode, triggerAtMillis)
+        return triggerAtMillis
     }
 
-    fun cancelSnackReminder() {
-        cancelReminder(REQUEST_SNACK_TIMER)
-        activityTimerNotifier.clearSnackTimer()
+    private fun scheduleInProcessBrushDoneAlarm(
+        requestCode: Int,
+        triggerAtMillis: Long
+    ) {
+        cancelInProcessAlarm(requestCode)
+
+        val delayMillis = (triggerAtMillis - System.currentTimeMillis()).coerceAtLeast(1L)
+        val appContext = context.applicationContext
+        val runnable = Runnable {
+            inProcessAlarms.remove(requestCode)
+            cancelActivityAlarm(requestCode)
+            appContext.startActivity(
+                Intent(appContext, BrushAlarmActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                }
+            )
+        }
+        inProcessAlarms[requestCode] = runnable
+        handler.postDelayed(runnable, delayMillis)
     }
 
-    fun cancelBrushTimers() {
-        cancelReminder(REQUEST_BRUSH_DONE_TIMER)
-        cancelReminder(REQUEST_BRUSH_EAT_TIMER)
-        activityTimerNotifier.clearBrushDoneTimer()
-        activityTimerNotifier.clearBrushEatTimer()
-        context.stopService(Intent(context, BrushAlarmService::class.java))
+    private fun cancelActivityAlarm(requestCode: Int) {
+        val intent = Intent(context, BrushAlarmActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        ) ?: return
+
+        alarmManager.cancel(pendingIntent)
+        pendingIntent.cancel()
+    }
+
+    private fun cancelReminder(requestCode: Int) {
+        cancelInProcessAlarm(requestCode)
+        cancelActivityAlarm(requestCode)
+
+        val intent = Intent(context, ToothbrushReminderReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        ) ?: return
+
+        alarmManager.cancel(pendingIntent)
+        pendingIntent.cancel()
     }
 
     private fun scheduleReminder(
@@ -173,6 +224,19 @@ class ReminderScheduler(private val context: Context) {
         return triggerAtMillis
     }
 
+    fun cancelSnackReminder() {
+        cancelReminder(REQUEST_SNACK_TIMER)
+        activityTimerNotifier.clearSnackTimer()
+    }
+
+    fun cancelBrushTimers() {
+        cancelReminder(REQUEST_BRUSH_DONE_TIMER)
+        cancelReminder(REQUEST_BRUSH_EAT_TIMER)
+        activityTimerNotifier.clearBrushDoneTimer()
+        activityTimerNotifier.clearBrushEatTimer()
+        context.stopService(Intent(context, BrushAlarmService::class.java))
+    }
+
     private fun scheduleAlarm(
         triggerAtMillis: Long,
         openPendingIntent: PendingIntent,
@@ -204,21 +268,6 @@ class ReminderScheduler(private val context: Context) {
                 alarmPendingIntent
             )
         }.getOrThrow()
-    }
-
-    private fun cancelReminder(requestCode: Int) {
-        cancelInProcessAlarm(requestCode)
-
-        val intent = Intent(context, ToothbrushReminderReceiver::class.java)
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            requestCode,
-            intent,
-            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
-        ) ?: return
-
-        alarmManager.cancel(pendingIntent)
-        pendingIntent.cancel()
     }
 
     private fun scheduleInProcessAlarm(
