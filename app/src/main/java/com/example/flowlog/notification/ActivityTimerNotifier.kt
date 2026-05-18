@@ -55,6 +55,15 @@ class ActivityTimerNotifier(private val context: Context) {
         )
     }
 
+    fun showMealTimer(endsAtMillis: Long) {
+        showCountdownTimer(
+            notificationId = MEAL_NOTIFICATION_ID,
+            title = "\uC2DD\uC0AC \uD0C0\uC774\uBA38",
+            text = "\uC591\uCE58 \uC54C\uB9BC\uAE4C\uC9C0 \uB0A8\uC740 \uC2DC\uAC04",
+            endsAtMillis = endsAtMillis
+        )
+    }
+
     fun showBrushDoneTimer(endsAtMillis: Long) {
         showCountdownTimer(
             notificationId = BRUSH_DONE_NOTIFICATION_ID,
@@ -75,6 +84,10 @@ class ActivityTimerNotifier(private val context: Context) {
 
     fun clearSnackTimer() {
         NotificationManagerCompat.from(context).cancel(SNACK_NOTIFICATION_ID)
+    }
+
+    fun clearMealTimer() {
+        NotificationManagerCompat.from(context).cancel(MEAL_NOTIFICATION_ID)
     }
 
     fun clearBrushDoneTimer() {
@@ -167,5 +180,6 @@ class ActivityTimerNotifier(private val context: Context) {
         private const val SNACK_NOTIFICATION_ID = 2002
         private const val BRUSH_DONE_NOTIFICATION_ID = 2003
         private const val BRUSH_EAT_NOTIFICATION_ID = 2004
+        private const val MEAL_NOTIFICATION_ID = 2005
     }
 }

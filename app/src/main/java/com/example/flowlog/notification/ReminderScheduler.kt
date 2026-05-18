@@ -49,13 +49,14 @@ class ReminderScheduler(private val context: Context) {
     fun scheduleToothbrushReminder(activity: ActivitySession) {
         if (activity.category != "MEAL") return
 
-        scheduleReminder(
+        val triggerAtMillis = scheduleReminder(
             category = activity.category,
             reminderType = ToothbrushReminderReceiver.TYPE_TOOTHBRUSH,
             reminderDelayMillis = 30L * 60L * 1000L,
             requestCode = activity.id.toInt(),
             activityId = activity.id
         )
+        activityTimerNotifier.showMealTimer(triggerAtMillis)
     }
 
     fun scheduleSnackReminder() {
