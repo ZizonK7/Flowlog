@@ -5,11 +5,11 @@
     android:layout_height="match_parent"
     android:background="#FFFFFF"
     android:orientation="vertical"
-    android:padding="10dp">
+    android:padding="8dp">
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="36dp"
+        android:layout_height="32dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -26,7 +26,16 @@
         <Button
             android:id="@+id/todo_widget_open"
             android:layout_width="72dp"
-            android:layout_height="34dp"
+            android:layout_height="30dp"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp"
+            android:paddingTop="0dp"
+            android:paddingBottom="0dp"
+            android:singleLine="true"
             android:text="&#xC5F4;&#xAE30;"
             android:textSize="12sp" />
     </LinearLayout>
@@ -41,95 +50,14 @@
         android:textColor="#777777"
         android:textSize="13sp" />
 
-    <LinearLayout
-        android:id="@+id/todo_widget_row_1"
-        style="@style/TodoWidgetRow">
-
-        <TextView
-            android:id="@+id/todo_widget_title_1"
-            style="@style/TodoWidgetTitle" />
-
-        <TextView
-            android:id="@+id/todo_widget_time_1"
-            style="@style/TodoWidgetTime" />
-
-        <Button
-            android:id="@+id/todo_widget_start_1"
-            style="@style/TodoWidgetSmallButton"
-            android:text="&#xC2DC;&#xC791;" />
-
-        <Button
-            android:id="@+id/todo_widget_done_1"
-            style="@style/TodoWidgetSmallButton"
-            android:text="&#xC644;&#xB8CC;" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/todo_widget_row_2"
-        style="@style/TodoWidgetRow">
-
-        <TextView
-            android:id="@+id/todo_widget_title_2"
-            style="@style/TodoWidgetTitle" />
-
-        <TextView
-            android:id="@+id/todo_widget_time_2"
-            style="@style/TodoWidgetTime" />
-
-        <Button
-            android:id="@+id/todo_widget_start_2"
-            style="@style/TodoWidgetSmallButton"
-            android:text="&#xC2DC;&#xC791;" />
-
-        <Button
-            android:id="@+id/todo_widget_done_2"
-            style="@style/TodoWidgetSmallButton"
-            android:text="&#xC644;&#xB8CC;" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/todo_widget_row_3"
-        style="@style/TodoWidgetRow">
-
-        <TextView
-            android:id="@+id/todo_widget_title_3"
-            style="@style/TodoWidgetTitle" />
-
-        <TextView
-            android:id="@+id/todo_widget_time_3"
-            style="@style/TodoWidgetTime" />
-
-        <Button
-            android:id="@+id/todo_widget_start_3"
-            style="@style/TodoWidgetSmallButton"
-            android:text="&#xC2DC;&#xC791;" />
-
-        <Button
-            android:id="@+id/todo_widget_done_3"
-            style="@style/TodoWidgetSmallButton"
-            android:text="&#xC644;&#xB8CC;" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/todo_widget_row_4"
-        style="@style/TodoWidgetRow">
-
-        <TextView
-            android:id="@+id/todo_widget_title_4"
-            style="@style/TodoWidgetTitle" />
-
-        <TextView
-            android:id="@+id/todo_widget_time_4"
-            style="@style/TodoWidgetTime" />
-
-        <Button
-            android:id="@+id/todo_widget_start_4"
-            style="@style/TodoWidgetSmallButton"
-            android:text="&#xC2DC;&#xC791;" />
-
-        <Button
-            android:id="@+id/todo_widget_done_4"
-            style="@style/TodoWidgetSmallButton"
-            android:text="&#xC644;&#xB8CC;" />
-    </LinearLayout>
+    <ListView
+        android:id="@+id/todo_widget_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="4dp"
+        android:layout_weight="1"
+        android:divider="@android:color/transparent"
+        android:dividerHeight="4dp"
+        android:fadeScrollbars="false"
+        android:scrollbarStyle="insideOverlay" />
 </LinearLayout>

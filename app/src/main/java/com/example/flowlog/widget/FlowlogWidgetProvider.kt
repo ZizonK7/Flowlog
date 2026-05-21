@@ -135,11 +135,13 @@ class FlowlogWidgetProvider : AppWidgetProvider() {
                 setOnClickPendingIntent(R.id.widget_snack, widgetActionIntent(context, ACTION_SNACK, null, 4))
                 setOnClickPendingIntent(R.id.widget_study, widgetActionIntent(context, ACTION_START, "STUDY", 5))
                 setOnClickPendingIntent(R.id.widget_meal, widgetActionIntent(context, ACTION_START, "MEAL", 6))
-                setOnClickPendingIntent(R.id.widget_school, widgetActionIntent(context, ACTION_START, "SCHOOL", 7))
-                setOnClickPendingIntent(R.id.widget_exercise, widgetActionIntent(context, ACTION_START, "EXERCISE", 8))
-                setOnClickPendingIntent(R.id.widget_sleep, widgetActionIntent(context, ACTION_START, "SLEEP", 9))
-                setOnClickPendingIntent(R.id.widget_rest, widgetActionIntent(context, ACTION_START, "REST", 10))
-                setOnClickPendingIntent(R.id.widget_etc, widgetActionIntent(context, ACTION_START, "ETC", 11))
+                setOnClickPendingIntent(R.id.widget_work, widgetActionIntent(context, ACTION_START, "WORK", 7))
+                setOnClickPendingIntent(R.id.widget_development, widgetActionIntent(context, ACTION_START, "DEVELOPMENT", 8))
+                setOnClickPendingIntent(R.id.widget_school, widgetActionIntent(context, ACTION_START, "SCHOOL", 9))
+                setOnClickPendingIntent(R.id.widget_exercise, widgetActionIntent(context, ACTION_START, "EXERCISE", 10))
+                setOnClickPendingIntent(R.id.widget_sleep, widgetActionIntent(context, ACTION_START, "SLEEP", 11))
+                setOnClickPendingIntent(R.id.widget_rest, widgetActionIntent(context, ACTION_START, "REST", 12))
+                setOnClickPendingIntent(R.id.widget_etc, widgetActionIntent(context, ACTION_START, "ETC", 13))
             }
         }
 
@@ -176,6 +178,8 @@ class FlowlogWidgetProvider : AppWidgetProvider() {
         private fun runningStatusText(category: String): String {
             return when (category) {
                 "STUDY" -> "공부를 하는 중입니다!"
+                "WORK" -> "업무를 하는 중입니다!"
+                "DEVELOPMENT" -> "개발을 하는 중입니다!"
                 "MEAL" -> "식사를 하는 중입니다!"
                 "EXERCISE" -> "운동을 하는 중입니다!"
                 "SLEEP" -> "수면 중입니다!"

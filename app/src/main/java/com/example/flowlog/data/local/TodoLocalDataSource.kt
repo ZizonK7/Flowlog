@@ -17,10 +17,10 @@ class TodoLocalDataSource(context: Context) : TodoDao {
         PREFS_TODO,
         Context.MODE_PRIVATE
     )
-    private val json = Json {
-        ignoreUnknownKeys = true
+
+    init {
+        ensureLoaded(sharedPreferences)
     }
-    private val todos = MutableStateFlow(loadTodos())
 
     override fun getAllTodos(): Flow<List<TodoItem>> {
         return todos
@@ -55,10 +55,12 @@ class TodoLocalDataSource(context: Context) : TodoDao {
     }
 
     override suspend fun addAccumulatedMillis(id: Long, durationMillis: Long) {
-        if (durationMillis <= 0L) return
+        if (durationMillis == 0L) return
 
         updateTodo(id) { todo ->
-            todo.copy(accumulatedMillis = todo.accumulatedMillis + durationMillis)
+            todo.copy(
+                accumulatedMillis = (todo.accumulatedMillis + durationMillis).coerceAtLeast(0L)
+            )
         }
     }
 
@@ -72,7 +74,7 @@ class TodoLocalDataSource(context: Context) : TodoDao {
     private fun loadTodos(): List<TodoItem> {
         val data = sharedPreferences.getString(KEY_ALL_TODOS, "[]") ?: "[]"
         return try {
-            json.decodeFromString<List<TodoItem>>(data)
+            snapshotJson.decodeFromString<List<TodoItem>>(data)
         } catch (e: Exception) {
             emptyList()
         }
@@ -88,7 +90,7 @@ class TodoLocalDataSource(context: Context) : TodoDao {
         todos.value = sortedTodos
         withContext(Dispatchers.IO) {
             sharedPreferences.edit()
-                .putString(KEY_ALL_TODOS, json.encodeToString(sortedTodos))
+                .putString(KEY_ALL_TODOS, snapshotJson.encodeToString(sortedTodos))
                 .apply()
         }
     }
@@ -97,10 +99,26 @@ class TodoLocalDataSource(context: Context) : TodoDao {
         const val PREFS_TODO = "todo_data"
         const val KEY_ALL_TODOS = "all_todos"
         private val snapshotJson = Json { ignoreUnknownKeys = true }
+        private val todos = MutableStateFlow<List<TodoItem>>(emptyList())
+        @Volatile
+        private var isLoaded = false
+
+        private fun ensureLoaded(sharedPreferences: SharedPreferences) {
+            if (isLoaded) return
+            synchronized(this) {
+                if (isLoaded) return
+                todos.value = loadSnapshot(sharedPreferences)
+                isLoaded = true
+            }
+        }
 
         fun loadSnapshot(context: Context): List<TodoItem> {
-            val data = context.getSharedPreferences(PREFS_TODO, Context.MODE_PRIVATE)
-                .getString(KEY_ALL_TODOS, "[]") ?: "[]"
+            val sharedPreferences = context.getSharedPreferences(PREFS_TODO, Context.MODE_PRIVATE)
+            return loadSnapshot(sharedPreferences)
+        }
+
+        private fun loadSnapshot(sharedPreferences: SharedPreferences): List<TodoItem> {
+            val data = sharedPreferences.getString(KEY_ALL_TODOS, "[]") ?: "[]"
             return try {
                 snapshotJson.decodeFromString<List<TodoItem>>(data)
             } catch (e: Exception) {

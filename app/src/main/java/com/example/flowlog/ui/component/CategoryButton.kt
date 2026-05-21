@@ -28,6 +28,8 @@ fun CategoryButton(
         "SNACK" -> Color(0xFFFFC107)
         "TOOTHBRUSH" -> Color(0xFF26A69A)
         "EXERCISE" -> Color(0xFF2196F3)
+        "WORK" -> Color(0xFF546E7A)
+        "DEVELOPMENT" -> Color(0xFF3949AB)
         "SLEEP" -> Color(0xFF9C27B0)
         "REST" -> Color(0xFF00BCD4)
         "SCHOOL" -> Color(0xFFE91E63)

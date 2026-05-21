@@ -1,6 +1,7 @@
 package com.example.flowlog.notification
 
 import android.app.AlarmManager
+import android.app.ActivityOptions
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -20,7 +21,7 @@ class ReminderScheduler(private val context: Context) {
 
     fun ensureNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) runCatching {
-            val channel = NotificationChannel(
+            val legacyChannel = NotificationChannel(
                 ToothbrushReminderReceiver.CHANNEL_ID,
                 "Flowlog timer alerts",
                 NotificationManager.IMPORTANCE_HIGH
@@ -35,10 +36,23 @@ class ReminderScheduler(private val context: Context) {
                 )
                 enableVibration(true)
             }
+            val dingChannel = NotificationChannel(
+                ToothbrushReminderReceiver.DING_CHANNEL_ID,
+                "Flowlog ding alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Snack, meal, toothbrush, and experiment ding alerts"
+                setSound(
+                    KakaoStyleAlertPlayer.soundUri(context),
+                    KakaoStyleAlertPlayer.audioAttributes()
+                )
+                enableVibration(true)
+            }
 
             val notificationManager =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+            notificationManager.createNotificationChannel(legacyChannel)
+            notificationManager.createNotificationChannel(dingChannel)
         }
 
         runCatching {
@@ -78,9 +92,11 @@ class ReminderScheduler(private val context: Context) {
         cancelSnackReminder()
         cancelBrushTimers()
 
-        val brushDoneAtMillis = scheduleBrushDoneTimer(
-            requestCode = REQUEST_BRUSH_DONE_TIMER,
-            delayMillis = BRUSH_DONE_DELAY_MILLIS
+        val brushDoneAtMillis = scheduleReminder(
+            category = "TOOTHBRUSH",
+            reminderType = ToothbrushReminderReceiver.TYPE_BRUSH_DONE,
+            reminderDelayMillis = BRUSH_DONE_DELAY_MILLIS,
+            requestCode = REQUEST_BRUSH_DONE_TIMER
         )
         val eatAllowedAtMillis = scheduleReminder(
             category = "TOOTHBRUSH",
@@ -90,16 +106,20 @@ class ReminderScheduler(private val context: Context) {
         )
         activityTimerNotifier.showBrushDoneTimer(brushDoneAtMillis)
         activityTimerNotifier.showBrushEatTimer(eatAllowedAtMillis)
+        activityTimerNotifier.showBrushStartNotification()
     }
 
     fun scheduleBrushDoneExperiment() {
         cancelReminder(REQUEST_BRUSH_DONE_EXPERIMENT)
 
-        val brushDoneAtMillis = scheduleBrushDoneTimer(
-            requestCode = REQUEST_BRUSH_DONE_EXPERIMENT,
-            delayMillis = EXPERIMENT_DELAY_MILLIS
+        val brushDoneAtMillis = scheduleReminder(
+            category = "TOOTHBRUSH",
+            reminderType = ToothbrushReminderReceiver.TYPE_BRUSH_DONE,
+            reminderDelayMillis = EXPERIMENT_DELAY_MILLIS,
+            requestCode = REQUEST_BRUSH_DONE_EXPERIMENT
         )
         activityTimerNotifier.showBrushDoneTimer(brushDoneAtMillis)
+        activityTimerNotifier.showBrushStartNotification(isExperiment = true)
     }
 
     fun scheduleEatAllowedExperiment() {
@@ -114,6 +134,10 @@ class ReminderScheduler(private val context: Context) {
             activityId = now
         )
         activityTimerNotifier.showBrushEatTimer(eatAllowedAtMillis)
+        activityTimerNotifier.showBrushStartNotification(
+            isExperiment = true,
+            experimentText = "2\uBC88 \uC2E4\uD5D8\uC6A9 5\uCD08 \uD0C0\uC774\uBA38\uB97C \uC124\uC815\uD588\uC5B4\uC694."
+        )
     }
 
     private fun scheduleBrushDoneTimer(
@@ -132,36 +156,24 @@ class ReminderScheduler(private val context: Context) {
             context,
             requestCode,
             alarmScreenIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            backgroundActivityLaunchOptions()
         )
 
         scheduleAlarm(triggerAtMillis, alarmScreenPendingIntent, alarmScreenPendingIntent)
-        scheduleInProcessBrushDoneAlarm(requestCode, triggerAtMillis)
         return triggerAtMillis
     }
 
-    private fun scheduleInProcessBrushDoneAlarm(
-        requestCode: Int,
-        triggerAtMillis: Long
-    ) {
-        cancelInProcessAlarm(requestCode)
-
-        val delayMillis = (triggerAtMillis - System.currentTimeMillis()).coerceAtLeast(1L)
-        val appContext = context.applicationContext
-        val runnable = Runnable {
-            inProcessAlarms.remove(requestCode)
-            cancelActivityAlarm(requestCode)
-            appContext.startActivity(
-                Intent(appContext, BrushAlarmActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP
-                }
-            )
+    private fun backgroundActivityLaunchOptions() =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            ActivityOptions.makeBasic()
+                .setPendingIntentCreatorBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                )
+                .toBundle()
+        } else {
+            null
         }
-        inProcessAlarms[requestCode] = runnable
-        handler.postDelayed(runnable, delayMillis)
-    }
 
     private fun cancelActivityAlarm(requestCode: Int) {
         val intent = Intent(context, BrushAlarmActivity::class.java)

@@ -1,22 +1,21 @@
 package com.example.flowlog.notification
 
+import android.app.ActivityOptions
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.media.AudioAttributes
-import android.media.Ringtone
-import android.media.RingtoneManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import com.example.flowlog.MainActivity
 import com.example.flowlog.R
 
 class BrushAlarmService : Service() {
-    private var ringtone: Ringtone? = null
+    private var hasPlayedAlarm = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -39,28 +38,15 @@ class BrushAlarmService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun startAlarm() {
-        if (ringtone?.isPlaying == true) return
-
-        val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        ringtone = RingtoneManager.getRingtone(applicationContext, alarmUri)?.apply {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                audioAttributes = AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                isLooping = true
-            }
-            play()
-        }
+        if (hasPlayedAlarm) return
+        hasPlayedAlarm = true
+        KakaoStyleAlertPlayer.play(this)
     }
 
     private fun stopAlarm() {
-        ringtone?.stop()
-        ringtone = null
+        hasPlayedAlarm = false
         stopForeground(STOP_FOREGROUND_REMOVE)
+        NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID)
     }
 
     private fun buildNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -76,7 +62,9 @@ class BrushAlarmService : Service() {
         )
         .setOngoing(true)
         .setCategory(NotificationCompat.CATEGORY_ALARM)
-        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setPriority(NotificationCompat.PRIORITY_MAX)
+        .setSilent(true)
+        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .build()
 
     private fun alarmScreenPendingIntent(): PendingIntent {
@@ -87,7 +75,8 @@ class BrushAlarmService : Service() {
             this,
             REQUEST_ALARM_SCREEN,
             intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            backgroundActivityLaunchOptions()
         )
     }
 
@@ -112,6 +101,17 @@ class BrushAlarmService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
     }
+
+    private fun backgroundActivityLaunchOptions() =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            ActivityOptions.makeBasic()
+                .setPendingIntentCreatorBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                )
+                .toBundle()
+        } else {
+            null
+        }
 
     companion object {
         const val ACTION_STOP = "com.example.flowlog.action.STOP_BRUSH_ALARM"

@@ -6,7 +6,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -29,7 +28,7 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
 
         if (reminderType == TYPE_BRUSH_DONE) {
             runCatching {
-                openBrushAlarmScreen(context)
+                context.startActivity(brushAlarmIntent(context))
             }
             return
         }
@@ -48,41 +47,41 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
             TYPE_EAT_ALLOWED -> "\uC591\uCE58\uD55C \uC9C0 30\uBD84\uC774 \uC9C0\uB0AC\uC5B4\uC694. \uC774\uC81C \uBA39\uC5B4\uB3C4 \uB3FC\uC694."
             else -> "\uC591\uCE58\uD560 \uC2DC\uAC04\uC774\uC5D0\uC694."
         }
-        val openIntent = Intent(context, MainActivity::class.java)
         val openPendingIntent = PendingIntent.getActivity(
             context,
-            0,
-            openIntent,
+            REQUEST_OPEN_APP,
+            Intent(context, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        KakaoStyleAlertPlayer.play(context)
+
+        val builder = NotificationCompat.Builder(context, DING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_timer_notification)
             .setContentTitle(title)
             .setContentText(message)
             .setContentIntent(openPendingIntent)
-            .setAutoCancel(true)
-            .setDefaults(NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE)
-            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .build()
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
+            .setSound(KakaoStyleAlertPlayer.soundUri(context))
+            .setVibrate(longArrayOf(0L, 500L, 250L, 500L))
 
         val notificationId = intent.getLongExtra(
             EXTRA_ACTIVITY_ID,
             System.currentTimeMillis()
         ).toInt()
-        NotificationManagerCompat.from(context).notify(notificationId, notification)
+        NotificationManagerCompat.from(context).notify(notificationId, builder.build())
     }
 
-    private fun openBrushAlarmScreen(context: Context) {
-        val screenIntent = Intent(context, BrushAlarmActivity::class.java).apply {
+    private fun brushAlarmIntent(context: Context) =
+        Intent(context, BrushAlarmActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_CLEAR_TOP or
                 Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
-        context.startActivity(screenIntent)
-    }
 
     private fun canPostNotifications(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
@@ -95,11 +94,13 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
 
     companion object {
         const val CHANNEL_ID = "flowlog_timer_alerts"
+        const val DING_CHANNEL_ID = "flowlog_timer_alerts_ding_v3"
         const val EXTRA_CATEGORY = "extra_category"
         const val EXTRA_ACTIVITY_ID = "extra_activity_id"
         const val EXTRA_REMINDER_TYPE = "extra_reminder_type"
         const val TYPE_TOOTHBRUSH = "type_toothbrush"
         const val TYPE_BRUSH_DONE = "type_brush_done"
         const val TYPE_EAT_ALLOWED = "type_eat_allowed"
+        private const val REQUEST_OPEN_APP = 5001
     }
 }

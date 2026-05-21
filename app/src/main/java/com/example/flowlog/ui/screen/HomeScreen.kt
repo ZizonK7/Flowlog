@@ -30,9 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -40,6 +38,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.flowlog.data.model.ActivitySession
@@ -67,13 +66,14 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var showSaveDialog by remember { mutableStateOf(false) }
     val activityCategories = remember {
         listOf(
             "TOOTHBRUSH",
             "SNACK",
             "MEAL",
             "STUDY",
+            "WORK",
+            "DEVELOPMENT",
             "SCHOOL",
             "EXERCISE",
             "SLEEP",
@@ -128,8 +128,7 @@ fun HomeScreen(
                 elapsedTime = uiState.elapsedTime,
                 statusMessage = uiState.statusMessage,
                 onStop = {
-                    viewModel.stopActivity()
-                    showSaveDialog = true
+                    viewModel.stopActivityAndSave()
                 }
             )
         }
@@ -143,12 +142,26 @@ fun HomeScreen(
         }
 
         item {
-            Text(
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, top = 20.dp, end = 16.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
                 text = "활동 시작",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 12.dp)
+                modifier = Modifier.weight(1f)
             )
+                Button(
+                    onClick = { viewModel.undoLastAddedActivity() },
+                    enabled = uiState.lastAddedActivity != null,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text("되돌리기", fontSize = 12.sp)
+                }
+            }
         }
 
         item {
@@ -157,7 +170,7 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 8.dp)
-                    .height(376.dp),
+                    .height(416.dp),
                 contentPadding = PaddingValues(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(0.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp),
@@ -182,6 +195,10 @@ fun HomeScreen(
                     )
                 }
             }
+        }
+
+        item {
+            TimetableCard(activities = uiState.todayActivities)
         }
 
         item {
@@ -255,10 +272,6 @@ fun HomeScreen(
         }
 
         item {
-            TimetableCard(activities = uiState.todayActivities)
-        }
-
-        item {
             AnalyticsCard(analytics = uiState.analytics)
         }
     }
@@ -277,18 +290,18 @@ fun HomeScreen(
         )
     }
 
+    val pendingSavedActivity = uiState.pendingSavedActivity
     ActivityTitleDialog(
-        isVisible = showSaveDialog,
-        category = uiState.currentCategory,
+        isVisible = pendingSavedActivity != null,
+        category = pendingSavedActivity?.category.orEmpty(),
         categories = activityCategories,
         onSave = { category, title, note ->
-            viewModel.saveActivity(category, title, note)
-            showSaveDialog = false
+            viewModel.updatePendingSavedActivity(category, title, note)
         },
-        initialTitle = uiState.pendingTitle,
+        initialTitle = pendingSavedActivity?.title,
+        initialNote = pendingSavedActivity?.note,
         onDismiss = {
-            viewModel.cancelPendingActivity()
-            showSaveDialog = false
+            viewModel.dismissPendingSavedActivity()
         }
     )
 }
@@ -425,14 +438,10 @@ private fun AnalyticsCard(analytics: AnalyticsState) {
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("통계 리포트", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            SectionLabel("주간 카테고리별 시간")
-            CategoryBars(analytics.weeklyCategoryStats)
-            SectionLabel("활동별 평균 소요 시간")
-            AverageRows(analytics.monthlyCategoryStats)
+            SectionLabel("최근 7일 활동별 하루 평균")
+            AverageRows(analytics.weeklyDailyAverageStats)
             SectionLabel("주간 추세")
             TrendBars(analytics.weeklyTrend)
-            SectionLabel("월간 추세")
-            TrendBars(analytics.monthlyTrend)
         }
     }
 }
@@ -448,61 +457,62 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
-private fun CategoryBars(stats: List<CategoryStat>) {
-    val maxMillis = remember(stats) {
-        stats.maxOfOrNull { it.totalMillis }?.coerceAtLeast(1L) ?: 1L
-    }
+private fun AverageRows(stats: List<CategoryStat>) {
     if (stats.isEmpty()) {
-        Text("아직 통계 데이터가 없습니다.", fontSize = 12.sp, color = Color.Gray)
+        Text("최근 7일 평균을 계산할 데이터가 없습니다.", fontSize = 12.sp, color = Color.Gray)
         return
     }
 
+    val maxAverageMillis = remember(stats) {
+        stats.maxOfOrNull { it.averageMillis }?.coerceAtLeast(1L) ?: 1L
+    }
+
     stats.take(6).forEach { stat ->
-        val fraction = stat.totalMillis.toFloat() / maxMillis.toFloat()
-        Column(modifier = Modifier.padding(bottom = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(displayCategory(stat.category), fontSize = 12.sp, modifier = Modifier.width(72.dp))
+        val fraction = (stat.averageMillis.toFloat() / maxAverageMillis.toFloat())
+            .coerceIn(0f, 1f)
+        val visibleFraction = if (stat.averageMillis > 0L) fraction.coerceAtLeast(0.04f) else 0f
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(displayCategory(stat.category), fontSize = 12.sp, modifier = Modifier.width(72.dp))
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(10.dp)
+                    .background(Color(0xFFE0E0E0), shape = MaterialTheme.shapes.small)
+            ) {
                 Box(
                     modifier = Modifier
-                        .weight(1f)
+                        .fillMaxWidth(visibleFraction)
                         .height(10.dp)
-                        .background(Color(0xFFE0E0E0), shape = MaterialTheme.shapes.small)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(fraction)
-                            .height(10.dp)
-                            .background(categoryColor(stat.category), shape = MaterialTheme.shapes.small)
-                    )
-                }
-                Text(
-                    formatDuration(stat.totalMillis),
-                    fontSize = 12.sp,
-                    color = Color.Gray,
-                    modifier = Modifier.padding(start = 8.dp)
+                        .background(categoryColor(stat.category), shape = MaterialTheme.shapes.small)
                 )
             }
+            Text(
+                formatDurationWithoutSeconds(stat.averageMillis),
+                fontSize = 12.sp,
+                color = Color.Gray,
+                textAlign = TextAlign.End,
+                modifier = Modifier
+                    .padding(start = 8.dp)
+                    .width(84.dp)
+            )
         }
     }
 }
 
-@Composable
-private fun AverageRows(stats: List<CategoryStat>) {
-    if (stats.isEmpty()) {
-        Text("아직 평균을 계산할 데이터가 없습니다.", fontSize = 12.sp, color = Color.Gray)
-        return
-    }
+private fun formatDurationWithoutSeconds(durationMillis: Long): String {
+    val durationHours = TimeUnit.MILLISECONDS.toHours(durationMillis)
+    val durationMinutes = TimeUnit.MILLISECONDS.toMinutes(durationMillis) % 60
 
-    stats.take(6).forEach { stat ->
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 3.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(displayCategory(stat.category), fontSize = 12.sp, modifier = Modifier.weight(1f))
-            Text("평균 ${formatDuration(stat.averageMillis)}", fontSize = 12.sp, color = Color.Gray)
-        }
+    return when {
+        durationHours > 0 -> "${durationHours}시간 ${durationMinutes}분"
+        durationMinutes > 0 -> "${durationMinutes}분"
+        else -> "1분 미만"
     }
 }
 

@@ -1,6 +1,7 @@
 package com.example.flowlog.ui.viewmodel
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.flowlog.data.model.ActivitySession
@@ -12,13 +13,18 @@ import com.example.flowlog.widget.FlowlogWidgetProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.util.Calendar
+import java.util.TimeZone
 
 data class DailyReport(
     val sessionCount: Int = 0,
@@ -45,10 +51,8 @@ data class TrendPoint(
 }
 
 data class AnalyticsState(
-    val weeklyCategoryStats: List<CategoryStat> = emptyList(),
-    val monthlyCategoryStats: List<CategoryStat> = emptyList(),
-    val weeklyTrend: List<TrendPoint> = emptyList(),
-    val monthlyTrend: List<TrendPoint> = emptyList()
+    val weeklyDailyAverageStats: List<CategoryStat> = emptyList(),
+    val weeklyTrend: List<TrendPoint> = emptyList()
 )
 
 data class ActivityUiState(
@@ -64,6 +68,8 @@ data class ActivityUiState(
     val startTime: Long = 0L,
     val linkedTodoId: Long? = null,
     val pendingTitle: String? = null,
+    val pendingSavedActivity: ActivitySession? = null,
+    val lastAddedActivity: ActivitySession? = null,
     val editingActivity: ActivitySession? = null,
     val selectedCategory: String? = null,
     val statusMessage: String? = null
@@ -80,9 +86,28 @@ class ActivityViewModel(
 
     private var timerJob: Job? = null
     private val activityTimerNotifier = ActivityTimerNotifier(appContext)
+    private val undoPreferences = appContext.getSharedPreferences(
+        PREFS_ACTIVITY_UNDO,
+        Context.MODE_PRIVATE
+    )
+    private val widgetPreferences = appContext.getSharedPreferences(
+        FlowlogWidgetProvider.PREFS_WIDGET,
+        Context.MODE_PRIVATE
+    )
+    private var isWritingWidgetState = false
+    private val widgetPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key in WIDGET_SESSION_KEYS && !isWritingWidgetState) {
+            viewModelScope.launch {
+                syncActiveSessionFromWidget()
+            }
+        }
+    }
 
     init {
+        widgetPreferences.registerOnSharedPreferenceChangeListener(widgetPreferenceListener)
+        _uiState.update { it.copy(lastAddedActivity = loadLastAddedActivity()) }
         restoreActiveSession()
+        seedMissingSleepRecord()
         observeAllActivities()
         observeTodayActivities()
     }
@@ -112,7 +137,9 @@ class ActivityViewModel(
                 statusMessage = null
             )
         }
-        FlowlogWidgetProvider.setActiveSession(appContext, category, startTime)
+        writeWidgetState {
+            FlowlogWidgetProvider.setActiveSession(appContext, category, startTime)
+        }
         updateWidgetSafely()
         activityTimerNotifier.showRunningTimer(category, startTime)
         startTimer()
@@ -137,13 +164,15 @@ class ActivityViewModel(
                 statusMessage = null
             )
         }
-        FlowlogWidgetProvider.setActiveSession(
-            context = appContext,
-            category = "TODO",
-            startTime = startTime,
-            linkedTodoId = todoId,
-            linkedTodoTitle = title
-        )
+        writeWidgetState {
+            FlowlogWidgetProvider.setActiveSession(
+                context = appContext,
+                category = "TODO",
+                startTime = startTime,
+                linkedTodoId = todoId,
+                linkedTodoTitle = title
+            )
+        }
         updateWidgetSafely()
         activityTimerNotifier.showRunningTimer("TODO", startTime)
         startTimer()
@@ -215,10 +244,61 @@ class ActivityViewModel(
         timerJob?.cancel()
         val elapsedTime = _uiState.value.elapsedTime
         _uiState.update { it.copy(isRunning = false) }
-        FlowlogWidgetProvider.clearActiveSession(appContext)
+        writeWidgetState {
+            FlowlogWidgetProvider.clearActiveSession(appContext)
+        }
         activityTimerNotifier.clearRunningTimer()
         updateWidgetSafely()
         return elapsedTime
+    }
+
+    fun stopActivityAndSave() {
+        val state = _uiState.value
+        if (!state.isRunning || state.currentCategory.isEmpty() || state.startTime == 0L) return
+
+        timerJob?.cancel()
+        val endTime = System.currentTimeMillis()
+        val durationMillis = if (state.elapsedTime > 0L) state.elapsedTime else endTime - state.startTime
+        val cleanCategory = state.currentCategory
+        val activity = ActivitySession(
+            category = cleanCategory,
+            title = state.pendingTitle ?: defaultTitle(cleanCategory),
+            startTime = state.startTime,
+            endTime = endTime,
+            durationMillis = durationMillis,
+            tags = emptyList(),
+            linkedTodoId = state.linkedTodoId
+        )
+
+        writeWidgetState {
+            FlowlogWidgetProvider.clearActiveSession(appContext)
+        }
+        activityTimerNotifier.clearRunningTimer()
+
+        viewModelScope.launch {
+            val newId = repository.insertActivity(activity)
+            val savedActivity = activity.copy(id = newId)
+            state.linkedTodoId?.let { todoId ->
+                todoRepository.addAccumulatedMillis(todoId, durationMillis)
+            }
+            runCatching {
+                reminderScheduler.scheduleToothbrushReminder(savedActivity)
+            }
+            rememberLastAddedActivity(savedActivity)
+            _uiState.update {
+                it.copy(
+                    isRunning = false,
+                    currentCategory = "",
+                    elapsedTime = 0L,
+                    startTime = 0L,
+                    linkedTodoId = null,
+                    pendingTitle = null,
+                    pendingSavedActivity = savedActivity,
+                    statusMessage = "활동이 저장되었습니다."
+                )
+            }
+            updateWidgetSafely()
+        }
     }
 
     fun saveActivity(category: String, title: String, note: String? = null) {
@@ -242,12 +322,14 @@ class ActivityViewModel(
 
         viewModelScope.launch {
             val newId = repository.insertActivity(activity)
+            val savedActivity = activity.copy(id = newId)
             state.linkedTodoId?.let { todoId ->
                 todoRepository.addAccumulatedMillis(todoId, durationMillis)
             }
             runCatching {
-                reminderScheduler.scheduleToothbrushReminder(activity.copy(id = newId))
+                reminderScheduler.scheduleToothbrushReminder(savedActivity)
             }
+            rememberLastAddedActivity(savedActivity)
             updateWidgetSafely()
             clearPendingActivity()
         }
@@ -257,9 +339,71 @@ class ActivityViewModel(
         clearPendingActivity()
     }
 
+    fun dismissPendingSavedActivity() {
+        _uiState.update { it.copy(pendingSavedActivity = null) }
+    }
+
+    fun updatePendingSavedActivity(category: String, title: String, note: String?) {
+        viewModelScope.launch {
+            val savedActivity = _uiState.value.pendingSavedActivity ?: return@launch
+            val cleanCategory = category.ifBlank { savedActivity.category }
+            val updatedActivity = savedActivity.copy(
+                category = cleanCategory,
+                title = title.trim().ifBlank { defaultTitle(cleanCategory) },
+                note = note?.takeIf { it.isNotBlank() },
+                tags = emptyList(),
+                modifiedTime = System.currentTimeMillis()
+            )
+            repository.updateActivity(updatedActivity)
+            rememberLastAddedActivity(updatedActivity)
+            updateWidgetSafely()
+            _uiState.update {
+                it.copy(
+                    pendingSavedActivity = null,
+                    statusMessage = "활동 내용이 업데이트되었습니다."
+                )
+            }
+        }
+    }
+
     fun deleteActivity(activity: ActivitySession) {
         viewModelScope.launch {
             repository.deleteActivity(activity)
+            updateWidgetSafely()
+        }
+    }
+
+    fun undoLastAddedActivity() {
+        val lastAddedActivity = _uiState.value.lastAddedActivity ?: return
+
+        viewModelScope.launch {
+            val existingActivity = repository.getActivityById(lastAddedActivity.id)
+            if (existingActivity != null) {
+                repository.deleteActivity(existingActivity)
+                existingActivity.linkedTodoId?.let { todoId ->
+                    todoRepository.addAccumulatedMillis(todoId, -existingActivity.durationMillis)
+                }
+                _uiState.update {
+                    it.copy(
+                        pendingSavedActivity = null,
+                        statusMessage = "최근 추가한 활동을 삭제했습니다."
+                    )
+                }
+            } else {
+                val restoreDraft = lastAddedActivity.copy(
+                    id = 0L,
+                    modifiedTime = System.currentTimeMillis()
+                )
+                val restoredId = repository.insertActivity(restoreDraft)
+                val restoredActivity = restoreDraft.copy(id = restoredId)
+                restoredActivity.linkedTodoId?.let { todoId ->
+                    todoRepository.addAccumulatedMillis(todoId, restoredActivity.durationMillis)
+                }
+                rememberLastAddedActivity(restoredActivity)
+                _uiState.update {
+                    it.copy(statusMessage = "삭제된 최근 활동을 다시 불러왔습니다.")
+                }
+            }
             updateWidgetSafely()
         }
     }
@@ -347,6 +491,41 @@ class ActivityViewModel(
         startTimer()
     }
 
+    private fun syncActiveSessionFromWidget() {
+        val activeSession = FlowlogWidgetProvider.getActiveSessionDetails(appContext)
+        if (activeSession == null) {
+            timerJob?.cancel()
+            activityTimerNotifier.clearRunningTimer()
+            _uiState.update {
+                it.copy(
+                    isRunning = false,
+                    currentCategory = "",
+                    elapsedTime = 0L,
+                    startTime = 0L,
+                    linkedTodoId = null,
+                    pendingTitle = null,
+                    statusMessage = null
+                )
+            }
+            return
+        }
+
+        val elapsedTime = (System.currentTimeMillis() - activeSession.startTime).coerceAtLeast(0L)
+        _uiState.update {
+            it.copy(
+                isRunning = true,
+                currentCategory = activeSession.category,
+                elapsedTime = elapsedTime,
+                startTime = activeSession.startTime,
+                linkedTodoId = activeSession.linkedTodoId,
+                pendingTitle = activeSession.linkedTodoTitle,
+                statusMessage = null
+            )
+        }
+        activityTimerNotifier.showRunningTimer(activeSession.category, activeSession.startTime)
+        startTimer()
+    }
+
     private fun observeAllActivities() {
         viewModelScope.launch {
             repository.getAllActivities().collect { activities ->
@@ -363,6 +542,42 @@ class ActivityViewModel(
                     )
                 }
             }
+        }
+    }
+
+    private fun seedMissingSleepRecord() {
+        val migrationPreferences = appContext.getSharedPreferences(
+            PREFS_MIGRATIONS,
+            Context.MODE_PRIVATE
+        )
+        if (migrationPreferences.getBoolean(KEY_SLEEP_RECORD_2026_05_19, false)) return
+
+        viewModelScope.launch {
+            val startTime = koreaTimeMillis(2026, Calendar.MAY, 19, 21, 29, 57)
+            val endTime = koreaTimeMillis(2026, Calendar.MAY, 20, 1, 18, 10)
+            val alreadyExists = repository.getAllActivities().first().any { activity ->
+                activity.category == "SLEEP" &&
+                    activity.startTime == startTime &&
+                    activity.endTime == endTime
+            }
+
+            if (!alreadyExists) {
+                repository.insertActivity(
+                    ActivitySession(
+                        category = "SLEEP",
+                        title = "수면",
+                        startTime = startTime,
+                        endTime = endTime,
+                        durationMillis = endTime - startTime,
+                        modifiedTime = endTime
+                    )
+                )
+                updateWidgetSafely()
+            }
+
+            migrationPreferences.edit()
+                .putBoolean(KEY_SLEEP_RECORD_2026_05_19, true)
+                .apply()
         }
     }
 
@@ -404,22 +619,18 @@ class ActivityViewModel(
             timeInMillis = now
             add(Calendar.DAY_OF_YEAR, -6)
         }).timeInMillis
-        val monthStart = startOfDay(Calendar.getInstance().apply {
-            timeInMillis = now
-            add(Calendar.DAY_OF_YEAR, -29)
-        }).timeInMillis
         val weekActivities = activities.filter { it.startTime >= weekStart }
-        val monthActivities = activities.filter { it.startTime >= monthStart }
 
         return AnalyticsState(
-            weeklyCategoryStats = buildCategoryStats(weekActivities),
-            monthlyCategoryStats = buildCategoryStats(monthActivities),
-            weeklyTrend = buildTrend(weekActivities, weekStart, 7),
-            monthlyTrend = buildTrend(monthActivities, monthStart, 30)
+            weeklyDailyAverageStats = buildDailyAverageCategoryStats(weekActivities, days = 7),
+            weeklyTrend = buildTrend(weekActivities, weekStart, 7)
         )
     }
 
-    private fun buildCategoryStats(activities: List<ActivitySession>): List<CategoryStat> {
+    private fun buildDailyAverageCategoryStats(
+        activities: List<ActivitySession>,
+        days: Int
+    ): List<CategoryStat> {
         return activities.groupBy { it.category }
             .map { (category, sessions) ->
                 val total = sessions.sumOf { it.durationMillis }
@@ -427,10 +638,10 @@ class ActivityViewModel(
                     category = category,
                     totalMillis = total,
                     count = sessions.size,
-                    averageMillis = total / sessions.size.coerceAtLeast(1)
+                    averageMillis = total / days.coerceAtLeast(1)
                 )
             }
-            .sortedByDescending { it.totalMillis }
+            .sortedByDescending { it.averageMillis }
     }
 
     private fun buildTrend(
@@ -461,6 +672,25 @@ class ActivityViewModel(
         }
     }
 
+    private fun koreaTimeMillis(
+        year: Int,
+        month: Int,
+        day: Int,
+        hour: Int,
+        minute: Int,
+        second: Int
+    ): Long {
+        return Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
+            set(Calendar.YEAR, year)
+            set(Calendar.MONTH, month)
+            set(Calendar.DAY_OF_MONTH, day)
+            set(Calendar.HOUR_OF_DAY, hour)
+            set(Calendar.MINUTE, minute)
+            set(Calendar.SECOND, second)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+
     private fun dayLabel(timestamp: Long): String {
         val calendar = Calendar.getInstance().apply { timeInMillis = timestamp }
         return "${calendar.get(Calendar.MONTH) + 1}/${calendar.get(Calendar.DAY_OF_MONTH)}"
@@ -468,7 +698,9 @@ class ActivityViewModel(
 
     private fun clearPendingActivity() {
         activityTimerNotifier.clearRunningTimer()
-        FlowlogWidgetProvider.clearActiveSession(appContext)
+        writeWidgetState {
+            FlowlogWidgetProvider.clearActiveSession(appContext)
+        }
         _uiState.update {
             it.copy(
                 isRunning = false,
@@ -482,12 +714,35 @@ class ActivityViewModel(
         }
     }
 
+    private inline fun writeWidgetState(action: () -> Unit) {
+        isWritingWidgetState = true
+        try {
+            action()
+        } finally {
+            isWritingWidgetState = false
+        }
+    }
+
     private fun updateWidgetSafely() {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 FlowlogWidgetProvider.updateAll(appContext)
             }
         }
+    }
+
+    private fun rememberLastAddedActivity(activity: ActivitySession) {
+        undoPreferences.edit()
+            .putString(KEY_LAST_ADDED_ACTIVITY, undoJson.encodeToString(activity))
+            .apply()
+        _uiState.update { it.copy(lastAddedActivity = activity) }
+    }
+
+    private fun loadLastAddedActivity(): ActivitySession? {
+        val data = undoPreferences.getString(KEY_LAST_ADDED_ACTIVITY, null) ?: return null
+        return runCatching {
+            undoJson.decodeFromString<ActivitySession>(data)
+        }.getOrNull()
     }
 
     private fun isTimedCategory(category: String): Boolean {
@@ -500,6 +755,8 @@ class ActivityViewModel(
             "EXERCISE" -> "운동"
             "SLEEP" -> "수면"
             "STUDY" -> "공부"
+            "WORK" -> "업무"
+            "DEVELOPMENT" -> "개발"
             "REST" -> "휴식"
             "SCHOOL" -> "학교"
             else -> "활동"
@@ -508,6 +765,21 @@ class ActivityViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        widgetPreferences.unregisterOnSharedPreferenceChangeListener(widgetPreferenceListener)
         timerJob?.cancel()
+    }
+
+    companion object {
+        private const val PREFS_MIGRATIONS = "flowlog_migrations"
+        private const val PREFS_ACTIVITY_UNDO = "activity_undo"
+        private const val KEY_LAST_ADDED_ACTIVITY = "last_added_activity"
+        private val undoJson = Json { ignoreUnknownKeys = true }
+        private const val KEY_SLEEP_RECORD_2026_05_19 = "sleep_record_2026_05_19_212957"
+        private val WIDGET_SESSION_KEYS = setOf(
+            FlowlogWidgetProvider.KEY_ACTIVE_CATEGORY,
+            FlowlogWidgetProvider.KEY_ACTIVE_START_TIME,
+            FlowlogWidgetProvider.KEY_ACTIVE_TODO_ID,
+            FlowlogWidgetProvider.KEY_ACTIVE_TODO_TITLE
+        )
     }
 }

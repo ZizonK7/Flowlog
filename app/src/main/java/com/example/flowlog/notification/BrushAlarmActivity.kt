@@ -1,12 +1,11 @@
 package com.example.flowlog.notification
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
-import android.media.AudioAttributes
-import android.media.Ringtone
-import android.media.RingtoneManager
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
@@ -17,11 +16,12 @@ import android.widget.TextView
 import com.example.flowlog.MainActivity
 
 class BrushAlarmActivity : Activity() {
-    private var ringtone: Ringtone? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         showOverLockScreen()
+        wakeScreenForAlarm()
         ActivityTimerNotifier(this).clearBrushDoneTimer()
         setContentView(buildContentView())
         startAlarmSound()
@@ -44,6 +44,18 @@ class BrushAlarmActivity : Activity() {
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun wakeScreenForAlarm() {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+            "Flowlog:BrushAlarmWakeLock"
+        ).apply {
+            setReferenceCounted(false)
+            acquire(ALARM_WAKE_LOCK_TIMEOUT_MILLIS)
+        }
     }
 
     private fun buildContentView(): LinearLayout {
@@ -160,27 +172,22 @@ class BrushAlarmActivity : Activity() {
     }
 
     private fun startAlarmSound() {
-        if (ringtone?.isPlaying == true) return
-
-        val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        ringtone = RingtoneManager.getRingtone(applicationContext, alarmUri)?.apply {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                audioAttributes = AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                isLooping = true
-            }
-            play()
-        }
+        KakaoStyleAlertPlayer.play(this)
     }
 
     private fun stopAlarm() {
-        ringtone?.stop()
-        ringtone = null
-        stopService(Intent(this, BrushAlarmService::class.java))
+        if (wakeLock?.isHeld == true) {
+            wakeLock?.release()
+        }
+        wakeLock = null
+        startService(
+            Intent(this, BrushAlarmService::class.java).apply {
+                action = BrushAlarmService.ACTION_STOP
+            }
+        )
+    }
+
+    companion object {
+        private const val ALARM_WAKE_LOCK_TIMEOUT_MILLIS = 10L * 60L * 1000L
     }
 }

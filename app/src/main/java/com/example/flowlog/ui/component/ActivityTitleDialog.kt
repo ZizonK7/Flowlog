@@ -11,7 +11,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,17 +27,18 @@ fun ActivityTitleDialog(
     categories: List<String>,
     onSave: (String, String, String?) -> Unit,
     initialTitle: String? = null,
+    initialNote: String? = null,
     onDismiss: () -> Unit
 ) {
     var selectedCategory by remember { mutableStateOf(category) }
     var title by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
 
-    LaunchedEffect(isVisible, category, initialTitle) {
+    LaunchedEffect(isVisible, category, initialTitle, initialNote) {
         if (isVisible) {
             selectedCategory = category
             title = initialTitle.orEmpty()
-            note = ""
+            note = initialNote.orEmpty()
         }
     }
 
@@ -85,12 +85,7 @@ fun ActivityTitleDialog(
                         onSave(selectedCategory, title.trim(), note.trim().ifBlank { null })
                     }
                 ) {
-                    Text("저장")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = onDismiss) {
-                    Text("취소")
+                    Text("확인")
                 }
             }
         )

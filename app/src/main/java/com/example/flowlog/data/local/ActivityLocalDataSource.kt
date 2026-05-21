@@ -19,13 +19,13 @@ import kotlinx.serialization.decodeFromString
 
 class ActivityLocalDataSource(private val context: Context) {
     private val sharedPreferences: SharedPreferences = context.getSharedPreferences(
-        "activity_data",
+        PREFS_ACTIVITY,
         Context.MODE_PRIVATE
     )
-    private val json = Json {
-        ignoreUnknownKeys = true
+
+    init {
+        ensureLoaded(sharedPreferences)
     }
-    private val activities = MutableStateFlow(loadActivities())
 
     fun getAllActivities(): Flow<List<ActivitySession>> {
         return activities
@@ -108,9 +108,9 @@ class ActivityLocalDataSource(private val context: Context) {
     }
 
     private fun loadActivities(): List<ActivitySession> {
-        val data = sharedPreferences.getString("all_activities", "[]") ?: "[]"
+        val data = sharedPreferences.getString(KEY_ALL_ACTIVITIES, "[]") ?: "[]"
         return try {
-            json.decodeFromString<List<ActivitySession>>(data)
+            snapshotJson.decodeFromString<List<ActivitySession>>(data)
         } catch (e: Exception) {
             emptyList()
         }
@@ -123,7 +123,7 @@ class ActivityLocalDataSource(private val context: Context) {
         activities.value = sortedActivities
         withContext(Dispatchers.IO) {
             sharedPreferences.edit()
-                .putString("all_activities", json.encodeToString(sortedActivities))
+                .putString(KEY_ALL_ACTIVITIES, snapshotJson.encodeToString(sortedActivities))
                 .apply()
             writeCsvSnapshot(sortedActivities)
         }
@@ -175,5 +175,32 @@ class ActivityLocalDataSource(private val context: Context) {
     private fun csvEscape(value: String): String {
         val escaped = value.replace("\"", "\"\"")
         return "\"$escaped\""
+    }
+
+    companion object {
+        private const val PREFS_ACTIVITY = "activity_data"
+        private const val KEY_ALL_ACTIVITIES = "all_activities"
+        private val snapshotJson = Json { ignoreUnknownKeys = true }
+        private val activities = MutableStateFlow<List<ActivitySession>>(emptyList())
+        @Volatile
+        private var isLoaded = false
+
+        private fun ensureLoaded(sharedPreferences: SharedPreferences) {
+            if (isLoaded) return
+            synchronized(this) {
+                if (isLoaded) return
+                activities.value = loadSnapshot(sharedPreferences)
+                isLoaded = true
+            }
+        }
+
+        private fun loadSnapshot(sharedPreferences: SharedPreferences): List<ActivitySession> {
+            val data = sharedPreferences.getString(KEY_ALL_ACTIVITIES, "[]") ?: "[]"
+            return try {
+                snapshotJson.decodeFromString<List<ActivitySession>>(data)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
     }
 }

@@ -82,6 +82,15 @@
                 android:layout_weight="1"
                 android:text="&#xC2DD;&#xC0AC;"
                 android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/widget_study"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_marginStart="5dp"
+                android:layout_weight="1"
+                android:text="&#xACF5;&#xBD80;"
+                android:textSize="12sp" />
         </LinearLayout>
 
         <LinearLayout
@@ -92,11 +101,20 @@
             android:orientation="horizontal">
 
             <Button
-                android:id="@+id/widget_study"
+                android:id="@+id/widget_work"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:text="&#xACF5;&#xBD80;"
+                android:text="&#xC5C5;&#xBB34;"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/widget_development"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_marginStart="5dp"
+                android:layout_weight="1"
+                android:text="&#xAC1C;&#xBC1C;"
                 android:textSize="12sp" />
 
             <Button
@@ -150,6 +168,12 @@
                 android:layout_weight="1"
                 android:text="&#xAE30;&#xD0C0;"
                 android:textSize="12sp" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_marginStart="5dp"
+                android:layout_weight="1" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

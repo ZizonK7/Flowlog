@@ -82,6 +82,42 @@ class ActivityTimerNotifier(private val context: Context) {
         )
     }
 
+    fun showBrushStartNotification(
+        isExperiment: Boolean = false,
+        experimentText: String? = null
+    ) {
+        if (!canPostNotifications()) return
+
+        ensureNotificationChannel()
+
+        val openPendingIntent = PendingIntent.getActivity(
+            context,
+            BRUSH_START_NOTIFICATION_ID,
+            Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_timer_notification)
+            .setContentTitle("\uC591\uCE58 \uD0C0\uC774\uBA38\uB97C \uC2DC\uC791\uD560\uAC8C\uC694")
+            .setContentText(
+                experimentText ?: if (isExperiment) {
+                    "1\uBC88 \uC2E4\uD5D8\uC6A9 5\uCD08 \uD0C774\uBA38\uB97C \uC124\uC815\uD588\uC5B4\uC694."
+                } else {
+                    "3\uBD84 \uD0C774\uBA38\uC640 30\uBD84 \uD0C774\uBA38\uB97C \uD568\uAED8 \uC124\uC815\uD588\uC5B4\uC694."
+                }
+            )
+            .setContentIntent(openPendingIntent)
+            .setAutoCancel(true)
+            .setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build()
+
+        NotificationManagerCompat.from(context).notify(BRUSH_START_NOTIFICATION_ID, notification)
+    }
+
     fun clearSnackTimer() {
         NotificationManagerCompat.from(context).cancel(SNACK_NOTIFICATION_ID)
     }
@@ -152,6 +188,27 @@ class ActivityTimerNotifier(private val context: Context) {
         notificationManager.createNotificationChannel(channel)
     }
 
+    private fun ensureDingNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+
+        val channel = NotificationChannel(
+            ToothbrushReminderReceiver.DING_CHANNEL_ID,
+            "Flowlog ding alerts",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Snack, meal, toothbrush, and experiment ding alerts"
+            setSound(
+                KakaoStyleAlertPlayer.soundUri(context),
+                KakaoStyleAlertPlayer.audioAttributes()
+            )
+            enableVibration(true)
+        }
+
+        val notificationManager =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.createNotificationChannel(channel)
+    }
+
     private fun canPostNotifications(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
 
@@ -181,5 +238,6 @@ class ActivityTimerNotifier(private val context: Context) {
         private const val BRUSH_DONE_NOTIFICATION_ID = 2003
         private const val BRUSH_EAT_NOTIFICATION_ID = 2004
         private const val MEAL_NOTIFICATION_ID = 2005
+        private const val BRUSH_START_NOTIFICATION_ID = 2006
     }
 }
