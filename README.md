@@ -14,13 +14,13 @@ todo-based work time, and use home-screen widgets for fast logging.
 - Schedule snack and toothbrush reminders.
 - Export activity snapshots to a CSV file in the app's documents directory.
 
-## Planned Improvements
+## Recent Updates
 
-- Add a small chime-style notification so reminders feel noticeable without being disruptive.
-- Add a dedicated work button for faster work-session logging.
-- Send todo reminders that gently nudge the user to return to pending tasks.
-- Revisit the monthly trend view and decide whether it adds enough value for long-term reflection.
-- Add a one-step undo button for reverting the most recent log entry.
+- Added a small chime-style notification so reminders feel noticeable without being disruptive.
+- Added a dedicated work button for faster work-session logging.
+- Added todo reminders that gently nudge the user to return to pending tasks.
+- Added monthly trend tracking for reviewing longer-term activity patterns.
+- Added a one-step undo button for reverting the most recent log entry.
 
 ## Tech Stack
 
