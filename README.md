@@ -11,7 +11,7 @@ todo-based work time, and use home-screen widgets for fast logging.
 - View today's activity list, timetable, weekly stats, and monthly trends.
 - Manage todos and track accumulated work time per todo.
 - Use a dedicated Work button for quick work logging.
-- Get "띠링" level reminder notifications and todo nudges to keep working.
+- Get gentle reminder notifications and todo nudges to keep working.
 - Undo the most recent log entry with a one-step rollback button.
 - Start Flowlog or Todo actions from Android widgets.
 - Schedule snack and toothbrush reminders.
