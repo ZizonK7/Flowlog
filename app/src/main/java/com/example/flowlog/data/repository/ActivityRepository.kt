@@ -3,10 +3,12 @@ package com.example.flowlog.data.repository
 import android.content.Context
 import com.example.flowlog.data.local.ActivityLocalDataSource
 import com.example.flowlog.data.model.ActivitySession
+import com.example.flowlog.data.remote.FirestoreSyncRepository
 import kotlinx.coroutines.flow.Flow
 
 class ActivityRepository(context: Context) {
     private val localDataSource = ActivityLocalDataSource(context)
+    private val syncRepository = FirestoreSyncRepository()
 
     fun getAllActivities(): Flow<List<ActivitySession>> {
         return localDataSource.getAllActivities()
@@ -17,19 +19,32 @@ class ActivityRepository(context: Context) {
     }
 
     suspend fun insertActivity(activity: ActivitySession): Long {
-        return localDataSource.insert(activity)
+        val id = localDataSource.insert(activity)
+        runCatching {
+            syncRepository.syncActivity(activity.copy(id = id))
+        }
+        return id
     }
 
     suspend fun updateActivity(activity: ActivitySession) {
         localDataSource.update(activity)
+        runCatching {
+            syncRepository.syncActivity(activity)
+        }
     }
 
     suspend fun deleteActivity(activity: ActivitySession) {
         localDataSource.delete(activity)
+        runCatching {
+            syncRepository.deleteActivity(activity.id)
+        }
     }
 
     suspend fun deleteActivityById(id: Long) {
         localDataSource.deleteById(id)
+        runCatching {
+            syncRepository.deleteActivity(id)
+        }
     }
 
     suspend fun getActivityById(id: Long): ActivitySession? {

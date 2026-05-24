@@ -99,12 +99,12 @@ class ActivityTimerNotifier(private val context: Context) {
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_timer_notification)
-            .setContentTitle("\uC591\uCE58 \uD0C0\uC774\uBA38\uB97C \uC2DC\uC791\uD560\uAC8C\uC694")
+            .setContentTitle("\uC591\uCE58 \uD0C0\uC774\uBA38\uB97C \uC2DC\uC791\uD588\uC5B4\uC694")
             .setContentText(
                 experimentText ?: if (isExperiment) {
-                    "1\uBC88 \uC2E4\uD5D8\uC6A9 5\uCD08 \uD0C774\uBA38\uB97C \uC124\uC815\uD588\uC5B4\uC694."
+                    "1\uBC88 \uC2E4\uD5D8\uC6A9 5\uCD08 \uD0C0\uC774\uBA38\uB97C \uC124\uC815\uD588\uC5B4\uC694."
                 } else {
-                    "3\uBD84 \uD0C774\uBA38\uC640 30\uBD84 \uD0C774\uBA38\uB97C \uD568\uAED8 \uC124\uC815\uD588\uC5B4\uC694."
+                    "3\uBD84 \uD0C0\uC774\uBA38\uC640 30\uBD84 \uD0C0\uC774\uBA38\uB97C \uD568\uAED8 \uC124\uC815\uD588\uC5B4\uC694."
                 }
             )
             .setContentIntent(openPendingIntent)

@@ -4,6 +4,7 @@ import android.content.Context
 import com.example.flowlog.data.local.TodoDao
 import com.example.flowlog.data.local.TodoLocalDataSource
 import com.example.flowlog.data.model.TodoItem
+import com.example.flowlog.data.remote.FirestoreSyncRepository
 import com.example.flowlog.notification.TodoReminderScheduler
 import com.example.flowlog.widget.TodoWidgetProvider
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +15,7 @@ class TodoRepository(context: Context) {
     private val appContext = context.applicationContext
     private val todoDao: TodoDao = TodoLocalDataSource(context)
     private val todoReminderScheduler = TodoReminderScheduler(appContext)
+    private val syncRepository = FirestoreSyncRepository()
 
     fun getAllTodos(): Flow<List<TodoItem>> {
         return todoDao.getAllTodos()
@@ -25,6 +27,9 @@ class TodoRepository(context: Context) {
 
     suspend fun insertTodo(todo: TodoItem): Long {
         val id = todoDao.insertTodo(todo)
+        runCatching {
+            syncRepository.syncTodo(todo.copy(id = id))
+        }
         todoReminderScheduler.scheduleInitialReminder(id, todo.createdAt)
         updateWidget()
         return id
@@ -32,6 +37,9 @@ class TodoRepository(context: Context) {
 
     suspend fun updateDone(id: Long, isDone: Boolean, completedAt: Long?) {
         todoDao.updateDone(id, isDone, completedAt)
+        runCatching {
+            syncAllTodos()
+        }
         if (isDone) {
             todoReminderScheduler.cancelReminder(id)
         } else {
@@ -42,13 +50,23 @@ class TodoRepository(context: Context) {
 
     suspend fun deleteTodo(todo: TodoItem) {
         todoDao.deleteTodo(todo)
+        runCatching {
+            syncRepository.deleteTodo(todo.id)
+        }
         todoReminderScheduler.cancelReminder(todo.id)
         updateWidget()
     }
 
     suspend fun addAccumulatedMillis(id: Long, durationMillis: Long) {
         todoDao.addAccumulatedMillis(id, durationMillis)
+        runCatching {
+            syncAllTodos()
+        }
         updateWidget()
+    }
+
+    private suspend fun syncAllTodos() {
+        syncRepository.syncTodos(TodoLocalDataSource.loadSnapshot(appContext))
     }
 
     private suspend fun updateWidget() {

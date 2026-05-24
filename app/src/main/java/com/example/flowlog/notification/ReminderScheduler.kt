@@ -92,11 +92,9 @@ class ReminderScheduler(private val context: Context) {
         cancelSnackReminder()
         cancelBrushTimers()
 
-        val brushDoneAtMillis = scheduleReminder(
-            category = "TOOTHBRUSH",
-            reminderType = ToothbrushReminderReceiver.TYPE_BRUSH_DONE,
-            reminderDelayMillis = BRUSH_DONE_DELAY_MILLIS,
-            requestCode = REQUEST_BRUSH_DONE_TIMER
+        val brushDoneAtMillis = scheduleBrushDoneTimer(
+            requestCode = REQUEST_BRUSH_DONE_TIMER,
+            delayMillis = BRUSH_DONE_DELAY_MILLIS
         )
         val eatAllowedAtMillis = scheduleReminder(
             category = "TOOTHBRUSH",
@@ -112,11 +110,9 @@ class ReminderScheduler(private val context: Context) {
     fun scheduleBrushDoneExperiment() {
         cancelReminder(REQUEST_BRUSH_DONE_EXPERIMENT)
 
-        val brushDoneAtMillis = scheduleReminder(
-            category = "TOOTHBRUSH",
-            reminderType = ToothbrushReminderReceiver.TYPE_BRUSH_DONE,
-            reminderDelayMillis = EXPERIMENT_DELAY_MILLIS,
-            requestCode = REQUEST_BRUSH_DONE_EXPERIMENT
+        val brushDoneAtMillis = scheduleBrushDoneTimer(
+            requestCode = REQUEST_BRUSH_DONE_EXPERIMENT,
+            delayMillis = EXPERIMENT_DELAY_MILLIS
         )
         activityTimerNotifier.showBrushDoneTimer(brushDoneAtMillis)
         activityTimerNotifier.showBrushStartNotification(isExperiment = true)

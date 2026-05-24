@@ -202,5 +202,10 @@ class ActivityLocalDataSource(private val context: Context) {
                 emptyList()
             }
         }
+
+        fun loadSnapshot(context: Context): List<ActivitySession> {
+            val sharedPreferences = context.getSharedPreferences(PREFS_ACTIVITY, Context.MODE_PRIVATE)
+            return loadSnapshot(sharedPreferences)
+        }
     }
 }
