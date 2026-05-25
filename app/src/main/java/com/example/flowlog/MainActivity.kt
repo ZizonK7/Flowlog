@@ -128,6 +128,14 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                val openStatsSite: () -> Unit = {
+                    startActivity(
+                        Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://flowlog.pfkfks.org/")
+                        )
+                    )
+                }
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Column(
@@ -148,6 +156,31 @@ class MainActivity : ComponentActivity() {
                                 viewModel = activityViewModel,
                                 startCategoryRequest = widgetStartCategory,
                                 onStartCategoryConsumed = { widgetStartCategory = null },
+                                topActions = {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Button(
+                                            onClick = openStatsSite,
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = Color(0xFF1976D2)
+                                            )
+                                        ) {
+                                            Text("통계 사이트")
+                                        }
+                                        Button(
+                                            onClick = runAccountSync,
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (signedInUser == null) Color(0xFF00897B) else Color(0xFF455A64)
+                                            )
+                                        ) {
+                                            Text(accountActionLabel(signedInUser != null, syncStatus))
+                                        }
+                                    }
+                                },
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -175,15 +208,6 @@ class MainActivity : ComponentActivity() {
                                 )
                             ) {
                                 Text("Todo")
-                            }
-                            Button(
-                                onClick = runAccountSync,
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (signedInUser == null) Color(0xFF00897B) else Color(0xFF455A64)
-                                )
-                            ) {
-                                Text(accountActionLabel(signedInUser != null, syncStatus))
                             }
                         }
                     }
@@ -302,8 +326,8 @@ class MainActivity : ComponentActivity() {
 
 private fun accountActionLabel(isSignedIn: Boolean, syncStatus: String?): String {
     return when (syncStatus) {
-        "Signing in..." -> "Login..."
-        null -> if (isSignedIn) "Logout" else "Login"
-        else -> if (isSignedIn) "Logout" else "Login"
+        "Signing in..." -> "로그인 중..."
+        null -> if (isSignedIn) "로그아웃" else "로그인"
+        else -> if (isSignedIn) "로그아웃" else "로그인"
     }
 }

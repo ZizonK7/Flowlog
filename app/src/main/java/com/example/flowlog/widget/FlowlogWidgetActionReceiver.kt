@@ -27,6 +27,10 @@ class FlowlogWidgetActionReceiver : BroadcastReceiver() {
         when (intent.action) {
             FlowlogWidgetProvider.ACTION_START -> {
                 val category = intent.getStringExtra(FlowlogWidgetProvider.EXTRA_CATEGORY) ?: return
+                if (FlowlogWidgetProvider.getActiveSessionDetails(context) != null) {
+                    FlowlogWidgetProvider.updateAll(context)
+                    return
+                }
                 FlowlogWidgetProvider.setActiveSession(context, category, System.currentTimeMillis())
                 FlowlogWidgetProvider.updateAll(context)
             }

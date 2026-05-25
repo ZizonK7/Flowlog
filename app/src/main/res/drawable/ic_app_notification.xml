@@ -1,0 +1,62 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Monochrome notification small icon: transparent background + white silhouette. -->
+
+    <!-- Gauge / time arc -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.9"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M4.6,12.1 C4.6,7.5 8.1,4.1 12.5,4.1 C16.9,4.1 19.9,7.4 19.9,11.5" />
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.9"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M5.4,13.1 C6.1,17.3 9.3,19.7 12.8,19.7 C15.4,19.7 17.6,18.5 19.0,16.6" />
+
+    <!-- Clock hands -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M12,12 L12,7.0" />
+
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M12,12 L15.6,14.6" />
+
+    <!-- Clock center -->
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M12,10.55 A1.45,1.45 0,1 1,12,13.45 A1.45,1.45 0,1 1,12,10.55" />
+
+    <!-- Left leaf -->
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M9.6,16.8 C7.1,16.1 5.4,13.8 5.5,10.7 C8.4,11.1 10.4,13.3 10.1,16.0 C9.8,15.2 9.2,14.2 8.2,13.1 C8.8,14.6 9.2,15.8 9.6,16.8 Z" />
+
+    <!-- Small right leaf -->
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M10.5,17.6 C11.1,15.2 13.1,13.8 15.6,14.0 C15.1,16.3 13.0,17.8 10.5,17.6 Z" />
+
+    <!-- Small dot on the right, simplified from the original red marker -->
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M18.0,13.0 A1.05,1.05 0,1 1,18.0,15.1 A1.05,1.05 0,1 1,18.0,13.0" />
+</vector>

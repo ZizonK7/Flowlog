@@ -13,6 +13,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.flowlog.MainActivity
 import com.example.flowlog.R
+import com.example.flowlog.ui.component.displayCategory
 
 class ActivityTimerNotifier(private val context: Context) {
     fun showRunningTimer(category: String, startedAtMillis: Long) {
@@ -28,7 +29,7 @@ class ActivityTimerNotifier(private val context: Context) {
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_timer_notification)
+            .setSmallIcon(notificationIcon(category))
             .setContentTitle("Flowlog timer")
             .setContentText(runningStatusText(category))
             .setContentIntent(openPendingIntent)
@@ -51,7 +52,8 @@ class ActivityTimerNotifier(private val context: Context) {
             notificationId = SNACK_NOTIFICATION_ID,
             title = "\uAC04\uC2DD \uD0C0\uC774\uBA38",
             text = "\uC591\uCE58 \uC54C\uB9BC\uAE4C\uC9C0 \uB0A8\uC740 \uC2DC\uAC04",
-            endsAtMillis = endsAtMillis
+            endsAtMillis = endsAtMillis,
+            smallIcon = R.drawable.ic_timer_notification
         )
     }
 
@@ -60,7 +62,8 @@ class ActivityTimerNotifier(private val context: Context) {
             notificationId = MEAL_NOTIFICATION_ID,
             title = "\uC2DD\uC0AC \uD0C0\uC774\uBA38",
             text = "\uC591\uCE58 \uC54C\uB9BC\uAE4C\uC9C0 \uB0A8\uC740 \uC2DC\uAC04",
-            endsAtMillis = endsAtMillis
+            endsAtMillis = endsAtMillis,
+            smallIcon = R.drawable.ic_timer_notification
         )
     }
 
@@ -69,7 +72,8 @@ class ActivityTimerNotifier(private val context: Context) {
             notificationId = BRUSH_DONE_NOTIFICATION_ID,
             title = "\uC591\uCE58 3\uBD84 \uD0C0\uC774\uBA38",
             text = "\uC591\uCE58 \uB9C8\uBB34\uB9AC\uAE4C\uC9C0 \uB0A8\uC740 \uC2DC\uAC04",
-            endsAtMillis = endsAtMillis
+            endsAtMillis = endsAtMillis,
+            smallIcon = R.drawable.ic_timer_notification
         )
     }
 
@@ -78,7 +82,8 @@ class ActivityTimerNotifier(private val context: Context) {
             notificationId = BRUSH_EAT_NOTIFICATION_ID,
             title = "\uC591\uCE58 30\uBD84 \uD0C0\uC774\uBA38",
             text = "\uBA39\uC5B4\uB3C4 \uB418\uB294 \uC2DC\uAC04\uAE4C\uC9C0 \uB0A8\uC740 \uC2DC\uAC04",
-            endsAtMillis = endsAtMillis
+            endsAtMillis = endsAtMillis,
+            smallIcon = R.drawable.ic_timer_notification
         )
     }
 
@@ -138,7 +143,8 @@ class ActivityTimerNotifier(private val context: Context) {
         notificationId: Int,
         title: String,
         text: String,
-        endsAtMillis: Long
+        endsAtMillis: Long,
+        smallIcon: Int
     ) {
         if (!canPostNotifications()) return
 
@@ -153,7 +159,7 @@ class ActivityTimerNotifier(private val context: Context) {
         )
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_timer_notification)
+            .setSmallIcon(smallIcon)
             .setContentTitle(title)
             .setContentText(text)
             .setContentIntent(openPendingIntent)
@@ -169,6 +175,23 @@ class ActivityTimerNotifier(private val context: Context) {
         }
 
         NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+    }
+
+    private fun notificationIcon(category: String): Int {
+        return when (category) {
+            "STUDY" -> R.drawable.ic_activity_study
+            "WORK" -> R.drawable.ic_activity_work
+            "DEVELOPMENT" -> R.drawable.ic_activity_development
+            "SCHOOL" -> R.drawable.ic_activity_school
+            "MEAL" -> R.drawable.ic_activity_meal
+            "SNACK" -> R.drawable.ic_activity_snack
+            "TOOTHBRUSH" -> R.drawable.ic_activity_toothbrush
+            "EXERCISE" -> R.drawable.ic_activity_exercise
+            "SLEEP" -> R.drawable.ic_activity_sleep
+            "REST" -> R.drawable.ic_activity_rest
+            "TODO" -> R.drawable.ic_activity_todo
+            else -> R.drawable.ic_activity_generic
+        }
     }
 
     private fun ensureNotificationChannel() {
@@ -221,13 +244,15 @@ class ActivityTimerNotifier(private val context: Context) {
     private fun runningStatusText(category: String): String {
         return when (category) {
             "STUDY" -> "\uACF5\uBD80\uB97C \uD558\uB294 \uC911\uC785\uB2C8\uB2E4!"
+            "WORK" -> "\uC5C5\uBB34\uB97C \uD558\uB294 \uC911\uC785\uB2C8\uB2E4!"
+            "DEVELOPMENT" -> "\uAC1C\uBC1C\uC744 \uD558\uB294 \uC911\uC785\uB2C8\uB2E4!"
             "MEAL" -> "\uC2DD\uC0AC\uB97C \uD558\uB294 \uC911\uC785\uB2C8\uB2E4!"
             "EXERCISE" -> "\uC6B4\uB3D9\uC744 \uD558\uB294 \uC911\uC785\uB2C8\uB2E4!"
             "SLEEP" -> "\uC218\uBA74 \uC911\uC785\uB2C8\uB2E4!"
             "REST" -> "\uD734\uC2DD \uC911\uC785\uB2C8\uB2E4!"
             "SCHOOL" -> "\uD559\uAD50 \uD65C\uB3D9 \uC911\uC785\uB2C8\uB2E4!"
             "TODO" -> "\uD560\uC77C\uC744 \uD558\uB294 \uC911\uC785\uB2C8\uB2E4!"
-            else -> "\uD65C\uB3D9 \uC911\uC785\uB2C8\uB2E4!"
+            else -> "${displayCategory(category)} \uC911\uC785\uB2C8\uB2E4!"
         }
     }
 

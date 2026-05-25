@@ -37,7 +37,7 @@ class TodoReminderReceiver : BroadcastReceiver() {
         )
 
         val notification = NotificationCompat.Builder(context, ToothbrushReminderReceiver.CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_timer_notification)
+            .setSmallIcon(R.drawable.ic_app_notification)
             .setContentTitle("할 일이 아직 남아 있어요")
             .setContentText(todo.title)
             .setStyle(NotificationCompat.BigTextStyle().bigText(todo.title))

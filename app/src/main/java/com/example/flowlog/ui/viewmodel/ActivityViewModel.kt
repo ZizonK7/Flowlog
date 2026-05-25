@@ -615,11 +615,16 @@ class ActivityViewModel(
 
     private fun buildAnalytics(activities: List<ActivitySession>): AnalyticsState {
         val now = System.currentTimeMillis()
-        val weekStart = startOfDay(Calendar.getInstance().apply {
+        val todayStart = startOfDay(Calendar.getInstance().apply {
             timeInMillis = now
-            add(Calendar.DAY_OF_YEAR, -6)
         }).timeInMillis
-        val weekActivities = activities.filter { it.startTime >= weekStart }
+        val weekStart = startOfDay(Calendar.getInstance().apply {
+            timeInMillis = todayStart
+            add(Calendar.DAY_OF_YEAR, -7)
+        }).timeInMillis
+        val weekActivities = activities.filter { activity ->
+            activity.startTime >= weekStart && activity.startTime < todayStart
+        }
 
         return AnalyticsState(
             weeklyDailyAverageStats = buildDailyAverageCategoryStats(weekActivities, days = 7),

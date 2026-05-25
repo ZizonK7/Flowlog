@@ -15,6 +15,7 @@ Google account can view the data from the pfkfks website.
 - Manage todos and track accumulated work time per todo.
 - Start Flowlog or Todo actions from Android widgets.
 - Schedule snack and toothbrush reminders.
+- Open the synced Flowlog statistics website from the main screen.
 - Export activity snapshots to a CSV file in the app's documents directory.
 - Sign in with Google and upload Flowlog data to Firebase Firestore.
 - View synced activity and todo data from the website's Flowlog page.
@@ -23,11 +24,20 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
-- Added a small chime-style notification so reminders feel noticeable without being disruptive.
-- Added a dedicated work button for faster work-session logging.
-- Added todo reminders that gently nudge the user to return to pending tasks.
-- Added monthly trend tracking for reviewing longer-term activity patterns.
-- Added a one-step undo button for reverting the most recent log entry.
+- Limited today's activity list to three visible records by default, with a
+  `More` control for expanding the full list.
+- Moved account actions into the main screen and added a statistics-site button
+  that opens `https://flowlog.pfkfks.org/`.
+- Updated the recent daily average chart to exclude today's incomplete records
+  and use the seven-day window ending yesterday.
+- Added category-specific notification icons for active activity timers while
+  keeping timer and reminder alarms on the default clock icon.
+- Improved running notification text so work and development sessions use their
+  own category names.
+- Prevented Flowlog and Todo widgets from overwriting an already running widget
+  session when another start button is tapped.
+- Removed a duplicate timer-alarm path so reminder alarms are scheduled through
+  a single system alarm route.
 
 ## Tech Stack
 
@@ -91,10 +101,11 @@ When a user is signed in with Google, the app uploads local data to Firestore:
 - when network connectivity becomes available again;
 - after supported activity or todo changes.
 
-The bottom navigation shows a single account button:
+The main screen shows account and website actions above the timer area:
 
-- `Login` signs in with Google and performs the first upload;
-- `Logout` signs out.
+- `로그인` signs in with Google and performs the first upload;
+- `로그아웃` signs out;
+- `통계 사이트` opens the synced Flowlog report website.
 
 There is no separate manual sync button because automatic snapshot upload covers
 the normal offline-and-online flow.

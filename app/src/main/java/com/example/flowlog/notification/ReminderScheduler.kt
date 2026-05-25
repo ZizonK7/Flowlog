@@ -9,9 +9,6 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import com.example.flowlog.MainActivity
 import com.example.flowlog.data.model.ActivitySession
 
 class ReminderScheduler(private val context: Context) {
@@ -161,7 +158,6 @@ class ReminderScheduler(private val context: Context) {
     }
 
     private fun cancelReminder(requestCode: Int) {
-        cancelInProcessAlarm(requestCode)
         cancelActivityAlarm(requestCode)
 
         val intent = Intent(context, ToothbrushReminderReceiver::class.java)
@@ -197,15 +193,8 @@ class ReminderScheduler(private val context: Context) {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val openPendingIntent = PendingIntent.getActivity(
-            context,
-            requestCode,
-            Intent(context, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
 
-        scheduleAlarm(triggerAtMillis, openPendingIntent, pendingIntent)
-        scheduleInProcessAlarm(requestCode, triggerAtMillis, intent)
+        scheduleAlarm(triggerAtMillis, pendingIntent)
         return triggerAtMillis
     }
 
@@ -224,14 +213,22 @@ class ReminderScheduler(private val context: Context) {
 
     private fun scheduleAlarm(
         triggerAtMillis: Long,
-        openPendingIntent: PendingIntent,
         alarmPendingIntent: PendingIntent
     ) {
         runCatching {
-            alarmManager.setAlarmClock(
-                AlarmManager.AlarmClockInfo(triggerAtMillis, openPendingIntent),
-                alarmPendingIntent
-            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
+                    alarmPendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
+                    alarmPendingIntent
+                )
+            }
         }.recoverCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 alarmManager.setAndAllowWhileIdle(
@@ -255,42 +252,6 @@ class ReminderScheduler(private val context: Context) {
         }.getOrThrow()
     }
 
-    private fun scheduleInProcessAlarm(
-        requestCode: Int,
-        triggerAtMillis: Long,
-        intent: Intent
-    ) {
-        cancelInProcessAlarm(requestCode)
-
-        val delayMillis = (triggerAtMillis - System.currentTimeMillis()).coerceAtLeast(1L)
-        val appContext = context.applicationContext
-        val alarmIntent = Intent(intent)
-        val runnable = Runnable {
-            inProcessAlarms.remove(requestCode)
-            cancelSystemAlarm(requestCode)
-            appContext.sendBroadcast(alarmIntent)
-        }
-        inProcessAlarms[requestCode] = runnable
-        handler.postDelayed(runnable, delayMillis)
-    }
-
-    private fun cancelInProcessAlarm(requestCode: Int) {
-        inProcessAlarms.remove(requestCode)?.let { handler.removeCallbacks(it) }
-    }
-
-    private fun cancelSystemAlarm(requestCode: Int) {
-        val intent = Intent(context, ToothbrushReminderReceiver::class.java)
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            requestCode,
-            intent,
-            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
-        ) ?: return
-
-        alarmManager.cancel(pendingIntent)
-        pendingIntent.cancel()
-    }
-
     companion object {
         private const val REQUEST_SNACK_TIMER = 3001
         private const val REQUEST_BRUSH_DONE_TIMER = 3002
@@ -299,7 +260,5 @@ class ReminderScheduler(private val context: Context) {
         private const val REQUEST_BRUSH_EAT_EXPERIMENT = 3013
         private const val BRUSH_DONE_DELAY_MILLIS = 3L * 60L * 1000L
         private const val EXPERIMENT_DELAY_MILLIS = 5L * 1000L
-        private val handler = Handler(Looper.getMainLooper())
-        private val inProcessAlarms = mutableMapOf<Int, Runnable>()
     }
 }

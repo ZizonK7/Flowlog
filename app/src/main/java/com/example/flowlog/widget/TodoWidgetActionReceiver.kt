@@ -33,6 +33,11 @@ class TodoWidgetActionReceiver : BroadcastReceiver() {
             }
 
             ACTION_START_TODO -> {
+                if (FlowlogWidgetProvider.getActiveSessionDetails(context) != null) {
+                    FlowlogWidgetProvider.updateAll(context)
+                    TodoWidgetProvider.updateAll(context)
+                    return
+                }
                 val title = intent.getStringExtra(EXTRA_TODO_TITLE).orEmpty()
                 FlowlogWidgetProvider.setActiveSession(
                     context = context,

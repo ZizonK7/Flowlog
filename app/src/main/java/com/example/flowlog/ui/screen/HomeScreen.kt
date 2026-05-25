@@ -30,7 +30,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -63,6 +65,7 @@ fun HomeScreen(
     viewModel: ActivityViewModel,
     startCategoryRequest: String? = null,
     onStartCategoryConsumed: () -> Unit = {},
+    topActions: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -108,6 +111,13 @@ fun HomeScreen(
             }
         }
     }
+    var isActivityListExpanded by remember(selectedCategory) { mutableStateOf(false) }
+    val visibleActivities = if (isActivityListExpanded) {
+        displayActivities
+    } else {
+        displayActivities.take(3)
+    }
+    val hiddenActivityCount = displayActivities.size - visibleActivities.size
 
     LaunchedEffect(startCategoryRequest) {
         val category = startCategoryRequest ?: return@LaunchedEffect
@@ -121,6 +131,10 @@ fun HomeScreen(
             .background(Color(0xFFFAFAFA)),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
+        item {
+            topActions()
+        }
+
         item {
             TimerCard(
                 isRunning = uiState.isRunning,
@@ -259,7 +273,7 @@ fun HomeScreen(
             }
         } else {
             items(
-                items = displayActivities,
+                items = visibleActivities,
                 key = { it.id }
             ) { activity ->
                 ActivityItem(
@@ -268,6 +282,26 @@ fun HomeScreen(
                     onEdit = { viewModel.startEditActivity(it) },
                     onToggleFavorite = { viewModel.toggleFavorite(it) }
                 )
+            }
+            if (displayActivities.size > 3) {
+                item {
+                    Button(
+                        onClick = { isActivityListExpanded = !isActivityListExpanded },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        contentPadding = PaddingValues(vertical = 10.dp)
+                    ) {
+                        Text(
+                            text = if (isActivityListExpanded) {
+                                "\uC811\uAE30"
+                            } else {
+                                "\uB354\uBCF4\uAE30 ${hiddenActivityCount}\uAC1C"
+                            },
+                            fontSize = 13.sp
+                        )
+                    }
+                }
             }
         }
 
@@ -438,7 +472,7 @@ private fun AnalyticsCard(analytics: AnalyticsState) {
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("통계 리포트", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            SectionLabel("최근 7일 활동별 하루 평균")
+            SectionLabel("어제까지 7일 활동별 하루 평균")
             AverageRows(analytics.weeklyDailyAverageStats)
             SectionLabel("주간 추세")
             TrendBars(analytics.weeklyTrend)
