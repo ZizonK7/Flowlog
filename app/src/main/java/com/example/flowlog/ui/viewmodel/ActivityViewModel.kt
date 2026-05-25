@@ -751,15 +751,15 @@ class ActivityViewModel(
 
     private fun defaultTitle(category: String): String {
         return when (category) {
-            "MEAL" -> "식사"
-            "EXERCISE" -> "운동"
-            "SLEEP" -> "수면"
-            "STUDY" -> "공부"
-            "WORK" -> "업무"
-            "DEVELOPMENT" -> "개발"
-            "REST" -> "휴식"
-            "SCHOOL" -> "학교"
-            else -> "활동"
+            "MEAL" -> "\uC2DD\uC0AC"
+            "EXERCISE" -> "\uC6B4\uB3D9"
+            "SLEEP" -> "\uC218\uBA74"
+            "STUDY" -> "\uACF5\uBD80"
+            "WORK" -> "\uC5C5\uBB34"
+            "DEVELOPMENT" -> "\uAC1C\uBC1C"
+            "REST" -> "\uD734\uC2DD"
+            "SCHOOL" -> "\uD559\uAD50"
+            else -> "\uD65C\uB3D9"
         }
     }
 

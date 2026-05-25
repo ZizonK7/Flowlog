@@ -26,16 +26,10 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
             reminderType == TYPE_EAT_ALLOWED -> activityTimerNotifier.clearBrushEatTimer()
         }
 
-        if (reminderType == TYPE_BRUSH_DONE) {
-            runCatching {
-                context.startActivity(brushAlarmIntent(context))
-            }
-            return
-        }
-
         if (!canPostNotifications(context)) return
 
         val title = when (reminderType) {
+            TYPE_BRUSH_DONE -> "\uC591\uCE58 \uC644\uB8CC \uC2DC\uAC04"
             TYPE_EAT_ALLOWED -> "\uBA39\uC5B4\uB3C4 \uB418\uB294 \uC2DC\uAC04"
             else -> if (category == "SNACK") {
                 "\uAC04\uC2DD \uD6C4 \uC591\uCE58 \uC54C\uB9BC"
@@ -44,6 +38,7 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
             }
         }
         val message = when (reminderType) {
+            TYPE_BRUSH_DONE -> "\uC591\uCE58\uB97C \uB9C8\uBB34\uB9AC\uD560 \uC2DC\uAC04\uC774\uC5D0\uC694."
             TYPE_EAT_ALLOWED -> "\uC591\uCE58\uD55C \uC9C0 30\uBD84\uC774 \uC9C0\uB0AC\uC5B4\uC694. \uC774\uC81C \uBA39\uC5B4\uB3C4 \uB3FC\uC694."
             else -> "\uC591\uCE58\uD560 \uC2DC\uAC04\uC774\uC5D0\uC694."
         }
@@ -75,13 +70,6 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
         ).toInt()
         NotificationManagerCompat.from(context).notify(notificationId, builder.build())
     }
-
-    private fun brushAlarmIntent(context: Context) =
-        Intent(context, BrushAlarmActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
 
     private fun canPostNotifications(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true

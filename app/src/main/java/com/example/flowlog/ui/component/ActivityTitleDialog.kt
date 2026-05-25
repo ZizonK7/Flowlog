@@ -37,7 +37,10 @@ fun ActivityTitleDialog(
     LaunchedEffect(isVisible, category, initialTitle, initialNote) {
         if (isVisible) {
             selectedCategory = category
-            title = initialTitle.orEmpty()
+            title = initialTitle
+                .orEmpty()
+                .takeIf { category == "TODO" }
+                .orEmpty()
             note = initialNote.orEmpty()
         }
     }
@@ -61,6 +64,7 @@ fun ActivityTitleDialog(
                     OutlinedTextField(
                         value = title,
                         onValueChange = { title = it },
+                        placeholder = { Text(displayCategory(selectedCategory)) },
                         label = { Text("제목 (선택)") },
                         modifier = Modifier
                             .fillMaxWidth()

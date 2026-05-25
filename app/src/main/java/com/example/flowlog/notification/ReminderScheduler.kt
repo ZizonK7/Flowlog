@@ -1,7 +1,6 @@
 package com.example.flowlog.notification
 
 import android.app.AlarmManager
-import android.app.ActivityOptions
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -140,36 +139,13 @@ class ReminderScheduler(private val context: Context) {
         requestCode: Int,
         delayMillis: Long
     ): Long {
-        ensureNotificationChannel()
-
-        val triggerAtMillis = System.currentTimeMillis() + delayMillis
-        val alarmScreenIntent = Intent(context, BrushAlarmActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        val alarmScreenPendingIntent = PendingIntent.getActivity(
-            context,
-            requestCode,
-            alarmScreenIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            backgroundActivityLaunchOptions()
+        return scheduleReminder(
+            category = "TOOTHBRUSH",
+            reminderType = ToothbrushReminderReceiver.TYPE_BRUSH_DONE,
+            reminderDelayMillis = delayMillis,
+            requestCode = requestCode
         )
-
-        scheduleAlarm(triggerAtMillis, alarmScreenPendingIntent, alarmScreenPendingIntent)
-        return triggerAtMillis
     }
-
-    private fun backgroundActivityLaunchOptions() =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-            ActivityOptions.makeBasic()
-                .setPendingIntentCreatorBackgroundActivityStartMode(
-                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
-                )
-                .toBundle()
-        } else {
-            null
-        }
 
     private fun cancelActivityAlarm(requestCode: Int) {
         val intent = Intent(context, BrushAlarmActivity::class.java)
