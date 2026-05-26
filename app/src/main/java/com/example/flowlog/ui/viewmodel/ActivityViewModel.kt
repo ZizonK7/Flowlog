@@ -293,7 +293,7 @@ class ActivityViewModel(
                     startTime = 0L,
                     linkedTodoId = null,
                     pendingTitle = null,
-                    pendingSavedActivity = savedActivity,
+                    pendingSavedActivity = if (cleanCategory == "ETC") savedActivity else null,
                     statusMessage = "활동이 저장되었습니다."
                 )
             }
@@ -762,6 +762,7 @@ class ActivityViewModel(
             "STUDY" -> "\uACF5\uBD80"
             "WORK" -> "\uC5C5\uBB34"
             "DEVELOPMENT" -> "\uAC1C\uBC1C"
+            "WASH" -> "\uC53B\uAE30"
             "REST" -> "\uD734\uC2DD"
             "SCHOOL" -> "\uD559\uAD50"
             else -> "\uD65C\uB3D9"

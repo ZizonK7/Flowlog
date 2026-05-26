@@ -2,17 +2,35 @@ package com.example.flowlog.ui.component
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Bed
+import androidx.compose.material.icons.filled.BusinessCenter
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Coffee
+import androidx.compose.material.icons.filled.Cookie
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Shower
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -21,6 +39,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -32,132 +51,163 @@ fun CategoryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val backgroundColor = categoryColor(category)
+    val accentColor = categoryColor(category)
+    val iconBackground = categoryPastelColor(category)
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Card(
+        onClick = onClick,
         modifier = modifier
+            .fillMaxWidth()
+            .height(84.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 5.dp else 3.dp),
+        border = BorderStroke(
+            width = if (isSelected) 1.4.dp else 0.6.dp,
+            color = if (isSelected) Color(0xFF7D68EA) else Color(0xFFE7E8EF)
+        ),
+        shape = RoundedCornerShape(16.dp)
     ) {
-        if (category == "TOOTHBRUSH") {
-            ToothbrushButton(
-                isSelected = isSelected,
-                onClick = onClick
-            )
-            return@Column
-        }
-
-        Button(
-            onClick = onClick,
+        Row(
             modifier = Modifier
-                .size(80.dp)
-                .padding(4.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (isSelected) backgroundColor.copy(alpha = 0.8f) else backgroundColor
-            ),
-            shape = RoundedCornerShape(12.dp),
-            elevation = if (isSelected) ButtonDefaults.elevatedButtonElevation(defaultElevation = 8.dp) else ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+                .fillMaxSize()
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = displayCategory(category),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = 2
-            )
+            Box(
+                modifier = Modifier
+                    .size(50.dp)
+                    .background(iconBackground, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                CategoryGlyph(
+                    category = category,
+                    tint = accentColor,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = displayCategory(category),
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF1C2437),
+                    maxLines = 1
+                )
+                if (category == "TOOTHBRUSH") {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "3분",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6B4FE8),
+                        maxLines = 1
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun ToothbrushButton(
-    isSelected: Boolean,
-    onClick: () -> Unit
+private fun CategoryGlyph(
+    category: String,
+    tint: Color,
+    modifier: Modifier = Modifier
 ) {
-    val accentColor = categoryColor("TOOTHBRUSH")
-    Button(
-        onClick = onClick,
-        modifier = Modifier
-            .size(80.dp)
-            .padding(4.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (isSelected) Color(0xFF00897B) else Color(0xFFE8FFF9),
-            contentColor = if (isSelected) Color.White else Color(0xFF00796B)
-        ),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, accentColor.copy(alpha = if (isSelected) 0.9f else 0.55f)),
-        elevation = if (isSelected) {
-            ButtonDefaults.elevatedButtonElevation(defaultElevation = 8.dp)
-        } else {
-            ButtonDefaults.buttonElevation(defaultElevation = 3.dp)
-        },
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            ToothbrushGlyph(
-                tint = if (isSelected) Color.White else accentColor,
-                highlight = if (isSelected) Color(0xFFB2DFDB) else Color(0xFF4DB6AC)
+    when (category) {
+        "TOOTHBRUSH" -> ToothbrushGlyph(tint = tint, modifier = modifier)
+        else -> categoryIcon(category)?.let { icon ->
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = modifier
             )
-            Text(
-                text = displayCategory("TOOTHBRUSH"),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = if (isSelected) Color.White else Color(0xFF00695C),
-                maxLines = 1
-            )
-            Text(
-                text = "3\uBD84",
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (isSelected) Color(0xFFE0F2F1) else Color(0xFF4DB6AC),
-                maxLines = 1
-            )
-        }
+        } ?: Text(
+            text = displayCategory(category).take(1),
+            color = tint,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.ExtraBold
+        )
+    }
+}
+
+private fun categoryIcon(category: String): ImageVector? {
+    return when (category) {
+        "SNACK" -> Icons.Filled.Cookie
+        "MEAL" -> Icons.Filled.Restaurant
+        "STUDY" -> Icons.AutoMirrored.Filled.MenuBook
+        "WORK" -> Icons.Filled.BusinessCenter
+        "DEVELOPMENT" -> Icons.Filled.Code
+        "WASH" -> Icons.Filled.Shower
+        "SCHOOL" -> Icons.Filled.School
+        "EXERCISE" -> Icons.AutoMirrored.Filled.DirectionsRun
+        "SLEEP" -> Icons.Filled.Bed
+        "REST" -> Icons.Filled.Coffee
+        "ETC" -> Icons.Filled.MoreHoriz
+        "EXPERIMENT_1" -> Icons.Filled.Science
+        "EXPERIMENT_2" -> Icons.Filled.Science
+        else -> null
+    }
+}
+
+private fun categoryPastelColor(category: String): Color {
+    return when (category) {
+        "TOOTHBRUSH" -> Color(0xFFEDE8FF)
+        "SNACK" -> Color(0xFFFFF1DD)
+        "MEAL" -> Color(0xFFFFEDE4)
+        "STUDY" -> Color(0xFFE6F6E8)
+        "WORK" -> Color(0xFFE9EAF0)
+        "DEVELOPMENT" -> Color(0xFFE9E7FF)
+        "WASH" -> Color(0xFFE4F5FF)
+        "SCHOOL" -> Color(0xFFFCE4ED)
+        "EXERCISE" -> Color(0xFFE4F1FF)
+        "SLEEP" -> Color(0xFFF0E4FF)
+        "REST" -> Color(0xFFE2F5F5)
+        "ETC" -> Color(0xFFEDEDF1)
+        "EXPERIMENT_1" -> Color(0xFFE2F5F1)
+        "EXPERIMENT_2" -> Color(0xFFECE7FF)
+        else -> Color(0xFFEDEDF1)
     }
 }
 
 @Composable
 private fun ToothbrushGlyph(
     tint: Color,
-    highlight: Color
+    modifier: Modifier = Modifier
 ) {
-    Box(
-        modifier = Modifier
-            .width(30.dp)
-            .height(24.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(modifier = Modifier.size(30.dp, 24.dp)) {
-            val handleWidth = 5.dp.toPx()
-            val radius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+    Canvas(modifier = modifier) {
+        val handleWidth = size.width * 0.14f
+        val handleHeight = size.height * 0.62f
+        val handleLeft = size.width * 0.42f
+        val handleTop = size.height * 0.34f
+        val radius = CornerRadius(size.width * 0.07f, size.width * 0.07f)
+
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(handleLeft, handleTop),
+            size = Size(handleWidth, handleHeight),
+            cornerRadius = radius
+        )
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(size.width * 0.24f, size.height * 0.2f),
+            size = Size(size.width * 0.42f, size.height * 0.18f),
+            cornerRadius = CornerRadius(size.width * 0.05f, size.width * 0.05f)
+        )
+        repeat(4) { index ->
             drawRoundRect(
-                color = tint,
-                topLeft = Offset(12.dp.toPx(), 7.dp.toPx()),
-                size = Size(handleWidth, 15.dp.toPx()),
-                cornerRadius = radius
-            )
-            drawRoundRect(
-                color = tint,
-                topLeft = Offset(8.dp.toPx(), 3.dp.toPx()),
-                size = Size(13.dp.toPx(), 6.dp.toPx()),
-                cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
-            )
-            repeat(4) { index ->
-                drawRoundRect(
-                    color = highlight,
-                    topLeft = Offset((9 + index * 3).dp.toPx(), 0.dp.toPx()),
-                    size = Size(2.dp.toPx(), 5.dp.toPx()),
-                    cornerRadius = CornerRadius(1.dp.toPx(), 1.dp.toPx())
-                )
-            }
-            drawCircle(
-                color = highlight.copy(alpha = 0.75f),
-                radius = 1.5.dp.toPx(),
-                center = Offset(22.dp.toPx(), 4.dp.toPx())
+                color = tint.copy(alpha = 0.72f),
+                topLeft = Offset(size.width * (0.27f + index * 0.1f), size.height * 0.04f),
+                size = Size(size.width * 0.055f, size.height * 0.2f),
+                cornerRadius = CornerRadius(size.width * 0.03f, size.width * 0.03f)
             )
         }
+        drawCircle(
+            color = tint.copy(alpha = 0.62f),
+            radius = size.width * 0.055f,
+            center = Offset(size.width * 0.7f, size.height * 0.25f)
+        )
     }
 }

@@ -5,6 +5,7 @@ import android.app.AlarmManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -16,16 +17,41 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,8 +59,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
@@ -56,7 +87,10 @@ import com.example.flowlog.ui.viewmodel.ActivityViewModel
 import com.example.flowlog.ui.viewmodel.ActivityViewModelFactory
 import com.example.flowlog.ui.viewmodel.TodoViewModel
 import com.example.flowlog.ui.viewmodel.TodoViewModelFactory
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.URL
 
 class MainActivity : ComponentActivity() {
     private var widgetStartCategory by mutableStateOf<String?>(null)
@@ -132,84 +166,84 @@ class MainActivity : ComponentActivity() {
                     startActivity(
                         Intent(
                             Intent.ACTION_VIEW,
-                            Uri.parse("https://flowlog.pfkfks.org/")
+                            Uri.parse("https://flowlog.pfkfks.org/statistics/")
+                        )
+                    )
+                }
+                val openDeveloperBlog: () -> Unit = {
+                    startActivity(
+                        Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://blog.pfkfks.org/blog/")
                         )
                     )
                 }
 
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                val pagerState = rememberPagerState(
+                    initialPage = if (currentScreen == "todo") 1 else 0,
+                    pageCount = { 2 }
+                )
+
+                LaunchedEffect(pagerState.currentPage) {
+                    currentScreen = if (pagerState.currentPage == 0) "home" else "todo"
+                }
+
+                LaunchedEffect(currentScreen) {
+                    val targetPage = if (currentScreen == "todo") 1 else 0
+                    if (pagerState.currentPage != targetPage) {
+                        pagerState.animateScrollToPage(targetPage)
+                    }
+                }
+
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    contentWindowInsets = WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Top + WindowInsetsSides.Horizontal
+                    )
+                ) { innerPadding ->
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(innerPadding)
                     ) {
-                        when (currentScreen) {
-                            "todo" -> TodoScreen(
-                                viewModel = todoViewModel,
-                                onStartTodo = { todo ->
-                                    activityViewModel.startTodoActivity(todo.id, todo.title)
-                                    currentScreen = "home"
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-                            else -> HomeScreen(
-                                viewModel = activityViewModel,
-                                startCategoryRequest = widgetStartCategory,
-                                onStartCategoryConsumed = { widgetStartCategory = null },
-                                topActions = {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Button(
-                                            onClick = openStatsSite,
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = Color(0xFF1976D2)
-                                            )
-                                        ) {
-                                            Text("통계 사이트")
-                                        }
-                                        Button(
-                                            onClick = runAccountSync,
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = if (signedInUser == null) Color(0xFF00897B) else Color(0xFF455A64)
-                                            )
-                                        ) {
-                                            Text(accountActionLabel(signedInUser != null, syncStatus))
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.weight(1f)
+                        ) { page ->
+                            if (page == 1) {
+                                TodoScreen(
+                                    viewModel = todoViewModel,
+                                    onStartTodo = { todo ->
+                                        activityViewModel.startTodoActivity(todo.id, todo.title)
+                                        currentScreen = "home"
+                                    },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                HomeScreen(
+                                    viewModel = activityViewModel,
+                                    startCategoryRequest = widgetStartCategory,
+                                    onStartCategoryConsumed = { widgetStartCategory = null },
+                                    topActions = {
+                                        HeaderActions(
+                                            isSignedIn = signedInUser != null,
+                                            syncStatus = syncStatus,
+                                            profilePhotoUrl = signedInUser?.photoUrl?.toString(),
+                                            onStatsClick = openStatsSite,
+                                            onBlogClick = openDeveloperBlog,
+                                            onAccountClick = runAccountSync
+                                        )
+                                    },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = { currentScreen = "home" },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (currentScreen == "home") Color(0xFF1976D2) else Color(0xFF90A4AE)
-                                )
-                            ) {
-                                Text("홈")
-                            }
-                            Button(
-                                onClick = { currentScreen = "todo" },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (currentScreen == "todo") Color(0xFF1976D2) else Color(0xFF90A4AE)
-                                )
-                            ) {
-                                Text("Todo")
-                            }
-                        }
+                        FlowlogBottomBar(
+                            currentScreen = currentScreen,
+                            onHomeClick = { currentScreen = "home" },
+                            onTodoClick = { currentScreen = "todo" }
+                        )
                     }
                 }
             }
@@ -321,6 +355,174 @@ class MainActivity : ComponentActivity() {
         const val SCREEN_HOME = "home"
         const val SCREEN_TODO = "todo"
         private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 1001
+    }
+}
+
+@Composable
+private fun HeaderActions(
+    isSignedIn: Boolean,
+    syncStatus: String?,
+    profilePhotoUrl: String?,
+    onStatsClick: () -> Unit,
+    onBlogClick: () -> Unit,
+    onAccountClick: () -> Unit
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(
+            onClick = onStatsClick,
+            modifier = Modifier.size(52.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFF0ECFF))
+                    .border(1.dp, Color(0xFFE0D7FF), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.BarChart,
+                    contentDescription = "통계",
+                    tint = Color(0xFF5140D8),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+
+        Box {
+            IconButton(
+                onClick = { menuExpanded = true },
+                modifier = Modifier.size(52.dp)
+            ) {
+                ProfileAvatar(
+                    profilePhotoUrl = profilePhotoUrl,
+                    isSignedIn = isSignedIn
+                )
+            }
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text(accountActionLabel(isSignedIn, syncStatus)) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Login,
+                            contentDescription = null
+                        )
+                    },
+                    onClick = {
+                        menuExpanded = false
+                        onAccountClick()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("개발자 블로그") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Article,
+                            contentDescription = null
+                        )
+                    },
+                    onClick = {
+                        menuExpanded = false
+                        onBlogClick()
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileAvatar(
+    profilePhotoUrl: String?,
+    isSignedIn: Boolean
+) {
+    var profileImage by remember(profilePhotoUrl) { mutableStateOf<ImageBitmap?>(null) }
+
+    LaunchedEffect(profilePhotoUrl) {
+        profileImage = null
+        val url = profilePhotoUrl ?: return@LaunchedEffect
+        profileImage = withContext(Dispatchers.IO) {
+            runCatching {
+                URL(url).openStream().use { stream ->
+                    BitmapFactory.decodeStream(stream)?.asImageBitmap()
+                }
+            }.getOrNull()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(Color(0xFFF0ECFF))
+            .border(1.dp, Color(0xFFE0D7FF), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        val image = profileImage
+        if (isSignedIn && image != null) {
+            Image(
+                bitmap = image,
+                contentDescription = "구글 프로필",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(3.dp)
+                    .clip(CircleShape)
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Filled.AccountCircle,
+                contentDescription = "기본 프로필",
+                tint = Color(0xFF5140D8),
+                modifier = Modifier.size(31.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun FlowlogBottomBar(
+    currentScreen: String,
+    onHomeClick: () -> Unit,
+    onTodoClick: () -> Unit
+) {
+    val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    NavigationBar(
+        modifier = Modifier
+            .padding(bottom = bottomInset)
+            .height(68.dp),
+        containerColor = Color.White,
+        tonalElevation = 8.dp,
+        windowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp)
+    ) {
+        NavigationBarItem(
+            selected = currentScreen == "home",
+            onClick = onHomeClick,
+            icon = {
+                Icon(
+                    imageVector = Icons.Filled.Home,
+                    contentDescription = "홈"
+                )
+            },
+            label = { Text("홈") }
+        )
+        NavigationBarItem(
+            selected = currentScreen == "todo",
+            onClick = onTodoClick,
+            icon = {
+                Icon(
+                    imageVector = Icons.Filled.CheckBox,
+                    contentDescription = "Todo"
+                )
+            },
+            label = { Text("Todo") }
+        )
     }
 }
 

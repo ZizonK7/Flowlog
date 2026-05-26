@@ -3,9 +3,13 @@ package com.example.flowlog.ui.component
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -30,69 +34,77 @@ fun ActivityTitleDialog(
     initialNote: String? = null,
     onDismiss: () -> Unit
 ) {
-    var selectedCategory by remember { mutableStateOf(category) }
     var title by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("") }
 
-    LaunchedEffect(isVisible, category, initialTitle, initialNote) {
+    LaunchedEffect(isVisible, initialTitle) {
         if (isVisible) {
-            selectedCategory = category
-            title = initialTitle
-                .orEmpty()
-                .takeIf { category == "TODO" }
-                .orEmpty()
-            note = initialNote.orEmpty()
+            title = initialTitle.orEmpty()
         }
     }
 
-    if (isVisible) {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text("활동 저장") },
-            text = {
-                Column(
+    androidx.compose.animation.AnimatedVisibility(
+        visible = isVisible,
+        enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }) + androidx.compose.animation.fadeIn(),
+        exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) + androidx.compose.animation.fadeOut()
+    ) {
+        androidx.compose.material3.Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            colors = androidx.compose.material3.CardDefaults.cardColors(
+                containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant
+            ),
+            elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "방금 기타 활동을 하셨네요, 무엇을 했나요?",
+                        style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
+                    androidx.compose.material3.IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        androidx.compose.material3.Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "닫기"
+                        )
+                    }
+                }
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp)
+                        .padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                 ) {
-                    Text("카테고리")
-                    CategoryPicker(
-                        categories = categories.filter { it != "SNACK" && it != "TOOTHBRUSH" },
-                        selectedCategory = selectedCategory,
-                        onSelect = { selectedCategory = it }
-                    )
                     OutlinedTextField(
                         value = title,
                         onValueChange = { title = it },
-                        placeholder = { Text(displayCategory(selectedCategory)) },
-                        label = { Text("제목 (선택)") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
+                        placeholder = { Text("예: 휴식, 청소 등") },
+                        modifier = Modifier.weight(1f),
                         singleLine = true
                     )
-                    OutlinedTextField(
-                        value = note,
-                        onValueChange = { note = it },
-                        label = { Text("메모 (선택)") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                        minLines = 3,
-                        maxLines = 5
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onSave(selectedCategory, title.trim(), note.trim().ifBlank { null })
+                    Button(
+                        onClick = {
+                            onSave(category, title.trim(), null)
+                        }
+                    ) {
+                        Text("저장")
                     }
-                ) {
-                    Text("확인")
                 }
             }
-        )
+        }
     }
 }
 

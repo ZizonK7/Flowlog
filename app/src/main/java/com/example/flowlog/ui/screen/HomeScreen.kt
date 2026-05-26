@@ -1,5 +1,11 @@
 package com.example.flowlog.ui.screen
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
@@ -12,17 +18,27 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,12 +55,13 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.flowlog.data.model.ActivitySession
-import com.example.flowlog.ui.component.ActivityItem
 import com.example.flowlog.ui.component.ActivityTitleDialog
 import com.example.flowlog.ui.component.CategoryButton
 import com.example.flowlog.ui.component.EditActivityDialog
@@ -59,6 +76,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+
+private val FlowPurple = Color(0xFF5140D8)
+private val FlowPurpleSoft = Color(0xFFEDE9FF)
+private val FlowInk = Color(0xFF10182C)
+private val FlowMuted = Color(0xFF697386)
+private val FlowDivider = Color(0xFFE8E8EE)
 
 @Composable
 fun HomeScreen(
@@ -77,6 +100,7 @@ fun HomeScreen(
             "STUDY",
             "WORK",
             "DEVELOPMENT",
+            "WASH",
             "SCHOOL",
             "EXERCISE",
             "SLEEP",
@@ -92,9 +116,6 @@ fun HomeScreen(
     }
     val categories = remember(activityCategories, experimentCategories) {
         activityCategories + experimentCategories
-    }
-    val timedCategories = remember(activityCategories) {
-        activityCategories.filter { it != "SNACK" && it != "TOOTHBRUSH" }
     }
     val selectedCategory = uiState.selectedCategory
     val isFiltered = selectedCategory != null
@@ -125,90 +146,58 @@ fun HomeScreen(
         onStartCategoryConsumed()
     }
 
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color(0xFFFAFAFA)),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        item {
-            topActions()
+    val todayText = remember {
+        SimpleDateFormat("M월 d일 (E)", Locale.KOREAN).format(Date())
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFFF8F8F9)),
+            contentPadding = PaddingValues(bottom = 20.dp)
+        ) {
+            item {
+                HomeHeader(
+                dateText = todayText,
+                actions = topActions
+            )
         }
 
         item {
-            TimerCard(
+            TodayFlowCard(
                 isRunning = uiState.isRunning,
                 currentCategory = uiState.currentCategory,
                 elapsedTime = uiState.elapsedTime,
                 statusMessage = uiState.statusMessage,
+                categories = categories,
                 onStop = {
                     viewModel.stopActivityAndSave()
-                }
-            )
-        }
-
-        item {
-            QuickActionsCard(
-                favorites = uiState.favoriteActivities,
-                lastActivity = uiState.lastTimedActivity,
-                onRestart = { viewModel.restartActivity(it) }
-            )
-        }
-
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, top = 20.dp, end = 16.dp, bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                text = "활동 시작",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f)
-            )
-                Button(
-                    onClick = { viewModel.undoLastAddedActivity() },
-                    enabled = uiState.lastAddedActivity != null,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                ) {
-                    Text("되돌리기", fontSize = 12.sp)
-                }
-            }
-        }
-
-        item {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp)
-                    .height(416.dp),
-                contentPadding = PaddingValues(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(0.dp),
-                verticalArrangement = Arrangement.spacedBy(0.dp),
-                userScrollEnabled = false
-            ) {
-                items(categories.size) { index ->
-                    val category = categories[index]
-                    CategoryButton(
-                        category = category,
-                        isSelected = uiState.isRunning && uiState.currentCategory == category,
-                        onClick = {
-                            when (category) {
-                                "EXPERIMENT_1" -> viewModel.scheduleBrushDoneExperiment()
-                                "EXPERIMENT_2" -> viewModel.scheduleEatAllowedExperiment()
-                                else -> {
-                                    if (!uiState.isRunning || category == "SNACK" || category == "TOOTHBRUSH") {
-                                        viewModel.startActivity(category)
-                                    }
-                                }
+                },
+                onStart = { category ->
+                    when (category) {
+                        "EXPERIMENT_1" -> viewModel.scheduleBrushDoneExperiment()
+                        "EXPERIMENT_2" -> viewModel.scheduleEatAllowedExperiment()
+                        else -> {
+                            if (!uiState.isRunning || category == "SNACK" || category == "TOOTHBRUSH") {
+                                viewModel.startActivity(category)
                             }
                         }
-                    )
+                    }
                 }
-            }
+            )
+        }
+
+        item {
+            QuickTimerSection(
+                categories = categories,
+                onStart = { category ->
+                    when (category) {
+                        "TOOTHBRUSH" -> viewModel.startActivity(category)
+                        "SNACK" -> viewModel.startActivity(category)
+                    }
+                }
+            )
         }
 
         item {
@@ -216,91 +205,37 @@ fun HomeScreen(
         }
 
         item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = if (selectedCategory == null) "오늘 기록" else "${displayCategory(selectedCategory)} 기록",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
-                if (isFiltered) {
-                    Button(
-                        onClick = { viewModel.clearFilter() },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                    ) {
-                        Text("초기화", fontSize = 12.sp)
-                    }
-                }
-            }
+            RecentRecordsCard(
+                title = if (selectedCategory == null) "최근 기록" else "${displayCategory(selectedCategory)} 기록",
+                activities = visibleActivities,
+                isFiltered = isFiltered,
+                onClearFilter = { viewModel.clearFilter() },
+                canUndo = uiState.lastAddedActivity != null,
+                onUndo = { viewModel.undoLastAddedActivity() },
+                onDelete = { viewModel.deleteActivity(it) },
+                onEdit = { viewModel.startEditActivity(it) },
+                onToggleFavorite = { viewModel.toggleFavorite(it) }
+            )
         }
 
-        item {
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(timedCategories.size) { index ->
-                    val category = timedCategories[index]
-                    FilterChip(
-                        selected = uiState.selectedCategory == category,
-                        onClick = { viewModel.filterByCategory(category) },
-                        label = { Text(displayCategory(category)) }
-                    )
-                }
-            }
-        }
-
-        if (displayActivities.isEmpty()) {
+        if (displayActivities.size > 3) {
             item {
-                Box(
+                androidx.compose.material3.TextButton(
+                    onClick = { isActivityListExpanded = !isActivityListExpanded },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(100.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(horizontal = 24.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.textButtonColors(
+                        containerColor = FlowPurpleSoft.copy(alpha = 0.5f),
+                        contentColor = FlowPurple
+                    )
                 ) {
                     Text(
-                        text = if (isFiltered) "조건에 맞는 활동이 없습니다." else "오늘 저장된 활동이 없습니다.",
+                        text = if (isActivityListExpanded) "접기" else "더보기 ${hiddenActivityCount}개",
                         fontSize = 14.sp,
-                        color = Color.Gray
+                        fontWeight = FontWeight.Bold
                     )
-                }
-            }
-        } else {
-            items(
-                items = visibleActivities,
-                key = { it.id }
-            ) { activity ->
-                ActivityItem(
-                    activity = activity,
-                    onDelete = { viewModel.deleteActivity(it) },
-                    onEdit = { viewModel.startEditActivity(it) },
-                    onToggleFavorite = { viewModel.toggleFavorite(it) }
-                )
-            }
-            if (displayActivities.size > 3) {
-                item {
-                    Button(
-                        onClick = { isActivityListExpanded = !isActivityListExpanded },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        contentPadding = PaddingValues(vertical = 10.dp)
-                    ) {
-                        Text(
-                            text = if (isActivityListExpanded) {
-                                "\uC811\uAE30"
-                            } else {
-                                "\uB354\uBCF4\uAE30 ${hiddenActivityCount}\uAC1C"
-                            },
-                            fontSize = 13.sp
-                        )
-                    }
                 }
             }
         }
@@ -308,155 +243,714 @@ fun HomeScreen(
         item {
             AnalyticsCard(analytics = uiState.analytics)
         }
-    }
+
+        item {
+            ExperimentSection(
+                categories = categories,
+                onStart = { category ->
+                    when (category) {
+                        "EXPERIMENT_1" -> viewModel.scheduleBrushDoneExperiment()
+                        "EXPERIMENT_2" -> viewModel.scheduleEatAllowedExperiment()
+                    }
+                }
+            )
+        }
+    } // LazyColumn 닫기
 
     if (uiState.editingActivity != null) {
         EditActivityDialog(
-            activity = uiState.editingActivity!!,
-            categories = activityCategories,
-            isVisible = true,
-            onSave = { category, title, note ->
-                viewModel.saveEditedActivity(category, title, note)
-            },
-            onDismiss = {
-                viewModel.cancelEditActivity()
-            }
-        )
-    }
-
-    val pendingSavedActivity = uiState.pendingSavedActivity
-    ActivityTitleDialog(
-        isVisible = pendingSavedActivity != null,
-        category = pendingSavedActivity?.category.orEmpty(),
-        categories = activityCategories,
-        onSave = { category, title, note ->
-            viewModel.updatePendingSavedActivity(category, title, note)
-        },
-        initialTitle = pendingSavedActivity?.title,
-        initialNote = pendingSavedActivity?.note,
-        onDismiss = {
-            viewModel.dismissPendingSavedActivity()
+                activity = uiState.editingActivity!!,
+                categories = activityCategories,
+                isVisible = true,
+                onSave = { category, title, note ->
+                    viewModel.saveEditedActivity(category, title, note)
+                },
+                onDismiss = {
+                    viewModel.cancelEditActivity()
+                }
+            )
         }
-    )
+
+        val pendingSavedActivity = uiState.pendingSavedActivity
+        Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+            ActivityTitleDialog(
+                isVisible = pendingSavedActivity != null,
+                category = pendingSavedActivity?.category.orEmpty(),
+                categories = activityCategories,
+                onSave = { category, title, note ->
+                    viewModel.updatePendingSavedActivity(category, title, note)
+                },
+                initialTitle = pendingSavedActivity?.title,
+                initialNote = pendingSavedActivity?.note,
+                onDismiss = {
+                    viewModel.dismissPendingSavedActivity()
+                }
+            )
+        }
+    }
 }
 
 @Composable
-private fun QuickActionsCard(
-    favorites: List<ActivitySession>,
-    lastActivity: ActivitySession?,
-    onRestart: (ActivitySession) -> Unit
+private fun HomeHeader(
+    dateText: String,
+    actions: @Composable () -> Unit
 ) {
-    Card(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        shape = MaterialTheme.shapes.medium
+            .padding(start = 28.dp, top = 28.dp, end = 24.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("빠른 시작", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            if (lastActivity != null) {
-                Button(
-                    onClick = { onRestart(lastActivity) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 10.dp)
-                ) {
-                    Text("지난 활동 다시 시작: ${displayCategory(lastActivity.category)} / ${lastActivity.title}")
-                }
-            } else {
-                Text(
-                    "아직 다시 시작할 활동이 없습니다.",
-                    fontSize = 12.sp,
-                    color = Color.Gray,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-
-            if (favorites.isNotEmpty()) {
-                Text(
-                    "즐겨찾기",
-                    fontSize = 12.sp,
-                    color = Color.Gray,
-                    modifier = Modifier.padding(top = 12.dp, bottom = 6.dp)
-                )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(favorites.size) { index ->
-                        val favorite = favorites[index]
-                        FilterChip(
-                            selected = false,
-                            onClick = { onRestart(favorite) },
-                            label = { Text("${displayCategory(favorite.category)}: ${favorite.title}") }
-                        )
-                    }
-                }
-            }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Today's Flow",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = FlowInk
+            )
+            Text(
+                text = dateText,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = FlowMuted,
+                modifier = Modifier.padding(top = 8.dp)
+            )
         }
+        actions()
     }
 }
 
 @Composable
-private fun TimerCard(
+@OptIn(ExperimentalAnimationApi::class)
+private fun TodayFlowCard(
     isRunning: Boolean,
     currentCategory: String,
     elapsedTime: Long,
     statusMessage: String?,
-    onStop: () -> Unit
+    categories: List<String>,
+    onStop: () -> Unit,
+    onStart: (String) -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 24.dp, vertical = 14.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = MaterialTheme.shapes.medium
+        elevation = CardDefaults.cardElevation(defaultElevation = 9.dp),
+        shape = RoundedCornerShape(24.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(24.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            if (isRunning) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("진행 중", fontSize = 14.sp, color = Color.Gray)
-                    Text(
-                        text = displayCategory(currentCategory),
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF2196F3),
-                        modifier = Modifier.padding(top = 8.dp)
+        AnimatedContent(
+            targetState = isRunning,
+            transitionSpec = {
+                if (targetState) {
+                    slideInHorizontally(
+                        animationSpec = tween(320),
+                        initialOffsetX = { it }
+                    ) togetherWith slideOutHorizontally(
+                        animationSpec = tween(320),
+                        targetOffsetX = { -it }
                     )
-                    Text(
-                        text = formatTime(elapsedTime),
-                        fontSize = 40.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF333333),
-                        modifier = Modifier.padding(top = 8.dp)
+                } else {
+                    slideInHorizontally(
+                        animationSpec = tween(320),
+                        initialOffsetX = { -it }
+                    ) togetherWith slideOutHorizontally(
+                        animationSpec = tween(320),
+                        targetOffsetX = { it }
                     )
-                    Button(
-                        onClick = onStop,
-                        modifier = Modifier
-                            .padding(top = 16.dp)
-                            .fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF6B6B))
-                    ) {
-                        Text("종료하고 저장", fontSize = 16.sp, color = Color.White)
-                    }
                 }
+            },
+            label = "today-flow-page"
+        ) {
+            if (it) {
+                TimerPage(
+                    currentCategory = currentCategory,
+                    elapsedTime = elapsedTime,
+                    onStop = onStop
+                )
             } else {
-                Text(
-                    text = statusMessage ?: "활동을 선택해서 시작하세요.",
-                    fontSize = 16.sp,
-                    color = Color.Gray,
-                    fontWeight = FontWeight.Medium
+                FlowStartPage(
+                    categories = categories,
+                    statusMessage = statusMessage,
+                    onStart = onStart
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun TimerPage(
+    currentCategory: String,
+    elapsedTime: Long,
+    onStop: () -> Unit
+) {
+    val progress = ((elapsedTime % TimeUnit.MINUTES.toMillis(90)).toFloat() / TimeUnit.MINUTES.toMillis(90).toFloat())
+        .coerceIn(0.08f, 1f)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "진행 중",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = FlowPurple
+                )
+                Text(
+                    text = displayCategory(currentCategory),
+                    fontSize = 27.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = FlowPurple,
+                    modifier = Modifier.padding(top = 14.dp)
+                )
+                Text(
+                    text = formatTime(elapsedTime),
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = FlowInk,
+                    modifier = Modifier.padding(top = 30.dp)
+                )
+                FlowPageDots(activePage = 0)
+            }
+            FlowProgressRing(
+                progress = progress,
+                isRunning = true,
+                modifier = Modifier.size(150.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(22.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(FlowDivider)
+        )
+        Button(
+            onClick = onStop,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.Transparent,
+                contentColor = Color(0xFFFF4D5E)
+            ),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
+            contentPadding = PaddingValues(vertical = 4.dp)
+        ) {
+            Text(
+                text = "종료하기",
+                fontSize = 17.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+        }
+    }
+}
+
+@Composable
+private fun FlowStartPage(
+    categories: List<String>,
+    statusMessage: String?,
+    onStart: (String) -> Unit
+) {
+    val activityCategories = remember(categories) {
+        categories.filter { it !in setOf("TOOTHBRUSH", "SNACK", "EXPERIMENT_1", "EXPERIMENT_2") }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(20.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "활동 시작",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = FlowInk
+                )
+                Text(
+                    text = statusMessage ?: "기록할 활동을 선택하세요.",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = FlowMuted,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+            FlowPageDots(activePage = 1)
+        }
+
+        Text(
+            text = "활동",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = FlowMuted,
+            modifier = Modifier.padding(top = 18.dp, bottom = 10.dp)
+        )
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(476.dp),
+            contentPadding = PaddingValues(0.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            userScrollEnabled = false
+        ) {
+            items(activityCategories.size) { index ->
+                val category = activityCategories[index]
+                CategoryButton(
+                    category = category,
+                    onClick = { onStart(category) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FlowPageDots(activePage: Int) {
+    Row(
+        modifier = Modifier.padding(top = 20.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        repeat(2) { index ->
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(
+                        color = if (index == activePage) FlowPurple else Color(0xFFC8CBD4),
+                        shape = CircleShape
+                    )
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickTimerSection(
+    categories: List<String>,
+    onStart: (String) -> Unit
+) {
+    val quickCategories = remember(categories) {
+        categories.filter { it == "TOOTHBRUSH" || it == "SNACK" }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = "빠른 타이머",
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = FlowMuted,
+            modifier = Modifier.padding(start = 6.dp, bottom = 10.dp)
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            quickCategories.forEach { category ->
+                CategoryButton(
+                    category = category,
+                    onClick = { onStart(category) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExperimentSection(
+    categories: List<String>,
+    onStart: (String) -> Unit
+) {
+    val experimentCategories = remember(categories) {
+        categories.filter { it == "EXPERIMENT_1" || it == "EXPERIMENT_2" }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 10.dp)
+    ) {
+        Text(
+            text = "실험",
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = FlowMuted,
+            modifier = Modifier.padding(start = 6.dp, bottom = 10.dp)
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            experimentCategories.forEach { category ->
+                CategoryButton(
+                    category = category,
+                    onClick = { onStart(category) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FlowProgressRing(
+    progress: Float,
+    isRunning: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val stroke = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Round)
+            val diameter = size.minDimension - stroke.width
+            val topLeft = Offset(stroke.width / 2f, stroke.width / 2f)
+            val arcSize = Size(diameter, diameter)
+
+            drawArc(
+                color = Color(0xFFE9E9F1),
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = stroke
+            )
+            drawArc(
+                color = FlowPurple,
+                startAngle = 32f,
+                sweepAngle = 290f * progress,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = stroke
+            )
+            drawArc(
+                color = Color(0xFFC6BEFF),
+                startAngle = -88f,
+                sweepAngle = 34f,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = stroke
+            )
+        }
+        if (isRunning) {
+            Icon(
+                imageVector = Icons.Filled.Pause,
+                contentDescription = null,
+                tint = FlowPurple,
+                modifier = Modifier.size(58.dp)
+            )
+        } else {
+            Text(
+                text = "Flow",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = FlowPurple
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecentRecordsCard(
+    title: String,
+    activities: List<ActivitySession>,
+    isFiltered: Boolean,
+    onClearFilter: () -> Unit,
+    canUndo: Boolean,
+    onUndo: () -> Unit,
+    onDelete: (ActivitySession) -> Unit,
+    onEdit: (Long) -> Unit,
+    onToggleFavorite: (ActivitySession) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 14.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = FlowInk,
+                modifier = Modifier.weight(1f)
+            )
+            if (isFiltered) {
+                Button(
+                    onClick = onClearFilter,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = FlowPurpleSoft, contentColor = FlowPurple)
+                ) {
+                    Text("초기화", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Button(
+                    onClick = onUndo,
+                    enabled = canUndo,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = FlowPurpleSoft, contentColor = FlowPurple)
+                ) {
+                    Text("되돌리기", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 7.dp),
+            shape = RoundedCornerShape(22.dp)
+        ) {
+            if (activities.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(132.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "아직 표시할 기록이 없습니다.",
+                        fontSize = 14.sp,
+                        color = FlowMuted
+                    )
+                }
+            } else {
+                Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+                    activities.forEachIndexed { index, activity ->
+                        RecentRecordRow(
+                            activity = activity,
+                            onDelete = onDelete,
+                            onEdit = onEdit,
+                            onToggleFavorite = onToggleFavorite
+                        )
+                        if (index != activities.lastIndex) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 58.dp)
+                                    .height(1.dp)
+                                    .background(FlowDivider)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentRecordRow(
+    activity: ActivitySession,
+    onDelete: (ActivitySession) -> Unit,
+    onEdit: (Long) -> Unit,
+    onToggleFavorite: (ActivitySession) -> Unit
+) {
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val startTimeText = timeFormat.format(Date(activity.startTime))
+    val endTimeText = timeFormat.format(Date(activity.endTime))
+    val durationMinutes = TimeUnit.MILLISECONDS.toMinutes(activity.durationMillis).coerceAtLeast(1L)
+    val categoryColor = categoryColor(activity.category)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .background(categoryColor, RoundedCornerShape(14.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = categorySymbol(activity.category),
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 16.dp)
+        ) {
+            Text(
+                text = activity.title.ifBlank { displayCategory(activity.category) },
+                fontSize = 17.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = FlowInk,
+                maxLines = 1
+            )
+            Text(
+                text = "$startTimeText - $endTimeText",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = FlowMuted,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+        Text(
+            text = "${durationMinutes}분",
+            fontSize = 17.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = FlowMuted,
+            modifier = Modifier.padding(end = 2.dp)
+        )
+        IconButton(
+            onClick = { onToggleFavorite(activity) },
+            modifier = Modifier.size(34.dp)
+        ) {
+            Icon(
+                imageVector = if (activity.isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                contentDescription = "즐겨찾기",
+                tint = if (activity.isFavorite) Color(0xFFFFB300) else Color(0xFFB7BBC6),
+                modifier = Modifier.size(19.dp)
+            )
+        }
+        IconButton(
+            onClick = { onEdit(activity.id) },
+            modifier = Modifier.size(34.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Edit,
+                contentDescription = "수정",
+                tint = Color(0xFF697386),
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        IconButton(
+            onClick = { onDelete(activity) },
+            modifier = Modifier.size(34.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Delete,
+                contentDescription = "삭제",
+                tint = Color(0xFFFF4D5E),
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActivityStartGrid(
+    categories: List<String>,
+    isRunning: Boolean,
+    currentCategory: String,
+    onStart: (String) -> Unit
+) {
+    val quickCategories = remember(categories) {
+        categories.filter { it == "TOOTHBRUSH" || it == "SNACK" }
+    }
+    val activityCategories = remember(categories) {
+        categories.filter { it != "TOOTHBRUSH" && it != "SNACK" }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 12.dp)
+    ) {
+        Text(
+            text = "활동 시작",
+            fontSize = 28.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = Color(0xFF9EA3B2)
+        )
+        Text(
+            text = "빠른 타이머",
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = FlowMuted,
+            modifier = Modifier.padding(top = 30.dp, bottom = 14.dp)
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            quickCategories.forEach { category ->
+                CategoryButton(
+                    category = category,
+                    isSelected = isRunning && currentCategory == category,
+                    onClick = { onStart(category) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        Text(
+            text = "활동",
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = FlowMuted,
+            modifier = Modifier.padding(top = 30.dp, bottom = 14.dp)
+        )
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(594.dp),
+            contentPadding = PaddingValues(0.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            userScrollEnabled = false
+        ) {
+            items(activityCategories.size) { index ->
+                val category = activityCategories[index]
+                CategoryButton(
+                    category = category,
+                    isSelected = isRunning && currentCategory == category,
+                    onClick = { onStart(category) }
+                )
+            }
+        }
+    }
+}
+
+private fun categorySymbol(category: String): String {
+    return when (category) {
+        "MEAL" -> "식"
+        "REST" -> "휴"
+        "TOOTHBRUSH" -> "양"
+        "DEVELOPMENT" -> "</>"
+        "WASH" -> "씻"
+        "STUDY" -> "공"
+        "WORK" -> "업"
+        "SLEEP" -> "잠"
+        "EXERCISE" -> "운"
+        "SCHOOL" -> "학"
+        "SNACK" -> "간"
+        "TODO" -> "✓"
+        else -> displayCategory(category).take(1)
     }
 }
 
@@ -471,11 +965,11 @@ private fun AnalyticsCard(analytics: AnalyticsState) {
         shape = MaterialTheme.shapes.medium
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("통계 리포트", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            SectionLabel("어제까지 7일 활동별 하루 평균")
+            Text("통계 리포트", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = FlowInk)
+            SectionLabel("7일 활동별 하루 평균")
             AverageRows(analytics.weeklyDailyAverageStats)
             SectionLabel("주간 추세")
-            TrendBars(analytics.weeklyTrend)
+            TrendBars(analytics.weeklyTrend, analytics.weeklyDailyAverageStats)
         }
     }
 }
@@ -486,6 +980,7 @@ private fun SectionLabel(text: String) {
         text = text,
         fontSize = 13.sp,
         fontWeight = FontWeight.Bold,
+        color = FlowInk,
         modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
     )
 }
@@ -493,7 +988,7 @@ private fun SectionLabel(text: String) {
 @Composable
 private fun AverageRows(stats: List<CategoryStat>) {
     if (stats.isEmpty()) {
-        Text("최근 7일 평균을 계산할 데이터가 없습니다.", fontSize = 12.sp, color = Color.Gray)
+        Text("최근 7일 평균을 계산할 데이터가 없습니다.", fontSize = 12.sp, color = FlowMuted)
         return
     }
 
@@ -512,7 +1007,7 @@ private fun AverageRows(stats: List<CategoryStat>) {
                 .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(displayCategory(stat.category), fontSize = 12.sp, modifier = Modifier.width(72.dp))
+            Text(displayCategory(stat.category), fontSize = 12.sp, color = FlowMuted, modifier = Modifier.width(72.dp))
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -529,7 +1024,7 @@ private fun AverageRows(stats: List<CategoryStat>) {
             Text(
                 formatDurationWithoutSeconds(stat.averageMillis),
                 fontSize = 12.sp,
-                color = Color.Gray,
+                color = FlowMuted,
                 textAlign = TextAlign.End,
                 modifier = Modifier
                     .padding(start = 8.dp)
@@ -551,7 +1046,7 @@ private fun formatDurationWithoutSeconds(durationMillis: Long): String {
 }
 
 @Composable
-private fun TrendBars(points: List<TrendPoint>) {
+private fun TrendBars(points: List<TrendPoint>, stats: List<CategoryStat>) {
     val visiblePoints = remember(points) {
         if (points.size > 14) {
             points.filterIndexed { index, _ -> index % 3 == 0 || index == points.lastIndex }
@@ -559,18 +1054,19 @@ private fun TrendBars(points: List<TrendPoint>) {
             points
         }
     }
-    val categories = remember(visiblePoints) {
+    val categories = remember(visiblePoints, stats) {
+        val statMap = stats.associate { it.category to it.averageMillis }
         visiblePoints
             .flatMap { it.categoryMillis.keys }
             .distinct()
-            .sorted()
+            .sortedBy { statMap[it] ?: 0L }
     }
     val maxMillis = remember(visiblePoints) {
         visiblePoints.maxOfOrNull { it.totalMillis }?.coerceAtLeast(1L) ?: 1L
     }
 
     if (categories.isEmpty()) {
-        Text("아직 추세 데이터가 없습니다.", fontSize = 12.sp, color = Color.Gray)
+        Text("아직 추세 데이터가 없습니다.", fontSize = 12.sp, color = FlowMuted)
         return
     }
 
@@ -611,7 +1107,7 @@ private fun TrendBars(points: List<TrendPoint>) {
                         }
                     }
                 }
-                Text(point.label, fontSize = 9.sp, color = Color.Gray, maxLines = 1)
+                Text(point.label, fontSize = 9.sp, color = FlowMuted, maxLines = 1)
             }
         }
     }
@@ -639,7 +1135,7 @@ private fun CategoryLegend(categories: List<String>) {
                 Text(
                     text = displayCategory(category),
                     fontSize = 11.sp,
-                    color = Color.Gray,
+                    color = FlowMuted,
                     modifier = Modifier.padding(start = 4.dp)
                 )
             }
@@ -665,12 +1161,13 @@ private fun TimetableCard(activities: List<ActivitySession>) {
             Text(
                 text = "타임테이블",
                 fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                color = FlowInk
             )
             Text(
                 text = "오늘 활동 흐름을 한 줄 색상 막대로 보여줍니다.",
                 fontSize = 12.sp,
-                color = Color.Gray,
+                color = FlowMuted,
                 modifier = Modifier.padding(top = 4.dp)
             )
 
@@ -678,7 +1175,7 @@ private fun TimetableCard(activities: List<ActivitySession>) {
                 Text(
                     text = "아직 기록된 활동이 없습니다.",
                     fontSize = 14.sp,
-                    color = Color.Gray,
+                    color = FlowMuted,
                     modifier = Modifier.padding(top = 16.dp)
                 )
             } else {
@@ -762,17 +1259,17 @@ private fun TimetableBar(
         Text(
             text = timeFormat.format(Date(windowStart)),
             fontSize = 10.sp,
-            color = Color.Gray
+            color = FlowMuted
         )
         Text(
             text = timeFormat.format(Date((windowStart + windowEnd) / 2L)),
             fontSize = 10.sp,
-            color = Color.Gray
+            color = FlowMuted
         )
         Text(
             text = timeFormat.format(Date(windowEnd)),
             fontSize = 10.sp,
-            color = Color.Gray
+            color = FlowMuted
         )
     }
 
@@ -792,7 +1289,7 @@ private fun TimetableBar(
                 Text(
                     text = displayCategory(category),
                     fontSize = 11.sp,
-                    color = Color.Gray,
+                    color = FlowMuted,
                     modifier = Modifier.padding(start = 4.dp)
                 )
             }
