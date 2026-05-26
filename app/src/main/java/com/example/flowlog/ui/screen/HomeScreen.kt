@@ -2,6 +2,10 @@ package com.example.flowlog.ui.screen
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -56,6 +60,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -76,6 +81,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 private val FlowPurple = Color(0xFF5140D8)
 private val FlowPurpleSoft = Color(0xFFEDE9FF)
@@ -111,7 +119,8 @@ fun HomeScreen(
     val experimentCategories = remember {
         listOf(
             "EXPERIMENT_1",
-            "EXPERIMENT_2"
+            "EXPERIMENT_2",
+            "EXPERIMENT_3"
         )
     }
     val categories = remember(activityCategories, experimentCategories) {
@@ -178,6 +187,7 @@ fun HomeScreen(
                     when (category) {
                         "EXPERIMENT_1" -> viewModel.scheduleBrushDoneExperiment()
                         "EXPERIMENT_2" -> viewModel.scheduleEatAllowedExperiment()
+                        "EXPERIMENT_3" -> viewModel.startActivity(category)
                         else -> {
                             if (!uiState.isRunning || category == "SNACK" || category == "TOOTHBRUSH") {
                                 viewModel.startActivity(category)
@@ -191,6 +201,7 @@ fun HomeScreen(
         item {
             QuickTimerSection(
                 categories = categories,
+                isBrushTimerRunning = uiState.isBrushTimerRunning,
                 onStart = { category ->
                     when (category) {
                         "TOOTHBRUSH" -> viewModel.startActivity(category)
@@ -251,6 +262,7 @@ fun HomeScreen(
                     when (category) {
                         "EXPERIMENT_1" -> viewModel.scheduleBrushDoneExperiment()
                         "EXPERIMENT_2" -> viewModel.scheduleEatAllowedExperiment()
+                        "EXPERIMENT_3" -> viewModel.startActivity(category)
                     }
                 }
             )
@@ -385,8 +397,14 @@ private fun TimerPage(
     elapsedTime: Long,
     onStop: () -> Unit
 ) {
-    val progress = ((elapsedTime % TimeUnit.MINUTES.toMillis(90)).toFloat() / TimeUnit.MINUTES.toMillis(90).toFloat())
-        .coerceIn(0.08f, 1f)
+    val progressCycleMillis = if (currentCategory == "EXPERIMENT_3") {
+        TimeUnit.SECONDS.toMillis(5)
+    } else {
+        TimeUnit.HOURS.toMillis(2)
+    }
+    val cycleProgress = (elapsedTime % progressCycleMillis).toFloat() / progressCycleMillis.toFloat()
+    val progress = if (elapsedTime > 0L) cycleProgress.coerceAtLeast(0.01f) else 0f
+    val isOnFire = elapsedTime >= progressCycleMillis
 
     Column(
         modifier = Modifier
@@ -422,6 +440,7 @@ private fun TimerPage(
             }
             FlowProgressRing(
                 progress = progress,
+                isOnFire = isOnFire,
                 isRunning = true,
                 modifier = Modifier.size(150.dp)
             )
@@ -462,7 +481,7 @@ private fun FlowStartPage(
     onStart: (String) -> Unit
 ) {
     val activityCategories = remember(categories) {
-        categories.filter { it !in setOf("TOOTHBRUSH", "SNACK", "EXPERIMENT_1", "EXPERIMENT_2") }
+        categories.filter { it !in setOf("TOOTHBRUSH", "SNACK", "EXPERIMENT_1", "EXPERIMENT_2", "EXPERIMENT_3") }
     }
 
     Column(
@@ -542,6 +561,7 @@ private fun FlowPageDots(activePage: Int) {
 @Composable
 private fun QuickTimerSection(
     categories: List<String>,
+    isBrushTimerRunning: Boolean,
     onStart: (String) -> Unit
 ) {
     val quickCategories = remember(categories) {
@@ -567,6 +587,12 @@ private fun QuickTimerSection(
             quickCategories.forEach { category ->
                 CategoryButton(
                     category = category,
+                    isSelected = category == "TOOTHBRUSH" && isBrushTimerRunning,
+                    label = if (category == "TOOTHBRUSH" && isBrushTimerRunning) {
+                        "양치중"
+                    } else {
+                        displayCategory(category)
+                    },
                     onClick = { onStart(category) },
                     modifier = Modifier.weight(1f)
                 )
@@ -581,7 +607,7 @@ private fun ExperimentSection(
     onStart: (String) -> Unit
 ) {
     val experimentCategories = remember(categories) {
-        categories.filter { it == "EXPERIMENT_1" || it == "EXPERIMENT_2" }
+        categories.filter { it == "EXPERIMENT_1" || it == "EXPERIMENT_2" || it == "EXPERIMENT_3" }
     }
 
     Column(
@@ -600,7 +626,7 @@ private fun ExperimentSection(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            experimentCategories.forEach { category ->
+            experimentCategories.take(2).forEach { category ->
                 CategoryButton(
                     category = category,
                     onClick = { onStart(category) },
@@ -608,15 +634,43 @@ private fun ExperimentSection(
                 )
             }
         }
+        experimentCategories.drop(2).forEach { category ->
+            CategoryButton(
+                category = category,
+                onClick = { onStart(category) },
+                modifier = Modifier.padding(top = 12.dp)
+            )
+        }
     }
 }
 
 @Composable
 private fun FlowProgressRing(
     progress: Float,
+    isOnFire: Boolean,
     isRunning: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val fireTransition = rememberInfiniteTransition(label = "flow-fire")
+    val firePhase by fireTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 920),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "flow-fire-phase"
+    )
+    val firePulse by fireTransition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 720),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "flow-fire-pulse"
+    )
+
     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center
@@ -626,34 +680,57 @@ private fun FlowProgressRing(
             val diameter = size.minDimension - stroke.width
             val topLeft = Offset(stroke.width / 2f, stroke.width / 2f)
             val arcSize = Size(diameter, diameter)
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val radius = diameter / 2f
+            val sweepAngle = 360f * progress.coerceIn(0f, 1f)
+            val startAngle = -90f
+            val headAngle = startAngle + sweepAngle
 
             drawArc(
                 color = Color(0xFFE9E9F1),
-                startAngle = -90f,
+                startAngle = startAngle,
                 sweepAngle = 360f,
                 useCenter = false,
                 topLeft = topLeft,
                 size = arcSize,
                 style = stroke
             )
+            if (isOnFire) {
+                drawFireRingGlow(
+                    topLeft = topLeft,
+                    arcSize = arcSize,
+                    startAngle = startAngle,
+                    sweepAngle = sweepAngle,
+                    pulse = firePulse
+                )
+            }
             drawArc(
-                color = FlowPurple,
-                startAngle = 32f,
-                sweepAngle = 290f * progress,
+                color = if (isOnFire) Color(0xFFFF7A2F) else FlowPurple,
+                startAngle = startAngle,
+                sweepAngle = sweepAngle,
                 useCenter = false,
                 topLeft = topLeft,
                 size = arcSize,
                 style = stroke
             )
             drawArc(
-                color = Color(0xFFC6BEFF),
-                startAngle = -88f,
-                sweepAngle = 34f,
+                color = if (isOnFire) Color(0xFFFFE18A) else FlowPurple.copy(alpha = 0.38f),
+                startAngle = headAngle - 12f,
+                sweepAngle = 18f,
                 useCenter = false,
                 topLeft = topLeft,
                 size = arcSize,
                 style = stroke
             )
+            if (isOnFire) {
+                drawFireHead(
+                    center = center,
+                    radius = radius,
+                    headAngleDegrees = headAngle,
+                    phase = firePhase,
+                    pulse = firePulse
+                )
+            }
         }
         if (isRunning) {
             Icon(
@@ -670,6 +747,91 @@ private fun FlowProgressRing(
                 color = FlowPurple
             )
         }
+    }
+}
+
+private fun DrawScope.drawFireRingGlow(
+    topLeft: Offset,
+    arcSize: Size,
+    startAngle: Float,
+    sweepAngle: Float,
+    pulse: Float
+) {
+    drawArc(
+        color = Color(0xFFFFA646).copy(alpha = 0.14f * pulse),
+        startAngle = startAngle,
+        sweepAngle = sweepAngle,
+        useCenter = false,
+        topLeft = topLeft,
+        size = arcSize,
+        style = Stroke(width = 32.dp.toPx(), cap = StrokeCap.Round)
+    )
+    drawArc(
+        color = Color(0xFFFFD173).copy(alpha = 0.20f * pulse),
+        startAngle = startAngle + (sweepAngle - 72f).coerceAtLeast(0f),
+        sweepAngle = sweepAngle.coerceAtMost(72f),
+        useCenter = false,
+        topLeft = topLeft,
+        size = arcSize,
+        style = Stroke(width = 22.dp.toPx(), cap = StrokeCap.Round)
+    )
+}
+
+private fun DrawScope.drawFireHead(
+    center: Offset,
+    radius: Float,
+    headAngleDegrees: Float,
+    phase: Float,
+    pulse: Float
+) {
+    val headAngle = headAngleDegrees * PI.toFloat() / 180f
+    val head = Offset(
+        x = center.x + cos(headAngle) * radius,
+        y = center.y + sin(headAngle) * radius
+    )
+
+    drawCircle(
+        color = Color(0xFFFF8A2F).copy(alpha = 0.20f * pulse),
+        radius = 17.dp.toPx() * pulse,
+        center = head
+    )
+    drawCircle(
+        color = Color(0xFFFFD66E).copy(alpha = 0.88f),
+        radius = 6.8.dp.toPx(),
+        center = head
+    )
+
+    repeat(7) { index ->
+        val flutter = sin((phase * 360f + index * 53f) * PI.toFloat() / 180f)
+        val particleAngle = headAngle - (0.10f + index * 0.055f) + flutter * 0.035f
+        val particleRadius = radius + (5.dp.toPx() + (index % 3) * 3.dp.toPx()) * pulse
+        val particleCenter = Offset(
+            x = center.x + cos(particleAngle) * particleRadius,
+            y = center.y + sin(particleAngle) * particleRadius
+        )
+        drawCircle(
+            color = when (index % 3) {
+                0 -> Color(0xFFFF6A2A).copy(alpha = 0.68f)
+                1 -> Color(0xFFFFB13D).copy(alpha = 0.58f)
+                else -> Color(0xFFFFE59A).copy(alpha = 0.62f)
+            },
+            radius = (4.4f - index * 0.22f).dp.toPx().coerceAtLeast(1.8.dp.toPx()),
+            center = particleCenter
+        )
+    }
+
+    repeat(5) { index ->
+        val emberAngle = headAngle - 0.24f + index * 0.08f + phase * 0.34f
+        val emberDistance = radius + 15.dp.toPx() + index * 2.dp.toPx()
+        val emberCenter = Offset(
+            x = center.x + cos(emberAngle) * emberDistance,
+            y = center.y + sin(emberAngle) * emberDistance
+        )
+        drawCircle(
+            color = Color(0xFFFFC247).copy(alpha = 0.42f - index * 0.045f),
+            radius = (2.2f - index * 0.16f).dp.toPx().coerceAtLeast(1.1.dp.toPx()),
+            center = emberCenter
+        )
     }
 }
 

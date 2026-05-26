@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.sp
 fun CategoryButton(
     category: String,
     isSelected: Boolean = false,
+    label: String = displayCategory(category),
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -88,7 +89,7 @@ fun CategoryButton(
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = displayCategory(category),
+                    text = label,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color(0xFF1C2437),
@@ -148,6 +149,7 @@ private fun categoryIcon(category: String): ImageVector? {
         "ETC" -> Icons.Filled.MoreHoriz
         "EXPERIMENT_1" -> Icons.Filled.Science
         "EXPERIMENT_2" -> Icons.Filled.Science
+        "EXPERIMENT_3" -> Icons.Filled.Science
         else -> null
     }
 }
@@ -168,6 +170,7 @@ private fun categoryPastelColor(category: String): Color {
         "ETC" -> Color(0xFFEDEDF1)
         "EXPERIMENT_1" -> Color(0xFFE2F5F1)
         "EXPERIMENT_2" -> Color(0xFFECE7FF)
+        "EXPERIMENT_3" -> Color(0xFFFFE8D8)
         else -> Color(0xFFEDEDF1)
     }
 }

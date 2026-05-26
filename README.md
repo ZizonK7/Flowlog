@@ -24,6 +24,9 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Added a two-hour stopwatch progress ring with a subtle fire-glow loop after
+  the first cycle, plus a `3번 실험` button that previews the same effect with a
+  five-second test cycle.
 - Limited today's activity list to three visible records by default, with a
   `More` control for expanding the full list.
 - Moved account actions into the main screen and added a statistics-site button
