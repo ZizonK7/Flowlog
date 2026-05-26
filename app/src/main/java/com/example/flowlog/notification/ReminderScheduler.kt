@@ -34,10 +34,10 @@ class ReminderScheduler(private val context: Context) {
             }
             val dingChannel = NotificationChannel(
                 ToothbrushReminderReceiver.DING_CHANNEL_ID,
-                "Flowlog ding alerts",
+                "Flowlog timer app sound alerts",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Snack, meal, toothbrush, and experiment ding alerts"
+                description = "Timer alerts that play Flowlog's app sound"
                 setSound(
                     KakaoStyleAlertPlayer.soundUri(context),
                     KakaoStyleAlertPlayer.audioAttributes()
@@ -84,7 +84,7 @@ class ReminderScheduler(private val context: Context) {
         activityTimerNotifier.showSnackTimer(triggerAtMillis)
     }
 
-    fun scheduleBrushTimers() {
+    fun scheduleBrushTimers(): Long {
         cancelSnackReminder()
         cancelBrushTimers()
 
@@ -100,7 +100,7 @@ class ReminderScheduler(private val context: Context) {
         )
         activityTimerNotifier.showBrushDoneTimer(brushDoneAtMillis)
         activityTimerNotifier.showBrushEatTimer(eatAllowedAtMillis)
-        activityTimerNotifier.showBrushStartNotification()
+        return brushDoneAtMillis
     }
 
     fun scheduleBrushDoneExperiment() {

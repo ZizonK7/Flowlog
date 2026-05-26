@@ -46,7 +46,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -94,8 +93,6 @@ private val FlowDivider = Color(0xFFE8E8EE)
 @Composable
 fun HomeScreen(
     viewModel: ActivityViewModel,
-    startCategoryRequest: String? = null,
-    onStartCategoryConsumed: () -> Unit = {},
     topActions: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -148,12 +145,6 @@ fun HomeScreen(
         displayActivities.take(3)
     }
     val hiddenActivityCount = displayActivities.size - visibleActivities.size
-
-    LaunchedEffect(startCategoryRequest) {
-        val category = startCategoryRequest ?: return@LaunchedEffect
-        viewModel.startActivity(category)
-        onStartCategoryConsumed()
-    }
 
     val todayText = remember {
         SimpleDateFormat("M월 d일 (E)", Locale.KOREAN).format(Date())

@@ -38,6 +38,7 @@ class TodoReminderReceiver : BroadcastReceiver() {
 
         val notification = NotificationCompat.Builder(context, ToothbrushReminderReceiver.CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_timer_notification)
+            .setColor(NOTIFICATION_ICON_COLOR)
             .setContentTitle("할 일이 아직 남아 있어요")
             .setContentText(todo.title)
             .setStyle(NotificationCompat.BigTextStyle().bigText(todo.title))
@@ -46,7 +47,7 @@ class TodoReminderReceiver : BroadcastReceiver() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
-            .setDefaults(NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE)
+            .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
             .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
             .build()
 
@@ -65,5 +66,6 @@ class TodoReminderReceiver : BroadcastReceiver() {
     companion object {
         const val EXTRA_TODO_ID = "com.example.flowlog.extra.TODO_ID"
         private const val REQUEST_OPEN_TODO = 5101
+        private val NOTIFICATION_ICON_COLOR = 0xFF4F5060.toInt()
     }
 }

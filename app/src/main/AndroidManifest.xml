@@ -58,35 +58,16 @@
             android:name=".notification.BrushAlarmService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
-        <service
-            android:name=".widget.TodoWidgetService"
-            android:exported="false"
-            android:permission="android.permission.BIND_REMOTEVIEWS" />
         <receiver
-            android:name=".widget.FlowlogWidgetActionReceiver"
-            android:exported="false" />
-        <receiver
-            android:name=".widget.TodoWidgetActionReceiver"
-            android:exported="false" />
-        <receiver
-            android:name=".widget.FlowlogWidgetProvider"
+            android:name=".widget.FlowStatusWidgetProvider"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.example.flowlog.widget.FLOW_STATUS_REFRESH" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/flowlog_widget_info" />
-        </receiver>
-        <receiver
-            android:name=".widget.TodoWidgetProvider"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/todo_widget_info" />
+                android:resource="@xml/flow_status_widget_info" />
         </receiver>
     </application>
 

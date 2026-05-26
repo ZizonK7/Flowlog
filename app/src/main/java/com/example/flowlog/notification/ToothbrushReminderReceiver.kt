@@ -22,8 +22,14 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
         when {
             category == "SNACK" -> activityTimerNotifier.clearSnackTimer()
             category == "MEAL" -> activityTimerNotifier.clearMealTimer()
-            reminderType == TYPE_BRUSH_DONE -> activityTimerNotifier.clearBrushDoneTimer()
-            reminderType == TYPE_EAT_ALLOWED -> activityTimerNotifier.clearBrushEatTimer()
+            reminderType == TYPE_BRUSH_DONE -> {
+                activityTimerNotifier.clearBrushDoneTimer()
+                activityTimerNotifier.clearBrushStartNotification()
+            }
+            reminderType == TYPE_EAT_ALLOWED -> {
+                activityTimerNotifier.clearBrushEatTimer()
+                activityTimerNotifier.clearBrushStartNotification()
+            }
         }
 
         if (!canPostNotifications(context)) return
@@ -49,10 +55,9 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        KakaoStyleAlertPlayer.play(context)
-
         val builder = NotificationCompat.Builder(context, DING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_timer_notification)
+            .setColor(NOTIFICATION_ICON_COLOR)
             .setContentTitle(title)
             .setContentText(message)
             .setContentIntent(openPendingIntent)
@@ -60,6 +65,7 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
+            .setTimeoutAfter(ALERT_NOTIFICATION_TIMEOUT_MILLIS)
             .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
             .setSound(KakaoStyleAlertPlayer.soundUri(context))
             .setVibrate(longArrayOf(0L, 500L, 250L, 500L))
@@ -82,7 +88,7 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
 
     companion object {
         const val CHANNEL_ID = "flowlog_timer_alerts"
-        const val DING_CHANNEL_ID = "flowlog_timer_alerts_ding_v3"
+        const val DING_CHANNEL_ID = "flowlog_timer_alerts_app_sound_v2"
         const val EXTRA_CATEGORY = "extra_category"
         const val EXTRA_ACTIVITY_ID = "extra_activity_id"
         const val EXTRA_REMINDER_TYPE = "extra_reminder_type"
@@ -90,5 +96,7 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
         const val TYPE_BRUSH_DONE = "type_brush_done"
         const val TYPE_EAT_ALLOWED = "type_eat_allowed"
         private const val REQUEST_OPEN_APP = 5001
+        private const val ALERT_NOTIFICATION_TIMEOUT_MILLIS = 3_000L
+        private val NOTIFICATION_ICON_COLOR = 0xFF4F5060.toInt()
     }
 }

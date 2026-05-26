@@ -93,13 +93,11 @@ import kotlinx.coroutines.withContext
 import java.net.URL
 
 class MainActivity : ComponentActivity() {
-    private var widgetStartCategory by mutableStateOf<String?>(null)
     private var requestedScreen by mutableStateOf(SCREEN_HOME)
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        widgetStartCategory = intent.getStringExtra(EXTRA_START_CATEGORY)
         requestedScreen = intent.getStringExtra(EXTRA_OPEN_SCREEN) ?: SCREEN_HOME
         ReminderScheduler(applicationContext).ensureNotificationChannel()
         requestNotificationPermission()
@@ -222,8 +220,6 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 HomeScreen(
                                     viewModel = activityViewModel,
-                                    startCategoryRequest = widgetStartCategory,
-                                    onStartCategoryConsumed = { widgetStartCategory = null },
                                     topActions = {
                                         HeaderActions(
                                             isSignedIn = signedInUser != null,
@@ -314,7 +310,6 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        widgetStartCategory = intent.getStringExtra(EXTRA_START_CATEGORY)
         requestedScreen = intent.getStringExtra(EXTRA_OPEN_SCREEN) ?: requestedScreen
     }
 
@@ -350,7 +345,6 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
-        const val EXTRA_START_CATEGORY = "com.example.flowlog.extra.START_CATEGORY"
         const val EXTRA_OPEN_SCREEN = "com.example.flowlog.extra.OPEN_SCREEN"
         const val SCREEN_HOME = "home"
         const val SCREEN_TODO = "todo"

@@ -1,15 +1,16 @@
 package com.example.flowlog.ui.viewmodel
 
 import android.content.Context
-import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.flowlog.data.local.TimerStateStore
+import com.example.flowlog.data.local.TimerStatus
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.repository.ActivityRepository
 import com.example.flowlog.data.repository.TodoRepository
 import com.example.flowlog.notification.ActivityTimerNotifier
 import com.example.flowlog.notification.ReminderScheduler
-import com.example.flowlog.widget.FlowlogWidgetProvider
+import com.example.flowlog.widget.FlowStatusWidgetProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -72,7 +73,8 @@ data class ActivityUiState(
     val lastAddedActivity: ActivitySession? = null,
     val editingActivity: ActivitySession? = null,
     val selectedCategory: String? = null,
-    val statusMessage: String? = null
+    val statusMessage: String? = null,
+    val isBrushTimerRunning: Boolean = false
 )
 
 class ActivityViewModel(
@@ -85,27 +87,19 @@ class ActivityViewModel(
     val uiState: StateFlow<ActivityUiState> = _uiState.asStateFlow()
 
     private var timerJob: Job? = null
+    private var brushTimerJob: Job? = null
     private val activityTimerNotifier = ActivityTimerNotifier(appContext)
     private val undoPreferences = appContext.getSharedPreferences(
         PREFS_ACTIVITY_UNDO,
         Context.MODE_PRIVATE
     )
-    private val widgetPreferences = appContext.getSharedPreferences(
-        FlowlogWidgetProvider.PREFS_WIDGET,
+    private val timerPreferences = appContext.getSharedPreferences(
+        PREFS_TIMER_STATE,
         Context.MODE_PRIVATE
     )
-    private var isWritingWidgetState = false
-    private val widgetPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key in WIDGET_SESSION_KEYS && !isWritingWidgetState) {
-            viewModelScope.launch {
-                syncActiveSessionFromWidget()
-            }
-        }
-    }
-
     init {
-        widgetPreferences.registerOnSharedPreferenceChangeListener(widgetPreferenceListener)
         _uiState.update { it.copy(lastAddedActivity = loadLastAddedActivity()) }
+        restoreBrushTimerState()
         restoreActiveSession()
         seedMissingSleepRecord()
         observeAllActivities()
@@ -137,10 +131,7 @@ class ActivityViewModel(
                 statusMessage = null
             )
         }
-        writeWidgetState {
-            FlowlogWidgetProvider.setActiveSession(appContext, category, startTime)
-        }
-        updateWidgetSafely()
+        saveActiveSession(category = category, startTime = startTime)
         activityTimerNotifier.showRunningTimer(category, startTime)
         startTimer()
     }
@@ -164,16 +155,12 @@ class ActivityViewModel(
                 statusMessage = null
             )
         }
-        writeWidgetState {
-            FlowlogWidgetProvider.setActiveSession(
-                context = appContext,
-                category = "TODO",
-                startTime = startTime,
-                linkedTodoId = todoId,
-                linkedTodoTitle = title
-            )
-        }
-        updateWidgetSafely()
+        saveActiveSession(
+            category = "TODO",
+            startTime = startTime,
+            linkedTodoId = todoId,
+            linkedTodoTitle = title
+        )
         activityTimerNotifier.showRunningTimer("TODO", startTime)
         startTimer()
     }
@@ -182,6 +169,9 @@ class ActivityViewModel(
         val scheduled = runCatching {
             reminderScheduler.scheduleSnackReminder()
         }.isSuccess
+        if (scheduled) {
+            clearBrushTimerState()
+        }
         _uiState.update {
             it.copy(
                 statusMessage = if (scheduled) {
@@ -194,16 +184,21 @@ class ActivityViewModel(
     }
 
     fun scheduleBrushTimers() {
-        val scheduled = runCatching {
+        val brushTimerEndsAtMillis = runCatching {
             reminderScheduler.scheduleBrushTimers()
-        }.isSuccess
+        }.getOrNull()
+        val scheduled = brushTimerEndsAtMillis != null
+        if (brushTimerEndsAtMillis != null) {
+            rememberBrushTimerState(brushTimerEndsAtMillis)
+        }
         _uiState.update {
             it.copy(
                 statusMessage = if (scheduled) {
-                    "양치 타이머를 시작했어요. 3분과 30분 뒤에 알려드릴게요."
+                    null
                 } else {
                     "양치 타이머 설정에 실패했어요."
-                }
+                },
+                isBrushTimerRunning = scheduled || it.isBrushTimerRunning
             )
         }
     }
@@ -244,11 +239,9 @@ class ActivityViewModel(
         timerJob?.cancel()
         val elapsedTime = _uiState.value.elapsedTime
         _uiState.update { it.copy(isRunning = false) }
-        writeWidgetState {
-            FlowlogWidgetProvider.clearActiveSession(appContext)
-        }
+        TimerStateStore.pauseActiveTimer(appContext, elapsedTime)
+        FlowStatusWidgetProvider.updateAll(appContext)
         activityTimerNotifier.clearRunningTimer()
-        updateWidgetSafely()
         return elapsedTime
     }
 
@@ -270,9 +263,7 @@ class ActivityViewModel(
             linkedTodoId = state.linkedTodoId
         )
 
-        writeWidgetState {
-            FlowlogWidgetProvider.clearActiveSession(appContext)
-        }
+        clearActiveSession()
         activityTimerNotifier.clearRunningTimer()
 
         viewModelScope.launch {
@@ -297,7 +288,6 @@ class ActivityViewModel(
                     statusMessage = "활동이 저장되었습니다."
                 )
             }
-            updateWidgetSafely()
         }
     }
 
@@ -330,7 +320,6 @@ class ActivityViewModel(
                 reminderScheduler.scheduleToothbrushReminder(savedActivity)
             }
             rememberLastAddedActivity(savedActivity)
-            updateWidgetSafely()
             clearPendingActivity()
         }
     }
@@ -356,7 +345,6 @@ class ActivityViewModel(
             )
             repository.updateActivity(updatedActivity)
             rememberLastAddedActivity(updatedActivity)
-            updateWidgetSafely()
             _uiState.update {
                 it.copy(
                     pendingSavedActivity = null,
@@ -369,7 +357,6 @@ class ActivityViewModel(
     fun deleteActivity(activity: ActivitySession) {
         viewModelScope.launch {
             repository.deleteActivity(activity)
-            updateWidgetSafely()
         }
     }
 
@@ -404,7 +391,6 @@ class ActivityViewModel(
                     it.copy(statusMessage = "삭제된 최근 활동을 다시 불러왔습니다.")
                 }
             }
-            updateWidgetSafely()
         }
     }
 
@@ -416,7 +402,6 @@ class ActivityViewModel(
                     modifiedTime = System.currentTimeMillis()
                 )
             )
-            updateWidgetSafely()
         }
     }
 
@@ -455,7 +440,6 @@ class ActivityViewModel(
                 modifiedTime = System.currentTimeMillis()
             )
             repository.updateActivity(updatedActivity)
-            updateWidgetSafely()
             _uiState.update { it.copy(editingActivity = null) }
         }
     }
@@ -473,57 +457,60 @@ class ActivityViewModel(
     }
 
     private fun restoreActiveSession() {
-        val activeSession = FlowlogWidgetProvider.getActiveSessionDetails(appContext) ?: return
-        val elapsedTime = (System.currentTimeMillis() - activeSession.startTime).coerceAtLeast(0L)
+        val activeTimer = TimerStateStore.getActiveTimer(appContext) ?: return
+        if (activeTimer.status != TimerStatus.RUNNING) return
+        val category = activeTimer.category
+        val startTime = activeTimer.startTime
+        val elapsedTime = (System.currentTimeMillis() - startTime).coerceAtLeast(0L)
 
         _uiState.update {
             it.copy(
                 isRunning = true,
-                currentCategory = activeSession.category,
+                currentCategory = category,
                 elapsedTime = elapsedTime,
-                startTime = activeSession.startTime,
-                linkedTodoId = activeSession.linkedTodoId,
-                pendingTitle = activeSession.linkedTodoTitle,
+                startTime = startTime,
+                linkedTodoId = activeTimer.linkedTodoId,
+                pendingTitle = activeTimer.linkedTodoTitle,
                 statusMessage = null
             )
         }
-        activityTimerNotifier.showRunningTimer(activeSession.category, activeSession.startTime)
+        activityTimerNotifier.showRunningTimer(category, startTime)
         startTimer()
     }
 
-    private fun syncActiveSessionFromWidget() {
-        val activeSession = FlowlogWidgetProvider.getActiveSessionDetails(appContext)
-        if (activeSession == null) {
-            timerJob?.cancel()
-            activityTimerNotifier.clearRunningTimer()
-            _uiState.update {
-                it.copy(
-                    isRunning = false,
-                    currentCategory = "",
-                    elapsedTime = 0L,
-                    startTime = 0L,
-                    linkedTodoId = null,
-                    pendingTitle = null,
-                    statusMessage = null
-                )
-            }
+    private fun restoreBrushTimerState() {
+        val endsAtMillis = timerPreferences.getLong(KEY_BRUSH_TIMER_ENDS_AT, 0L)
+        if (endsAtMillis <= System.currentTimeMillis()) {
+            clearBrushTimerState()
             return
         }
 
-        val elapsedTime = (System.currentTimeMillis() - activeSession.startTime).coerceAtLeast(0L)
-        _uiState.update {
-            it.copy(
-                isRunning = true,
-                currentCategory = activeSession.category,
-                elapsedTime = elapsedTime,
-                startTime = activeSession.startTime,
-                linkedTodoId = activeSession.linkedTodoId,
-                pendingTitle = activeSession.linkedTodoTitle,
-                statusMessage = null
-            )
+        _uiState.update { it.copy(isBrushTimerRunning = true) }
+        scheduleBrushTimerStateClear(endsAtMillis)
+    }
+
+    private fun rememberBrushTimerState(endsAtMillis: Long) {
+        timerPreferences.edit()
+            .putLong(KEY_BRUSH_TIMER_ENDS_AT, endsAtMillis)
+            .apply()
+        scheduleBrushTimerStateClear(endsAtMillis)
+    }
+
+    private fun scheduleBrushTimerStateClear(endsAtMillis: Long) {
+        brushTimerJob?.cancel()
+        brushTimerJob = viewModelScope.launch {
+            delay((endsAtMillis - System.currentTimeMillis()).coerceAtLeast(0L))
+            clearBrushTimerState()
         }
-        activityTimerNotifier.showRunningTimer(activeSession.category, activeSession.startTime)
-        startTimer()
+    }
+
+    private fun clearBrushTimerState() {
+        brushTimerJob?.cancel()
+        brushTimerJob = null
+        timerPreferences.edit()
+            .remove(KEY_BRUSH_TIMER_ENDS_AT)
+            .apply()
+        _uiState.update { it.copy(isBrushTimerRunning = false) }
     }
 
     private fun observeAllActivities() {
@@ -572,7 +559,6 @@ class ActivityViewModel(
                         modifiedTime = endTime
                     )
                 )
-                updateWidgetSafely()
             }
 
             migrationPreferences.edit()
@@ -703,9 +689,7 @@ class ActivityViewModel(
 
     private fun clearPendingActivity() {
         activityTimerNotifier.clearRunningTimer()
-        writeWidgetState {
-            FlowlogWidgetProvider.clearActiveSession(appContext)
-        }
+        clearActiveSession()
         _uiState.update {
             it.copy(
                 isRunning = false,
@@ -719,21 +703,25 @@ class ActivityViewModel(
         }
     }
 
-    private inline fun writeWidgetState(action: () -> Unit) {
-        isWritingWidgetState = true
-        try {
-            action()
-        } finally {
-            isWritingWidgetState = false
-        }
+    private fun saveActiveSession(
+        category: String,
+        startTime: Long,
+        linkedTodoId: Long? = null,
+        linkedTodoTitle: String? = null
+    ) {
+        TimerStateStore.saveActiveTimer(
+            context = appContext,
+            category = category,
+            startTime = startTime,
+            linkedTodoId = linkedTodoId,
+            linkedTodoTitle = linkedTodoTitle
+        )
+        FlowStatusWidgetProvider.updateAll(appContext)
     }
 
-    private fun updateWidgetSafely() {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                FlowlogWidgetProvider.updateAll(appContext)
-            }
-        }
+    private fun clearActiveSession() {
+        TimerStateStore.clearActiveTimer(appContext)
+        FlowStatusWidgetProvider.updateAll(appContext)
     }
 
     private fun rememberLastAddedActivity(activity: ActivitySession) {
@@ -771,21 +759,17 @@ class ActivityViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        widgetPreferences.unregisterOnSharedPreferenceChangeListener(widgetPreferenceListener)
         timerJob?.cancel()
+        brushTimerJob?.cancel()
     }
 
     companion object {
         private const val PREFS_MIGRATIONS = "flowlog_migrations"
         private const val PREFS_ACTIVITY_UNDO = "activity_undo"
+        private const val PREFS_TIMER_STATE = "timer_state"
         private const val KEY_LAST_ADDED_ACTIVITY = "last_added_activity"
+        private const val KEY_BRUSH_TIMER_ENDS_AT = "brush_timer_ends_at"
         private val undoJson = Json { ignoreUnknownKeys = true }
         private const val KEY_SLEEP_RECORD_2026_05_19 = "sleep_record_2026_05_19_212957"
-        private val WIDGET_SESSION_KEYS = setOf(
-            FlowlogWidgetProvider.KEY_ACTIVE_CATEGORY,
-            FlowlogWidgetProvider.KEY_ACTIVE_START_TIME,
-            FlowlogWidgetProvider.KEY_ACTIVE_TODO_ID,
-            FlowlogWidgetProvider.KEY_ACTIVE_TODO_TITLE
-        )
     }
 }

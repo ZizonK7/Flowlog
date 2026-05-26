@@ -51,6 +51,7 @@ class BrushAlarmService : Service() {
 
     private fun buildNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_timer_notification)
+        .setColor(NOTIFICATION_ICON_COLOR)
         .setContentTitle("\uC591\uCE58 3\uBD84 \uC54C\uB78C")
         .setContentText("\uB04C \uB54C\uAE4C\uC9C0 \uC54C\uB78C\uC774 \uC6B8\uB824\uC694.")
         .setContentIntent(openAppPendingIntent())
@@ -120,6 +121,7 @@ class BrushAlarmService : Service() {
         private const val REQUEST_OPEN_APP = 4002
         private const val REQUEST_STOP_ALARM = 4003
         private const val REQUEST_ALARM_SCREEN = 4004
+        private val NOTIFICATION_ICON_COLOR = 0xFF4F5060.toInt()
 
         fun ensureNotificationChannel(context: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return

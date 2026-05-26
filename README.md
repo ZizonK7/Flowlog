@@ -1,8 +1,8 @@
 # Flowlog
 
 Flowlog is an Android time-tracking app built with Kotlin and Jetpack Compose.
-It helps you start activity timers quickly, save daily activity sessions, manage
-todo-based work time, and use home-screen widgets for fast logging.
+It helps you start activity timers quickly, save daily activity sessions, and
+manage todo-based work time.
 
 The app can also sync activity and todo data to Firebase Firestore so the same
 Google account can view the data from the pfkfks website.
@@ -13,7 +13,6 @@ Google account can view the data from the pfkfks website.
 - Save activity sessions with title, category, note, duration, and favorite state.
 - View today's activity list, timetable, weekly stats, and monthly trends.
 - Manage todos and track accumulated work time per todo.
-- Start Flowlog or Todo actions from Android widgets.
 - Schedule snack and toothbrush reminders.
 - Open the synced Flowlog statistics website from the main screen.
 - Export activity snapshots to a CSV file in the app's documents directory.
@@ -37,8 +36,8 @@ Google account can view the data from the pfkfks website.
   keeping timer and reminder alarms on the default clock icon.
 - Improved running notification text so work and development sessions use their
   own category names.
-- Prevented Flowlog and Todo widgets from overwriting an already running widget
-  session when another start button is tapped.
+- Added a compact home-screen status widget that shows the current flow,
+  elapsed time, and two-hour liquid-style progress.
 - Removed a duplicate timer-alarm path so reminder alarms are scheduled through
   a single system alarm route.
 
@@ -61,7 +60,7 @@ app/src/main/java/com/example/flowlog/
   data/remote/   Firebase Auth/Firestore sync helpers
   notification/  Reminder and timer notification code
   ui/            Compose screens, components, theme, and view models
-  widget/        Flowlog and Todo app widgets
+  widget/        Android home-screen status widget
 ```
 
 ## Firebase Setup
@@ -138,5 +137,4 @@ $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
 - Firestore is used as a cloud copy for the website, not as the primary local
   database.
 - Recent performance work reduces timer-driven recomposition, moves heavier
-  serialization and widget updates off the main path, and memoizes repeated UI
-  calculations.
+  serialization off the main path, and memoizes repeated UI calculations.

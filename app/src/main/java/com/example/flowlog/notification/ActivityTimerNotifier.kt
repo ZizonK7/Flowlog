@@ -30,6 +30,7 @@ class ActivityTimerNotifier(private val context: Context) {
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(notificationIcon(category))
+            .setColor(NOTIFICATION_ICON_COLOR)
             .setContentTitle("Flowlog timer")
             .setContentText(runningStatusText(category))
             .setContentIntent(openPendingIntent)
@@ -104,6 +105,7 @@ class ActivityTimerNotifier(private val context: Context) {
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_timer_notification)
+            .setColor(NOTIFICATION_ICON_COLOR)
             .setContentTitle("\uC591\uCE58 \uD0C0\uC774\uBA38\uB97C \uC2DC\uC791\uD588\uC5B4\uC694")
             .setContentText(
                 experimentText ?: if (isExperiment) {
@@ -114,6 +116,7 @@ class ActivityTimerNotifier(private val context: Context) {
             )
             .setContentIntent(openPendingIntent)
             .setAutoCancel(true)
+            .setTimeoutAfter(BRUSH_START_NOTIFICATION_TIMEOUT_MILLIS)
             .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -139,6 +142,10 @@ class ActivityTimerNotifier(private val context: Context) {
         NotificationManagerCompat.from(context).cancel(BRUSH_EAT_NOTIFICATION_ID)
     }
 
+    fun clearBrushStartNotification() {
+        NotificationManagerCompat.from(context).cancel(BRUSH_START_NOTIFICATION_ID)
+    }
+
     private fun showCountdownTimer(
         notificationId: Int,
         title: String,
@@ -160,6 +167,7 @@ class ActivityTimerNotifier(private val context: Context) {
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(smallIcon)
+            .setColor(NOTIFICATION_ICON_COLOR)
             .setContentTitle(title)
             .setContentText(text)
             .setContentIntent(openPendingIntent)
@@ -216,10 +224,10 @@ class ActivityTimerNotifier(private val context: Context) {
 
         val channel = NotificationChannel(
             ToothbrushReminderReceiver.DING_CHANNEL_ID,
-            "Flowlog ding alerts",
+            "Flowlog timer app sound alerts",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "Snack, meal, toothbrush, and experiment ding alerts"
+            description = "Timer alerts that play Flowlog's app sound"
             setSound(
                 KakaoStyleAlertPlayer.soundUri(context),
                 KakaoStyleAlertPlayer.audioAttributes()
@@ -264,5 +272,7 @@ class ActivityTimerNotifier(private val context: Context) {
         private const val BRUSH_EAT_NOTIFICATION_ID = 2004
         private const val MEAL_NOTIFICATION_ID = 2005
         private const val BRUSH_START_NOTIFICATION_ID = 2006
+        private const val BRUSH_START_NOTIFICATION_TIMEOUT_MILLIS = 3_000L
+        private val NOTIFICATION_ICON_COLOR = 0xFF4F5060.toInt()
     }
 }

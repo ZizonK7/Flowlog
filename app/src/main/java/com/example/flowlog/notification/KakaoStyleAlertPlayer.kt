@@ -13,7 +13,7 @@ object KakaoStyleAlertPlayer {
 
     fun audioAttributes(): AudioAttributes =
         AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .setUsage(AudioAttributes.USAGE_ALARM)
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
 

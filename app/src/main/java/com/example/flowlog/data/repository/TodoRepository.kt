@@ -6,10 +6,7 @@ import com.example.flowlog.data.local.TodoLocalDataSource
 import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.data.remote.FirestoreSyncRepository
 import com.example.flowlog.notification.TodoReminderScheduler
-import com.example.flowlog.widget.TodoWidgetProvider
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.withContext
 
 class TodoRepository(context: Context) {
     private val appContext = context.applicationContext
@@ -31,7 +28,6 @@ class TodoRepository(context: Context) {
             syncRepository.syncTodo(todo.copy(id = id))
         }
         todoReminderScheduler.scheduleInitialReminder(id, todo.createdAt)
-        updateWidget()
         return id
     }
 
@@ -45,7 +41,6 @@ class TodoRepository(context: Context) {
         } else {
             todoReminderScheduler.scheduleInitialReminder(id, System.currentTimeMillis())
         }
-        updateWidget()
     }
 
     suspend fun deleteTodo(todo: TodoItem) {
@@ -54,7 +49,6 @@ class TodoRepository(context: Context) {
             syncRepository.deleteTodo(todo.id)
         }
         todoReminderScheduler.cancelReminder(todo.id)
-        updateWidget()
     }
 
     suspend fun addAccumulatedMillis(id: Long, durationMillis: Long) {
@@ -62,16 +56,9 @@ class TodoRepository(context: Context) {
         runCatching {
             syncAllTodos()
         }
-        updateWidget()
     }
 
     private suspend fun syncAllTodos() {
         syncRepository.syncTodos(TodoLocalDataSource.loadSnapshot(appContext))
-    }
-
-    private suspend fun updateWidget() {
-        withContext(Dispatchers.IO) {
-            TodoWidgetProvider.updateAll(appContext)
-        }
     }
 }
