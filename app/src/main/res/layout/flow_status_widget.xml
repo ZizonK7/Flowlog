@@ -5,6 +5,7 @@
     android:layout_height="match_parent"
     android:padding="4dp">
 
+    <!-- Pill shape background: empty=plain base, active=liquid fill (programmatic bitmap) -->
     <ImageView
         android:id="@+id/flow_status_widget_image"
         android:layout_width="match_parent"
@@ -13,6 +14,58 @@
         android:contentDescription="@string/app_name"
         android:scaleType="fitXY" />
 
+    <!-- Empty state: character on left, text on right -->
+    <LinearLayout
+        android:id="@+id/flow_status_empty_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="10dp"
+        android:paddingEnd="16dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/flow_status_character_image"
+            android:layout_width="44dp"
+            android:layout_height="match_parent"
+            android:contentDescription="@string/app_name"
+            android:scaleType="centerInside" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:gravity="center_vertical"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/flow_status_empty_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#50466E"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/flow_status_empty_sublabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="#887AA5"
+                android:textSize="11sp" />
+
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Active state: category label + elapsed time -->
     <LinearLayout
         android:id="@+id/flow_status_widget_text_row"
         android:layout_width="match_parent"
@@ -20,7 +73,8 @@
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="22dp"
-        android:paddingEnd="22dp">
+        android:paddingEnd="22dp"
+        android:visibility="gone">
 
         <TextView
             android:id="@+id/flow_status_widget_label"
