@@ -124,7 +124,7 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
                 when {
                     isPaused -> " · 멈춤 "
                     isOverGoal -> " · 넘치는 중 "
-                    else -> " · 흐르는 중 "
+                    else -> " · flowing "
                 }
             )
         }
