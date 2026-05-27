@@ -41,8 +41,10 @@ import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material3.Switch
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -69,6 +71,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
+import com.example.flowlog.data.local.UserRole
+import com.example.flowlog.data.local.UserRoleStore
 import com.example.flowlog.data.remote.FlowlogCloudSync
 import com.example.flowlog.data.remote.awaitResult
 import androidx.core.app.ActivityCompat
@@ -125,6 +129,18 @@ class MainActivity : ComponentActivity() {
                 var signedInUser by remember { mutableStateOf(auth.currentUser) }
                 var syncStatus by remember { mutableStateOf<String?>(null) }
                 val scope = rememberCoroutineScope()
+
+                val userRoleStore = remember { UserRoleStore(this@MainActivity) }
+                val isDeveloper = remember(signedInUser) {
+                    userRoleStore.roleForUid(signedInUser?.uid) == UserRole.DEVELOPER
+                }
+                var isDeveloperMode by remember { mutableStateOf(userRoleStore.isDeveloperMode()) }
+                LaunchedEffect(isDeveloper) {
+                    if (!isDeveloper && isDeveloperMode) {
+                        isDeveloperMode = false
+                        userRoleStore.setDeveloperMode(false)
+                    }
+                }
 
                 DisposableEffect(auth) {
                     val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
@@ -211,6 +227,7 @@ class MainActivity : ComponentActivity() {
                             if (page == 1) {
                                 TodoScreen(
                                     viewModel = todoViewModel,
+                                    isDeveloperMode = isDeveloperMode,
                                     onStartTodo = { todo ->
                                         activityViewModel.startTodoActivity(todo.id, todo.title)
                                         currentScreen = "home"
@@ -227,7 +244,14 @@ class MainActivity : ComponentActivity() {
                                             profilePhotoUrl = signedInUser?.photoUrl?.toString(),
                                             onStatsClick = openStatsSite,
                                             onBlogClick = openDeveloperBlog,
-                                            onAccountClick = runAccountSync
+                                            onAccountClick = runAccountSync,
+                                            isDeveloper = isDeveloper,
+                                            isDeveloperMode = isDeveloperMode,
+                                            onToggleDevMode = {
+                                                val newMode = !isDeveloperMode
+                                                isDeveloperMode = newMode
+                                                userRoleStore.setDeveloperMode(newMode)
+                                            }
                                         )
                                     },
                                     modifier = Modifier.fillMaxSize()
@@ -359,7 +383,10 @@ private fun HeaderActions(
     profilePhotoUrl: String?,
     onStatsClick: () -> Unit,
     onBlogClick: () -> Unit,
-    onAccountClick: () -> Unit
+    onAccountClick: () -> Unit,
+    isDeveloper: Boolean = false,
+    isDeveloperMode: Boolean = false,
+    onToggleDevMode: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -425,6 +452,27 @@ private fun HeaderActions(
                         onBlogClick()
                     }
                 )
+                if (isDeveloper) {
+                    DropdownMenuItem(
+                        text = { Text("개발자 모드") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.Build,
+                                contentDescription = null
+                            )
+                        },
+                        trailingIcon = {
+                            Switch(
+                                checked = isDeveloperMode,
+                                onCheckedChange = null
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onToggleDevMode()
+                        }
+                    )
+                }
             }
         }
     }

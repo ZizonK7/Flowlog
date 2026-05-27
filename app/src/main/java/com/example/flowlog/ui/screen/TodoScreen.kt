@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
@@ -97,6 +98,7 @@ private val ChipShape    = RoundedCornerShape(20.dp)
 fun TodoScreen(
     viewModel: TodoViewModel,
     onStartTodo: (TodoItem) -> Unit,
+    isDeveloperMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val todos         by viewModel.todos.collectAsState()
@@ -174,13 +176,29 @@ fun TodoScreen(
     ) {
         // ── 제목 ──────────────────────────────────────────────────────────────
         item(key = "header") {
-            Text(
-                "Todo",
-                fontSize = 31.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = TextPrimary,
-                modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 4.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Todo",
+                    fontSize = 31.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = TextPrimary,
+                    modifier = Modifier.weight(1f)
+                )
+                if (isDeveloperMode) {
+                    IconButton(onClick = { viewModel.refreshSort() }) {
+                        Icon(
+                            imageVector = Icons.Filled.Refresh,
+                            contentDescription = "정렬 새로고침",
+                            tint = TextMuted
+                        )
+                    }
+                }
+            }
         }
 
         // ── 입력 카드 ─────────────────────────────────────────────────────────

@@ -114,16 +114,7 @@ fun HomeScreen(
             "ETC"
         )
     }
-    val experimentCategories = remember {
-        listOf(
-            "EXPERIMENT_1",
-            "EXPERIMENT_2",
-            "EXPERIMENT_3"
-        )
-    }
-    val categories = remember(activityCategories, experimentCategories) {
-        activityCategories + experimentCategories
-    }
+    val categories = activityCategories
     val selectedCategory = uiState.selectedCategory
     val isFiltered = selectedCategory != null
     val displayActivities by remember(
@@ -176,15 +167,8 @@ fun HomeScreen(
                     viewModel.stopActivityAndSave()
                 },
                 onStart = { category ->
-                    when (category) {
-                        "EXPERIMENT_1" -> viewModel.scheduleBrushDoneExperiment()
-                        "EXPERIMENT_2" -> viewModel.scheduleEatAllowedExperiment()
-                        "EXPERIMENT_3" -> viewModel.startActivity(category)
-                        else -> {
-                            if (!uiState.isRunning || category == "SNACK" || category == "TOOTHBRUSH") {
-                                viewModel.startActivity(category)
-                            }
-                        }
+                    if (!uiState.isRunning || category == "SNACK" || category == "TOOTHBRUSH") {
+                        viewModel.startActivity(category)
                     }
                 }
             )
@@ -247,18 +231,6 @@ fun HomeScreen(
             AnalyticsCard(analytics = uiState.analytics)
         }
 
-        item {
-            ExperimentSection(
-                categories = categories,
-                onStart = { category ->
-                    when (category) {
-                        "EXPERIMENT_1" -> viewModel.scheduleBrushDoneExperiment()
-                        "EXPERIMENT_2" -> viewModel.scheduleEatAllowedExperiment()
-                        "EXPERIMENT_3" -> viewModel.startActivity(category)
-                    }
-                }
-            )
-        }
     } // LazyColumn 닫기
 
     if (uiState.editingActivity != null) {

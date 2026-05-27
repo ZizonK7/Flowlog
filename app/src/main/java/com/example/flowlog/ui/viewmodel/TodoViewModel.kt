@@ -24,12 +24,16 @@ class TodoViewModel(
     private val _todos = MutableStateFlow<List<TodoItem>>(emptyList())
     val todos: StateFlow<List<TodoItem>> = _todos.asStateFlow()
 
-    // 하루 동안 고정된 오늘의 목표 ID 집합 (SharedPreferences로 재시작 후에도 유지)
-    private val _focusIds = MutableStateFlow<Set<Long>>(emptySet())
+    // 하루 동안 고정된 오늘의 목표 ID 목록 — 우선순위 순서 보존 (List)
+    private val _focusIds = MutableStateFlow<List<Long>>(emptyList())
 
     val todayFocusItems: StateFlow<List<TodoItem>> = combine(_todos, _focusIds) { todos, ids ->
-        todos.filter { it.id in ids }
-            .sortedBy { if (it.isCompleted) 1 else 0 }
+        val idToIndex = ids.mapIndexed { i, id -> id to i }.toMap()
+        todos.filter { it.id in idToIndex }
+            .sortedWith(compareBy(
+                { if (it.isCompleted) 1 else 0 },   // 완료 항목은 하단
+                { idToIndex[it.id] ?: Int.MAX_VALUE } // 미완료 내에서 우선순위 순
+            ))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
@@ -46,21 +50,25 @@ class TodoViewModel(
     private fun initFocusIds(allTodos: List<TodoItem>) {
         val todayKey = startOfDay(System.currentTimeMillis())
         val storedKey = focusPrefs.getLong("date_key", 0L)
-        val storedIds = focusPrefs.getStringSet("focus_ids", emptySet())
-            ?.mapNotNull { it.toLongOrNull() }?.toSet() ?: emptySet()
+        // focus_ids_ordered 없으면 이전 버전 focus_ids(Set) 폴백
+        val storedOrdered = focusPrefs.getString("focus_ids_ordered", null)
+            ?.split(",")?.mapNotNull { it.toLongOrNull() }
+            ?: focusPrefs.getStringSet("focus_ids", emptySet())
+                ?.mapNotNull { it.toLongOrNull() }
+            ?: emptyList()
 
-        if (storedKey == todayKey && storedIds.isNotEmpty()) {
-            // 오늘이면 저장된 ID 그대로 복원
-            _focusIds.value = storedIds
+        if (storedKey == todayKey && storedOrdered.isNotEmpty()) {
+            // 오늘이면 우선순위 순서 그대로 복원
+            _focusIds.value = storedOrdered
             return
         }
 
         // 새로운 오늘의 목표 선정 후 저장 (이전 날 완료 항목은 DB/CSV에 보존)
-        val newIds = selectTodayFocus(allTodos).map { it.id }.toSet()
+        val newIds = selectTodayFocus(allTodos).map { it.id }
         _focusIds.value = newIds
         focusPrefs.edit()
             .putLong("date_key", todayKey)
-            .putStringSet("focus_ids", newIds.map { it.toString() }.toSet())
+            .putString("focus_ids_ordered", newIds.joinToString(","))
             .apply()
     }
 
@@ -118,6 +126,18 @@ class TodoViewModel(
         viewModelScope.launch {
             repository.deleteTodo(todo)
         }
+    }
+
+    fun refreshSort() {
+        val currentTodos = _todos.value
+        if (currentTodos.isEmpty()) return
+        val newIds = selectTodayFocus(currentTodos).map { it.id }
+        _focusIds.value = newIds
+        val todayKey = startOfDay(System.currentTimeMillis())
+        focusPrefs.edit()
+            .putLong("date_key", todayKey)
+            .putString("focus_ids_ordered", newIds.joinToString(","))
+            .apply()
     }
 
     // durationMillis 단위로 받아서 내부적으로 초 단위로 저장
