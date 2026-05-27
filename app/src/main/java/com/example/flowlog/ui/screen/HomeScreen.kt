@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.sp
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.ui.component.ActivityTitleDialog
 import com.example.flowlog.ui.component.CategoryButton
+import com.example.flowlog.ui.component.CategoryGlyph
 import com.example.flowlog.ui.component.EditActivityDialog
 import com.example.flowlog.ui.component.categoryColor
 import com.example.flowlog.ui.component.displayCategory
@@ -945,11 +946,10 @@ private fun RecentRecordRow(
                 .background(categoryColor, RoundedCornerShape(14.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = categorySymbol(activity.category),
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.ExtraBold
+            CategoryGlyph(
+                category = activity.category,
+                tint = Color.White,
+                modifier = Modifier.size(22.dp)
             )
         }
         Column(
@@ -1089,23 +1089,6 @@ private fun ActivityStartGrid(
     }
 }
 
-private fun categorySymbol(category: String): String {
-    return when (category) {
-        "MEAL" -> "식"
-        "REST" -> "휴"
-        "TOOTHBRUSH" -> "양"
-        "DEVELOPMENT" -> "</>"
-        "WASH" -> "씻"
-        "STUDY" -> "공"
-        "WORK" -> "업"
-        "SLEEP" -> "잠"
-        "EXERCISE" -> "운"
-        "SCHOOL" -> "학"
-        "SNACK" -> "간"
-        "TODO" -> "✓"
-        else -> displayCategory(category).take(1)
-    }
-}
 
 @Composable
 private fun AnalyticsCard(analytics: AnalyticsState) {

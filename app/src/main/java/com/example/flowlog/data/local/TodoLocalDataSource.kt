@@ -2,6 +2,8 @@ package com.example.flowlog.data.local
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Environment
+import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -11,8 +13,12 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-class TodoLocalDataSource(context: Context) : TodoDao {
+class TodoLocalDataSource(private val context: Context) : TodoDao {
     private val sharedPreferences: SharedPreferences = context.getSharedPreferences(
         PREFS_TODO,
         Context.MODE_PRIVATE
@@ -22,15 +28,10 @@ class TodoLocalDataSource(context: Context) : TodoDao {
         ensureLoaded(sharedPreferences)
     }
 
-    override fun getAllTodos(): Flow<List<TodoItem>> {
-        return todos
-    }
+    override fun getAllTodos(): Flow<List<TodoItem>> = todos
 
-    override fun getIncompleteTodos(): Flow<List<TodoItem>> {
-        return todos.map { items ->
-            items.filter { !it.isDone }
-        }
-    }
+    override fun getIncompleteTodos(): Flow<List<TodoItem>> =
+        todos.map { items -> items.filter { !it.isCompleted } }
 
     override suspend fun insertTodo(todo: TodoItem): Long {
         val allTodos = todos.value.toMutableList()
@@ -40,59 +41,81 @@ class TodoLocalDataSource(context: Context) : TodoDao {
         return newTodo.id
     }
 
-    override suspend fun updateDone(id: Long, isDone: Boolean, completedAt: Long?) {
-        updateTodo(id) { todo ->
-            todo.copy(
-                isDone = isDone,
-                completedAt = completedAt
-            )
-        }
+    override suspend fun updateCompleted(id: Long, isCompleted: Boolean, completedAt: Long?) {
+        updateTodoById(id) { it.copy(isCompleted = isCompleted, completedAt = completedAt, updatedAt = System.currentTimeMillis()) }
+    }
+
+    override suspend fun updateTodo(todo: TodoItem) {
+        val next = todos.value.map { if (it.id == todo.id) todo else it }
+        saveTodos(next)
     }
 
     override suspend fun deleteTodo(todo: TodoItem) {
-        val nextTodos = todos.value.filterNot { it.id == todo.id }
-        saveTodos(nextTodos)
+        saveTodos(todos.value.filterNot { it.id == todo.id })
     }
 
-    override suspend fun addAccumulatedMillis(id: Long, durationMillis: Long) {
-        if (durationMillis == 0L) return
-
-        updateTodo(id) { todo ->
-            todo.copy(
-                accumulatedMillis = (todo.accumulatedMillis + durationMillis).coerceAtLeast(0L)
-            )
-        }
+    override suspend fun addAccumulatedSeconds(id: Long, seconds: Long) {
+        if (seconds == 0L) return
+        updateTodoById(id) { it.copy(accumulatedSeconds = (it.accumulatedSeconds + seconds).coerceAtLeast(0L)) }
     }
 
-    private suspend fun updateTodo(id: Long, transform: (TodoItem) -> TodoItem) {
-        val nextTodos = todos.value.map { todo ->
-            if (todo.id == id) transform(todo) else todo
-        }
-        saveTodos(nextTodos)
-    }
-
-    private fun loadTodos(): List<TodoItem> {
-        val data = sharedPreferences.getString(KEY_ALL_TODOS, "[]") ?: "[]"
-        return try {
-            snapshotJson.decodeFromString<List<TodoItem>>(data)
-        } catch (e: Exception) {
-            emptyList()
-        }
+    private suspend fun updateTodoById(id: Long, transform: (TodoItem) -> TodoItem) {
+        saveTodos(todos.value.map { if (it.id == id) transform(it) else it })
     }
 
     private suspend fun saveTodos(newTodos: List<TodoItem>) {
-        val sortedTodos = withContext(Dispatchers.Default) {
+        val sorted = withContext(Dispatchers.Default) {
             newTodos.sortedWith(
-                compareBy<TodoItem> { it.isDone }
+                compareBy<TodoItem> { it.isCompleted }
                     .thenByDescending { it.createdAt }
             )
         }
-        todos.value = sortedTodos
+        todos.value = sorted
         withContext(Dispatchers.IO) {
             sharedPreferences.edit()
-                .putString(KEY_ALL_TODOS, snapshotJson.encodeToString(sortedTodos))
+                .putString(KEY_ALL_TODOS, snapshotJson.encodeToString(sorted))
                 .apply()
+            writeCsvSnapshot(sorted)
         }
+    }
+
+    private fun writeCsvSnapshot(allTodos: List<TodoItem>) {
+        val exportDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+            ?: File(context.filesDir, "exports")
+        if (!exportDir.exists()) exportDir.mkdirs()
+
+        val csvFile = File(exportDir, "flowlog_todos.csv")
+        val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+
+        val csv = buildString {
+            append("﻿")
+            appendLine("id,title,category,is_completed,created_at,completed_at,selected_date,accumulated_seconds,updated_at")
+            allTodos.sortedBy { it.createdAt }.forEach { todo ->
+                appendLine(
+                    listOf(
+                        todo.id.toString(),
+                        todo.title,
+                        todo.category.name,
+                        todo.isCompleted.toString(),
+                        formatCsvTime(todo.createdAt, timeFormat),
+                        todo.completedAt?.let { formatCsvTime(it, timeFormat) } ?: "",
+                        todo.selectedDate?.let { formatCsvTime(it, timeFormat) } ?: "",
+                        todo.accumulatedSeconds.toString(),
+                        formatCsvTime(todo.updatedAt, timeFormat)
+                    ).joinToString(",") { csvEscape(it) }
+                )
+            }
+        }
+
+        runCatching { csvFile.writeText(csv, Charsets.UTF_8) }
+    }
+
+    private fun formatCsvTime(timestamp: Long, format: SimpleDateFormat): String =
+        format.format(Date(timestamp))
+
+    private fun csvEscape(value: String): String {
+        val escaped = value.replace("\"", "\"\"")
+        return "\"$escaped\""
     }
 
     companion object {
@@ -100,8 +123,7 @@ class TodoLocalDataSource(context: Context) : TodoDao {
         const val KEY_ALL_TODOS = "all_todos"
         private val snapshotJson = Json { ignoreUnknownKeys = true }
         private val todos = MutableStateFlow<List<TodoItem>>(emptyList())
-        @Volatile
-        private var isLoaded = false
+        @Volatile private var isLoaded = false
 
         private fun ensureLoaded(sharedPreferences: SharedPreferences) {
             if (isLoaded) return
@@ -112,10 +134,8 @@ class TodoLocalDataSource(context: Context) : TodoDao {
             }
         }
 
-        fun loadSnapshot(context: Context): List<TodoItem> {
-            val sharedPreferences = context.getSharedPreferences(PREFS_TODO, Context.MODE_PRIVATE)
-            return loadSnapshot(sharedPreferences)
-        }
+        fun loadSnapshot(context: Context): List<TodoItem> =
+            loadSnapshot(context.getSharedPreferences(PREFS_TODO, Context.MODE_PRIVATE))
 
         private fun loadSnapshot(sharedPreferences: SharedPreferences): List<TodoItem> {
             val data = sharedPreferences.getString(KEY_ALL_TODOS, "[]") ?: "[]"

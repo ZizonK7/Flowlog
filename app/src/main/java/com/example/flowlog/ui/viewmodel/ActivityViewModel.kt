@@ -270,7 +270,7 @@ class ActivityViewModel(
             val newId = repository.insertActivity(activity)
             val savedActivity = activity.copy(id = newId)
             state.linkedTodoId?.let { todoId ->
-                todoRepository.addAccumulatedMillis(todoId, durationMillis)
+                todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
             }
             runCatching {
                 reminderScheduler.scheduleToothbrushReminder(savedActivity)
@@ -314,7 +314,7 @@ class ActivityViewModel(
             val newId = repository.insertActivity(activity)
             val savedActivity = activity.copy(id = newId)
             state.linkedTodoId?.let { todoId ->
-                todoRepository.addAccumulatedMillis(todoId, durationMillis)
+                todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
             }
             runCatching {
                 reminderScheduler.scheduleToothbrushReminder(savedActivity)
@@ -368,7 +368,7 @@ class ActivityViewModel(
             if (existingActivity != null) {
                 repository.deleteActivity(existingActivity)
                 existingActivity.linkedTodoId?.let { todoId ->
-                    todoRepository.addAccumulatedMillis(todoId, -existingActivity.durationMillis)
+                    todoRepository.addAccumulatedSeconds(todoId, -existingActivity.durationMillis / 1000L)
                 }
                 _uiState.update {
                     it.copy(
@@ -384,7 +384,7 @@ class ActivityViewModel(
                 val restoredId = repository.insertActivity(restoreDraft)
                 val restoredActivity = restoreDraft.copy(id = restoredId)
                 restoredActivity.linkedTodoId?.let { todoId ->
-                    todoRepository.addAccumulatedMillis(todoId, restoredActivity.durationMillis)
+                    todoRepository.addAccumulatedSeconds(todoId, restoredActivity.durationMillis / 1000L)
                 }
                 rememberLastAddedActivity(restoredActivity)
                 _uiState.update {

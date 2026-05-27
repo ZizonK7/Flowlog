@@ -95,10 +95,12 @@ class FirestoreSyncRepository(
     private fun TodoItem.toRemoteMap(): Map<String, Any?> = mapOf(
         "id" to id,
         "title" to title,
-        "isDone" to isDone,
+        "category" to category.name,
+        "isCompleted" to isCompleted,
         "createdAt" to createdAt,
         "completedAt" to completedAt,
-        "dueDate" to dueDate,
-        "accumulatedMillis" to accumulatedMillis
+        "selectedDate" to selectedDate,
+        "accumulatedSeconds" to accumulatedSeconds,
+        "updatedAt" to updatedAt
     )
 }

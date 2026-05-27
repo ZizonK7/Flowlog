@@ -13,6 +13,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.flowlog.MainActivity
 import com.example.flowlog.R
+import com.example.flowlog.ui.component.categoryNotificationIconRes
 import com.example.flowlog.ui.component.displayCategory
 
 class ActivityTimerNotifier(private val context: Context) {
@@ -185,22 +186,7 @@ class ActivityTimerNotifier(private val context: Context) {
         NotificationManagerCompat.from(context).notify(notificationId, builder.build())
     }
 
-    private fun notificationIcon(category: String): Int {
-        return when (category) {
-            "STUDY" -> R.drawable.ic_activity_study
-            "WORK" -> R.drawable.ic_activity_work
-            "DEVELOPMENT" -> R.drawable.ic_activity_development
-            "SCHOOL" -> R.drawable.ic_activity_school
-            "MEAL" -> R.drawable.ic_activity_meal
-            "SNACK" -> R.drawable.ic_activity_snack
-            "TOOTHBRUSH" -> R.drawable.ic_activity_toothbrush
-            "EXERCISE" -> R.drawable.ic_activity_exercise
-            "SLEEP" -> R.drawable.ic_activity_sleep
-            "REST" -> R.drawable.ic_activity_rest
-            "TODO" -> R.drawable.ic_activity_todo
-            else -> R.drawable.ic_activity_generic
-        }
-    }
+    private fun notificationIcon(category: String): Int = categoryNotificationIconRes(category)
 
     private fun ensureNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return

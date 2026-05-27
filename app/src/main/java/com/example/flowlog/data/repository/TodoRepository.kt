@@ -14,48 +14,41 @@ class TodoRepository(context: Context) {
     private val todoReminderScheduler = TodoReminderScheduler(appContext)
     private val syncRepository = FirestoreSyncRepository()
 
-    fun getAllTodos(): Flow<List<TodoItem>> {
-        return todoDao.getAllTodos()
-    }
+    fun getAllTodos(): Flow<List<TodoItem>> = todoDao.getAllTodos()
 
-    fun getIncompleteTodos(): Flow<List<TodoItem>> {
-        return todoDao.getIncompleteTodos()
-    }
+    fun getIncompleteTodos(): Flow<List<TodoItem>> = todoDao.getIncompleteTodos()
 
     suspend fun insertTodo(todo: TodoItem): Long {
         val id = todoDao.insertTodo(todo)
-        runCatching {
-            syncRepository.syncTodo(todo.copy(id = id))
-        }
+        runCatching { syncRepository.syncTodo(todo.copy(id = id)) }
         todoReminderScheduler.scheduleInitialReminder(id, todo.createdAt)
         return id
     }
 
-    suspend fun updateDone(id: Long, isDone: Boolean, completedAt: Long?) {
-        todoDao.updateDone(id, isDone, completedAt)
-        runCatching {
-            syncAllTodos()
-        }
-        if (isDone) {
+    suspend fun updateCompleted(id: Long, isCompleted: Boolean, completedAt: Long?) {
+        todoDao.updateCompleted(id, isCompleted, completedAt)
+        runCatching { syncAllTodos() }
+        if (isCompleted) {
             todoReminderScheduler.cancelReminder(id)
         } else {
             todoReminderScheduler.scheduleInitialReminder(id, System.currentTimeMillis())
         }
     }
 
+    suspend fun updateTodo(todo: TodoItem) {
+        todoDao.updateTodo(todo)
+        runCatching { syncAllTodos() }
+    }
+
     suspend fun deleteTodo(todo: TodoItem) {
         todoDao.deleteTodo(todo)
-        runCatching {
-            syncRepository.deleteTodo(todo.id)
-        }
+        runCatching { syncRepository.deleteTodo(todo.id) }
         todoReminderScheduler.cancelReminder(todo.id)
     }
 
-    suspend fun addAccumulatedMillis(id: Long, durationMillis: Long) {
-        todoDao.addAccumulatedMillis(id, durationMillis)
-        runCatching {
-            syncAllTodos()
-        }
+    suspend fun addAccumulatedSeconds(id: Long, seconds: Long) {
+        todoDao.addAccumulatedSeconds(id, seconds)
+        runCatching { syncAllTodos() }
     }
 
     private suspend fun syncAllTodos() {

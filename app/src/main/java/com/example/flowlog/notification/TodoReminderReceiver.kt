@@ -21,7 +21,7 @@ class TodoReminderReceiver : BroadcastReceiver() {
         if (todoId == 0L) return
 
         val todo = TodoLocalDataSource.loadSnapshot(context)
-            .firstOrNull { it.id == todoId && !it.isDone }
+            .firstOrNull { it.id == todoId && !it.isCompleted }
             ?: return
 
         TodoReminderScheduler(context).scheduleNextRandomReminder(todoId)

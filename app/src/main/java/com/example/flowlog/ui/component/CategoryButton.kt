@@ -15,19 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.DirectionsRun
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.Bed
-import androidx.compose.material.icons.filled.BusinessCenter
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Coffee
-import androidx.compose.material.icons.filled.Cookie
-import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.Restaurant
-import androidx.compose.material.icons.filled.School
-import androidx.compose.material.icons.filled.Science
-import androidx.compose.material.icons.filled.Shower
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -39,7 +26,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -111,14 +97,14 @@ fun CategoryButton(
 }
 
 @Composable
-private fun CategoryGlyph(
+fun CategoryGlyph(
     category: String,
     tint: Color,
     modifier: Modifier = Modifier
 ) {
     when (category) {
         "TOOTHBRUSH" -> ToothbrushGlyph(tint = tint, modifier = modifier)
-        else -> categoryIcon(category)?.let { icon ->
+        else -> categoryAppIcon(category)?.let { icon ->
             Icon(
                 imageVector = icon,
                 contentDescription = null,
@@ -131,26 +117,6 @@ private fun CategoryGlyph(
             fontSize = 20.sp,
             fontWeight = FontWeight.ExtraBold
         )
-    }
-}
-
-private fun categoryIcon(category: String): ImageVector? {
-    return when (category) {
-        "SNACK" -> Icons.Filled.Cookie
-        "MEAL" -> Icons.Filled.Restaurant
-        "STUDY" -> Icons.AutoMirrored.Filled.MenuBook
-        "WORK" -> Icons.Filled.BusinessCenter
-        "DEVELOPMENT" -> Icons.Filled.Code
-        "WASH" -> Icons.Filled.Shower
-        "SCHOOL" -> Icons.Filled.School
-        "EXERCISE" -> Icons.AutoMirrored.Filled.DirectionsRun
-        "SLEEP" -> Icons.Filled.Bed
-        "REST" -> Icons.Filled.Coffee
-        "ETC" -> Icons.Filled.MoreHoriz
-        "EXPERIMENT_1" -> Icons.Filled.Science
-        "EXPERIMENT_2" -> Icons.Filled.Science
-        "EXPERIMENT_3" -> Icons.Filled.Science
-        else -> null
     }
 }
 

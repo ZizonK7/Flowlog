@@ -11,7 +11,7 @@ class TodoReminderBootReceiver : BroadcastReceiver() {
 
         val scheduler = TodoReminderScheduler(context)
         TodoLocalDataSource.loadSnapshot(context)
-            .filter { !it.isDone }
+            .filter { !it.isCompleted }
             .forEach { todo ->
                 if (todo.createdAt + TodoReminderScheduler.INITIAL_DELAY_MILLIS > System.currentTimeMillis()) {
                     scheduler.scheduleInitialReminder(todo.id, todo.createdAt)

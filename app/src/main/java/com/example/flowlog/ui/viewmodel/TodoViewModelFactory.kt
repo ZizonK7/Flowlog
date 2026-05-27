@@ -9,7 +9,7 @@ class TodoViewModelFactory(private val context: Context) : ViewModelProvider.Fac
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(TodoViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return TodoViewModel(TodoRepository(context.applicationContext)) as T
+            return TodoViewModel(TodoRepository(context.applicationContext), context.applicationContext) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
