@@ -14,9 +14,12 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -73,8 +76,10 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import com.example.flowlog.data.local.UserRole
 import com.example.flowlog.data.local.UserRoleStore
-import com.example.flowlog.data.remote.FlowlogCloudSync
+import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.remote.awaitResult
+import com.example.flowlog.data.sync.FirebaseSyncAlarmScheduler
+import com.example.flowlog.data.sync.FirebaseSyncCoordinator
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
@@ -93,17 +98,22 @@ import com.example.flowlog.ui.viewmodel.TodoViewModel
 import com.example.flowlog.ui.viewmodel.TodoViewModelFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.net.URL
 
 class MainActivity : ComponentActivity() {
     private var requestedScreen by mutableStateOf(SCREEN_HOME)
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    // 로그인·네트워크 복구 시 uploadLocalFlowlogSnapshot이 동시에 여러 번 호출되는 것을 방지
+    private val syncMutex = Mutex()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestedScreen = intent.getStringExtra(EXTRA_OPEN_SCREEN) ?: SCREEN_HOME
         ReminderScheduler(applicationContext).ensureNotificationChannel()
+        FirebaseSyncAlarmScheduler.scheduleNextMidnightSync(applicationContext)
         requestNotificationPermission()
         requestExactAlarmPermission()
         enableEdgeToEdge()
@@ -152,7 +162,17 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 LaunchedEffect(signedInUser) {
-                    if (signedInUser != null) {
+                    val user = signedInUser
+                    if (user != null) {
+                        runCatching {
+                            // anonymous로 저장된 Room 데이터를 실제 uid로 교체
+                            withContext(Dispatchers.IO) {
+                                val db = FlowlogDatabase.getInstance(applicationContext)
+                                db.activityDao().reassignAnonymousUser(user.uid)
+                                db.todoDao().reassignAnonymousUser(user.uid)
+                                db.eventLogDao().reassignAnonymousUser(user.uid)
+                            }
+                        }
                         runCatching {
                             uploadLocalFlowlogSnapshot()
                         }
@@ -191,6 +211,36 @@ class MainActivity : ComponentActivity() {
                             Uri.parse("https://blog.pfkfks.org/blog/")
                         )
                     )
+                }
+                val runFirebaseUpload: () -> Unit = {
+                    scope.launch {
+                        val result = uploadAllPendingFlowlogSnapshot()
+                        val message = when {
+                            result?.deferred == true -> "진행 중인 Activity가 있어 업로드를 보류했습니다."
+                            result == null -> "Firebase 업로드에 실패했습니다."
+                            else -> "Firebase 업로드 완료: 성공 ${result.successCount}건, 실패 ${result.failureCount}건"
+                        }
+                        Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                val restoreTodosLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    if (uri == null) return@rememberLauncherForActivityResult
+                    scope.launch {
+                        val message = runCatching {
+                            val jsonText = withContext(Dispatchers.IO) {
+                                this@MainActivity.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                                    ?: error("복원 파일을 열 수 없습니다.")
+                            }
+                            val restoredCount = todoViewModel.restoreTodosFromBackup(jsonText)
+                            "Todo ${restoredCount}개를 복원했습니다."
+                        }.getOrElse { error ->
+                            error.message ?: "Todo 복원에 실패했습니다."
+                        }
+                        Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+                    }
                 }
 
                 val pagerState = rememberPagerState(
@@ -247,6 +297,10 @@ class MainActivity : ComponentActivity() {
                                             onAccountClick = runAccountSync,
                                             isDeveloper = isDeveloper,
                                             isDeveloperMode = isDeveloperMode,
+                                            onFirebaseUploadClick = runFirebaseUpload,
+                                            onRestoreTodosClick = {
+                                                restoreTodosLauncher.launch(arrayOf("application/json", "text/plain", "text/json"))
+                                            },
                                             onToggleDevMode = {
                                                 val newMode = !isDeveloperMode
                                                 isDeveloperMode = newMode
@@ -297,8 +351,30 @@ class MainActivity : ComponentActivity() {
         FirebaseAuth.getInstance().signInWithCredential(firebaseCredential).awaitResult()
     }
 
-    private suspend fun uploadLocalFlowlogSnapshot() {
-        FlowlogCloudSync(applicationContext).uploadLocalSnapshot()
+    private suspend fun uploadLocalFlowlogSnapshot(): com.example.flowlog.data.sync.SyncOutcome? {
+        if (!syncMutex.tryLock()) return null
+        try {
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
+            if (uid != null) {
+                return FirebaseSyncCoordinator(applicationContext).syncEligible(uid)
+            }
+            return null
+        } finally {
+            syncMutex.unlock()
+        }
+    }
+
+    private suspend fun uploadAllPendingFlowlogSnapshot(): com.example.flowlog.data.sync.SyncOutcome? {
+        if (!syncMutex.tryLock()) return null
+        try {
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
+            if (uid != null) {
+                return FirebaseSyncCoordinator(applicationContext).syncAll(uid)
+            }
+            return null
+        } finally {
+            syncMutex.unlock()
+        }
     }
 
     private fun registerNetworkSync() {
@@ -310,11 +386,9 @@ class MainActivity : ComponentActivity() {
             .build()
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                if (FirebaseAuth.getInstance().currentUser == null) return
+                val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
                 lifecycleScope.launch {
-                    runCatching {
-                        FlowlogCloudSync(applicationContext).uploadLocalSnapshot()
-                    }
+                    runCatching { FirebaseSyncCoordinator(applicationContext).syncEligible(uid) }
                 }
             }
         }
@@ -386,6 +460,8 @@ private fun HeaderActions(
     onAccountClick: () -> Unit,
     isDeveloper: Boolean = false,
     isDeveloperMode: Boolean = false,
+    onFirebaseUploadClick: () -> Unit = {},
+    onRestoreTodosClick: () -> Unit = {},
     onToggleDevMode: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -453,6 +529,32 @@ private fun HeaderActions(
                     }
                 )
                 if (isDeveloper) {
+                    DropdownMenuItem(
+                        text = { Text("Firebase 업로드") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.CheckBox,
+                                contentDescription = null
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onFirebaseUploadClick()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Todo 복원") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.CheckBox,
+                                contentDescription = null
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onRestoreTodosClick()
+                        }
+                    )
                     DropdownMenuItem(
                         text = { Text("개발자 모드") },
                         leadingIcon = {

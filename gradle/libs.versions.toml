@@ -7,8 +7,9 @@ espressoCore = "3.7.0"
 lifecycleRuntimeKtx = "2.10.0"
 activityCompose = "1.13.0"
 kotlin = "2.2.10"
+ksp = "2.2.10-2.0.2"
 composeBom = "2026.02.01"
-room = "2.6.1"
+room = "2.7.1"
 viewmodel = "2.8.7"
 coroutines = "1.8.1"
 serialization = "1.6.0"
@@ -52,3 +53,4 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

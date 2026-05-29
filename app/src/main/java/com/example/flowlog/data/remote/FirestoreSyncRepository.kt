@@ -1,11 +1,30 @@
 package com.example.flowlog.data.remote
 
+import com.example.flowlog.data.local.entity.DailyGoalItemEntity
+import com.example.flowlog.data.local.entity.DailyGoalRecommendationEntity
+import com.example.flowlog.data.local.entity.EventLogEntity
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.TodoItem
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 
+/**
+ * Firestore document ID 정책
+ *
+ * legacyId != null (SharedPrefs 시절 마이그레이션 데이터):
+ *   → docId = legacyId.toString()  (예: "1234")
+ *   → 기존 Firestore 문서와 호환 유지
+ *
+ * legacyId == null (Room 전용 신규 데이터):
+ *   → docId = activityId / todoId  (Room String UUID)
+ *   → "0" 충돌 방지. 절대 0L.toString() = "0"을 사용하지 않는다.
+ *
+ * per-action sync: [syncActivity]/[syncTodo] — ActivitySession.id/TodoItem.id 사용.
+ *   신규 데이터는 timestamp ID가 id 필드에 들어오므로 "0" 충돌 없음.
+ * batch sync: [FirebaseSyncDataSource] — 아래 [syncActivityByDocId]/[syncTodoByDocId] 사용.
+ *   entity의 legacyId 유무를 보고 docId를 결정.
+ */
 class FirestoreSyncRepository(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
@@ -60,6 +79,129 @@ class FirestoreSyncRepository(
         todoCollection(userId).document(id.toString()).delete().awaitResult()
         markSynced(userId)
     }
+
+    // ── batch sync용 명시적 docId 메서드 ─────────────────────────────────
+    // legacyId != null → legacyId.toString(), legacyId == null → Room UUID 사용.
+
+    suspend fun syncActivityByDocId(docId: String, activity: ActivitySession) {
+        val userId = uid ?: return
+        activityCollection(userId).document(docId)
+            .set(activity.toRemoteMap(), SetOptions.merge())
+            .awaitResult()
+        markSynced(userId)
+    }
+
+    suspend fun deleteActivityByDocId(docId: String) {
+        val userId = uid ?: return
+        activityCollection(userId).document(docId).delete().awaitResult()
+        markSynced(userId)
+    }
+
+    suspend fun syncTodoByDocId(docId: String, todo: TodoItem) {
+        val userId = uid ?: return
+        todoCollection(userId).document(docId)
+            .set(todo.toRemoteMap(), SetOptions.merge())
+            .awaitResult()
+        markSynced(userId)
+    }
+
+    suspend fun deleteTodoByDocId(docId: String) {
+        val userId = uid ?: return
+        todoCollection(userId).document(docId).delete().awaitResult()
+        markSynced(userId)
+    }
+
+    // ── EventLog batch sync ──────────────────────────────────────────────
+    // 저장 경로: users/{uid}/flowlog/data/eventLogs/{eventId}
+    // syncStatus는 서버에 저장하지 않음 (로컬 Room에서만 관리).
+    // markSynced(metadata) 호출 없음 — 이벤트 로그는 audit trail이므로 metadata 갱신 불필요.
+
+    suspend fun syncEventLog(eventId: String, event: EventLogEntity) {
+        val userId = uid ?: return
+        eventLogCollection(userId).document(eventId)
+            .set(event.toRemoteMap(), SetOptions.merge())
+            .awaitResult()
+    }
+
+    // ── DailyGoal batch sync ─────────────────────────────────────────────
+    // 저장 경로:
+    // users/{uid}/flowlog/data/dailyGoalRecommendations/{recommendationId}
+    // users/{uid}/flowlog/data/dailyGoalItems/{itemId}
+    // 동일 문서에 대해 merge upsert 하므로 여러 번 sync되어도 중복 생성되지 않음.
+
+    suspend fun syncDailyGoalRecommendation(
+        recommendationId: String,
+        recommendation: DailyGoalRecommendationEntity
+    ) {
+        val userId = uid ?: return
+        dailyGoalRecommendationCollection(userId).document(recommendationId)
+            .set(recommendation.toRemoteMap(), SetOptions.merge())
+            .awaitResult()
+    }
+
+    suspend fun syncDailyGoalItem(itemId: String, item: DailyGoalItemEntity) {
+        val userId = uid ?: return
+        dailyGoalItemCollection(userId).document(itemId)
+            .set(item.toRemoteMap(), SetOptions.merge())
+            .awaitResult()
+    }
+
+    private fun eventLogCollection(userId: String) =
+        firestore.collection("users").document(userId)
+            .collection("flowlog").document("data")
+            .collection("eventLogs")
+
+    private fun dailyGoalRecommendationCollection(userId: String) =
+        firestore.collection("users").document(userId)
+            .collection("flowlog").document("data")
+            .collection("dailyGoalRecommendations")
+
+    private fun dailyGoalItemCollection(userId: String) =
+        firestore.collection("users").document(userId)
+            .collection("flowlog").document("data")
+            .collection("dailyGoalItems")
+
+    private fun EventLogEntity.toRemoteMap(): Map<String, Any?> = mapOf(
+        "eventId" to eventId,
+        "userId" to userId,
+        "installationId" to installationId,
+        "eventType" to eventType,
+        "entityType" to entityType,
+        "entityId" to entityId,
+        "timestamp" to timestamp,
+        "source" to source,
+        "metadataJson" to metadataJson,
+        "appVersion" to appVersion,
+        "algorithmVersion" to algorithmVersion,
+        "createdAt" to createdAt
+    )
+
+    private fun DailyGoalRecommendationEntity.toRemoteMap(): Map<String, Any?> = mapOf(
+        "recommendationId" to recommendationId,
+        "userId" to userId,
+        "dateKey" to dateKey,
+        "algorithmVersion" to algorithmVersion,
+        "generatedAt" to generatedAt,
+        "reasonSummary" to reasonSummary,
+        "candidateSnapshotJson" to candidateSnapshotJson,
+        "createdAt" to createdAt
+    )
+
+    private fun DailyGoalItemEntity.toRemoteMap(): Map<String, Any?> = mapOf(
+        "itemId" to itemId,
+        "recommendationId" to recommendationId,
+        "userId" to userId,
+        "todoId" to todoId,
+        "rank" to rank,
+        "reason" to reason,
+        "todoSnapshotJson" to todoSnapshotJson,
+        "wasClicked" to wasClicked,
+        "wasCompleted" to wasCompleted,
+        "wasSkipped" to wasSkipped,
+        "wasDeleted" to wasDeleted,
+        "createdAt" to createdAt,
+        "updatedAt" to updatedAt
+    )
 
     private fun activityCollection(userId: String) =
         firestore.collection("users").document(userId)

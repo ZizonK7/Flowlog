@@ -66,8 +66,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.flowlog.data.model.ActivitySession
@@ -407,13 +409,28 @@ private fun TimerPage(
                     color = FlowPurple,
                     modifier = Modifier.padding(top = 14.dp)
                 )
-                Text(
-                    text = formatTime(elapsedTime),
-                    fontSize = 34.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = FlowInk,
-                    modifier = Modifier.padding(top = 30.dp)
-                )
+                val formattedTime = formatTime(elapsedTime)
+                val timeFontSize = when {
+                    formattedTime.length <= 5 -> 34.sp   // MM:SS
+                    formattedTime.length <= 7 -> 26.sp   // H:MM:SS (1–9시간)
+                    else -> 22.sp                         // HH:MM:SS (10시간+)
+                }
+                Box(
+                    modifier = Modifier
+                        .padding(top = 30.dp)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Text(
+                        text = formattedTime,
+                        fontSize = timeFontSize,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontFamily = FontFamily.Monospace,
+                        color = FlowInk,
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip
+                    )
+                }
                 FlowPageDots(activePage = 0)
             }
             FlowProgressRing(
@@ -1466,7 +1483,7 @@ fun formatTime(millis: Long): String {
     val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) % 60
 
     return when {
-        hours > 0 -> String.format("%02d:%02d:%02d", hours, minutes, seconds)
+        hours > 0 -> String.format("%d:%02d:%02d", hours, minutes, seconds)
         else -> String.format("%02d:%02d", minutes, seconds)
     }
 }
