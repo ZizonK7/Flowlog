@@ -1,12 +1,17 @@
 package com.example.flowlog.ui.screen
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -175,9 +180,34 @@ fun HomeScreen(
         }
 
         item {
+            val pendingSavedActivity = uiState.pendingSavedActivity
+            AnimatedVisibility(
+                visible = pendingSavedActivity != null,
+                enter = expandVertically(tween(280)) + fadeIn(tween(220)),
+                exit = shrinkVertically(tween(220)) + fadeOut(tween(160))
+            ) {
+                ActivityTitleDialog(
+                    isVisible = pendingSavedActivity != null,
+                    category = pendingSavedActivity?.category.orEmpty(),
+                    categories = activityCategories,
+                    onSave = { category, title, note ->
+                        viewModel.updatePendingSavedActivity(category, title, note)
+                    },
+                    initialTitle = pendingSavedActivity?.title,
+                    initialNote = pendingSavedActivity?.note,
+                    onDismiss = {
+                        viewModel.dismissPendingSavedActivity()
+                    }
+                )
+            }
+        }
+
+        item {
             QuickTimerSection(
                 categories = categories,
                 isBrushTimerRunning = uiState.isBrushTimerRunning,
+                brushDoneEndsAtMillis = uiState.brushDoneEndsAtMillis,
+                snackButtonEndsAtMillis = uiState.snackButtonEndsAtMillis,
                 onStart = { category ->
                     when (category) {
                         "TOOTHBRUSH" -> viewModel.startActivity(category)
@@ -247,22 +277,6 @@ fun HomeScreen(
             )
         }
 
-        val pendingSavedActivity = uiState.pendingSavedActivity
-        Box(modifier = Modifier.align(Alignment.BottomCenter)) {
-            ActivityTitleDialog(
-                isVisible = pendingSavedActivity != null,
-                category = pendingSavedActivity?.category.orEmpty(),
-                categories = activityCategories,
-                onSave = { category, title, note ->
-                    viewModel.updatePendingSavedActivity(category, title, note)
-                },
-                initialTitle = pendingSavedActivity?.title,
-                initialNote = pendingSavedActivity?.note,
-                onDismiss = {
-                    viewModel.dismissPendingSavedActivity()
-                }
-            )
-        }
     }
 }
 
@@ -526,10 +540,34 @@ private fun FlowPageDots(activePage: Int) {
 private fun QuickTimerSection(
     categories: List<String>,
     isBrushTimerRunning: Boolean,
+    brushDoneEndsAtMillis: Long,
+    snackButtonEndsAtMillis: Long,
     onStart: (String) -> Unit
 ) {
     val quickCategories = remember(categories) {
         categories.filter { it == "TOOTHBRUSH" || it == "SNACK" }
+    }
+
+    var brushLabel by remember(brushDoneEndsAtMillis) {
+        mutableStateOf(formatBrushCountdown(brushDoneEndsAtMillis))
+    }
+    var snackLabel by remember(snackButtonEndsAtMillis) {
+        mutableStateOf(formatSnackCountdown(snackButtonEndsAtMillis))
+    }
+
+    androidx.compose.runtime.LaunchedEffect(brushDoneEndsAtMillis) {
+        while (brushDoneEndsAtMillis > System.currentTimeMillis()) {
+            kotlinx.coroutines.delay(500L)
+            brushLabel = formatBrushCountdown(brushDoneEndsAtMillis)
+        }
+        brushLabel = "양치"
+    }
+    androidx.compose.runtime.LaunchedEffect(snackButtonEndsAtMillis) {
+        while (snackButtonEndsAtMillis > System.currentTimeMillis()) {
+            kotlinx.coroutines.delay(30_000L)
+            snackLabel = formatSnackCountdown(snackButtonEndsAtMillis)
+        }
+        snackLabel = "간식"
     }
 
     Column(
@@ -551,11 +589,12 @@ private fun QuickTimerSection(
             quickCategories.forEach { category ->
                 CategoryButton(
                     category = category,
-                    isSelected = category == "TOOTHBRUSH" && isBrushTimerRunning,
-                    label = if (category == "TOOTHBRUSH" && isBrushTimerRunning) {
-                        "양치중"
-                    } else {
-                        displayCategory(category)
+                    isSelected = (category == "TOOTHBRUSH" && isBrushTimerRunning)
+                        || (category == "SNACK" && snackButtonEndsAtMillis > 0L),
+                    label = when (category) {
+                        "TOOTHBRUSH" -> brushLabel
+                        "SNACK" -> snackLabel
+                        else -> displayCategory(category)
                     },
                     onClick = { onStart(category) },
                     modifier = Modifier.weight(1f)
@@ -563,6 +602,22 @@ private fun QuickTimerSection(
             }
         }
     }
+}
+
+private fun formatBrushCountdown(endsAtMillis: Long): String {
+    val remaining = endsAtMillis - System.currentTimeMillis()
+    if (remaining <= 0L) return "양치"
+    val totalSeconds = remaining / 1000L
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "%d:%02d".format(minutes, seconds)
+}
+
+private fun formatSnackCountdown(endsAtMillis: Long): String {
+    val remaining = endsAtMillis - System.currentTimeMillis()
+    if (remaining <= 0L) return "간식"
+    val minutes = ((remaining + 59_000L) / 60_000L).coerceAtLeast(1L)
+    return "${minutes}분"
 }
 
 @Composable

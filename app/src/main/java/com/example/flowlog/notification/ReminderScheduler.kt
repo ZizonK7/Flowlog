@@ -56,22 +56,27 @@ class ReminderScheduler(private val context: Context) {
         }
     }
 
-    fun scheduleToothbrushReminder(activity: ActivitySession) {
-        if (activity.category != "MEAL") return
+    fun scheduleToothbrushReminder(activity: ActivitySession): Long? {
+        if (activity.category != "MEAL") return null
+
+        cancelSnackReminder()
+        cancelMealReminder()
 
         val triggerAtMillis = scheduleReminder(
             category = activity.category,
             reminderType = ToothbrushReminderReceiver.TYPE_TOOTHBRUSH,
             reminderDelayMillis = 30L * 60L * 1000L,
-            requestCode = activity.id.toInt(),
+            requestCode = REQUEST_MEAL_TIMER,
             activityId = activity.id
         )
         activityTimerNotifier.showMealTimer(triggerAtMillis)
+        return triggerAtMillis
     }
 
-    fun scheduleSnackReminder() {
+    fun scheduleSnackReminder(): Long {
         cancelBrushTimers()
         cancelSnackReminder()
+        cancelMealReminder()
 
         val now = System.currentTimeMillis()
         val triggerAtMillis = scheduleReminder(
@@ -82,10 +87,12 @@ class ReminderScheduler(private val context: Context) {
             activityId = now
         )
         activityTimerNotifier.showSnackTimer(triggerAtMillis)
+        return triggerAtMillis
     }
 
-    fun scheduleBrushTimers(): Long {
+    fun scheduleBrushTimers(): Pair<Long, Long> {
         cancelSnackReminder()
+        cancelMealReminder()
         cancelBrushTimers()
 
         val brushDoneAtMillis = scheduleBrushDoneTimer(
@@ -100,7 +107,7 @@ class ReminderScheduler(private val context: Context) {
         )
         activityTimerNotifier.showBrushDoneTimer(brushDoneAtMillis)
         activityTimerNotifier.showBrushEatTimer(eatAllowedAtMillis)
-        return brushDoneAtMillis
+        return Pair(brushDoneAtMillis, eatAllowedAtMillis)
     }
 
     fun scheduleBrushDoneExperiment() {
@@ -198,6 +205,11 @@ class ReminderScheduler(private val context: Context) {
         return triggerAtMillis
     }
 
+    fun cancelMealReminder() {
+        cancelReminder(REQUEST_MEAL_TIMER)
+        activityTimerNotifier.clearMealTimer()
+    }
+
     fun cancelSnackReminder() {
         cancelReminder(REQUEST_SNACK_TIMER)
         activityTimerNotifier.clearSnackTimer()
@@ -253,6 +265,7 @@ class ReminderScheduler(private val context: Context) {
     }
 
     companion object {
+        private const val REQUEST_MEAL_TIMER = 3000
         private const val REQUEST_SNACK_TIMER = 3001
         private const val REQUEST_BRUSH_DONE_TIMER = 3002
         private const val REQUEST_BRUSH_EAT_TIMER = 3003

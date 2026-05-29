@@ -8,9 +8,11 @@ import com.example.flowlog.data.local.TimerStatus
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.repository.ActivityRepository
 import com.example.flowlog.data.repository.TodoRepository
+import com.example.flowlog.data.sync.FirebaseSyncCoordinator
 import com.example.flowlog.notification.ActivityTimerNotifier
 import com.example.flowlog.notification.ReminderScheduler
 import com.example.flowlog.widget.FlowStatusWidgetProvider
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -74,7 +76,9 @@ data class ActivityUiState(
     val editingActivity: ActivitySession? = null,
     val selectedCategory: String? = null,
     val statusMessage: String? = null,
-    val isBrushTimerRunning: Boolean = false
+    val isBrushTimerRunning: Boolean = false,
+    val brushDoneEndsAtMillis: Long = 0L,
+    val snackButtonEndsAtMillis: Long = 0L
 )
 
 class ActivityViewModel(
@@ -88,6 +92,7 @@ class ActivityViewModel(
 
     private var timerJob: Job? = null
     private var brushTimerJob: Job? = null
+    private var snackTimerJob: Job? = null
     private val activityTimerNotifier = ActivityTimerNotifier(appContext)
     private val undoPreferences = appContext.getSharedPreferences(
         PREFS_ACTIVITY_UNDO,
@@ -100,6 +105,7 @@ class ActivityViewModel(
     init {
         _uiState.update { it.copy(lastAddedActivity = loadLastAddedActivity()) }
         restoreBrushTimerState()
+        restoreSnackButtonTimerState()
         restoreActiveSession()
         seedMissingSleepRecord()
         observeAllActivities()
@@ -166,11 +172,13 @@ class ActivityViewModel(
     }
 
     fun scheduleSnackReminder() {
-        val scheduled = runCatching {
+        val triggerAtMillis = runCatching {
             reminderScheduler.scheduleSnackReminder()
-        }.isSuccess
-        if (scheduled) {
+        }.getOrNull()
+        val scheduled = triggerAtMillis != null
+        if (triggerAtMillis != null) {
             clearBrushTimerState()
+            rememberSnackButtonTimerState(triggerAtMillis)
         }
         _uiState.update {
             it.copy(
@@ -178,26 +186,31 @@ class ActivityViewModel(
                     "간식 양치 알림을 30분 뒤로 설정했어요."
                 } else {
                     "알림 설정에 실패했어요."
-                }
+                },
+                snackButtonEndsAtMillis = triggerAtMillis ?: it.snackButtonEndsAtMillis
             )
         }
     }
 
     fun scheduleBrushTimers() {
-        val brushTimerEndsAtMillis = runCatching {
+        val result = runCatching {
             reminderScheduler.scheduleBrushTimers()
         }.getOrNull()
-        val scheduled = brushTimerEndsAtMillis != null
-        if (brushTimerEndsAtMillis != null) {
-            rememberBrushTimerState(brushTimerEndsAtMillis)
+        val scheduled = result != null
+        if (result != null) {
+            val (brushDoneAtMillis, eatAllowedAtMillis) = result
+            rememberBrushTimerState(brushDoneAtMillis)
+            rememberSnackButtonTimerState(eatAllowedAtMillis)
+            _uiState.update {
+                it.copy(
+                    brushDoneEndsAtMillis = brushDoneAtMillis,
+                    snackButtonEndsAtMillis = eatAllowedAtMillis
+                )
+            }
         }
         _uiState.update {
             it.copy(
-                statusMessage = if (scheduled) {
-                    null
-                } else {
-                    "양치 타이머 설정에 실패했어요."
-                },
+                statusMessage = if (scheduled) null else "양치 타이머 설정에 실패했어요.",
                 isBrushTimerRunning = scheduled || it.isBrushTimerRunning
             )
         }
@@ -266,24 +279,37 @@ class ActivityViewModel(
         clearActiveSession()
         activityTimerNotifier.clearRunningTimer()
 
+        // UI를 즉시 종료 상태로 전환 — Firebase sync 완료를 기다리지 않음
+        _uiState.update {
+            it.copy(
+                isRunning = false,
+                currentCategory = "",
+                elapsedTime = 0L,
+                startTime = 0L,
+                linkedTodoId = null,
+                pendingTitle = null
+            )
+        }
+
         viewModelScope.launch {
             val newId = repository.insertActivity(activity)
             val savedActivity = activity.copy(id = newId)
             state.linkedTodoId?.let { todoId ->
                 todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
             }
-            runCatching {
+            val mealTimerEndsAt = runCatching {
                 reminderScheduler.scheduleToothbrushReminder(savedActivity)
+            }.getOrNull()
+            if (mealTimerEndsAt != null) {
+                rememberSnackButtonTimerState(mealTimerEndsAt)
+                _uiState.update { it.copy(snackButtonEndsAtMillis = mealTimerEndsAt) }
             }
             rememberLastAddedActivity(savedActivity)
+            if (cleanCategory != "ETC") {
+                attemptDeferredSync()
+            }
             _uiState.update {
                 it.copy(
-                    isRunning = false,
-                    currentCategory = "",
-                    elapsedTime = 0L,
-                    startTime = 0L,
-                    linkedTodoId = null,
-                    pendingTitle = null,
                     pendingSavedActivity = if (cleanCategory == "ETC") savedActivity else null,
                     statusMessage = "활동이 저장되었습니다."
                 )
@@ -316,10 +342,17 @@ class ActivityViewModel(
             state.linkedTodoId?.let { todoId ->
                 todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
             }
-            runCatching {
+            val mealTimerEndsAt = runCatching {
                 reminderScheduler.scheduleToothbrushReminder(savedActivity)
+            }.getOrNull()
+            if (mealTimerEndsAt != null) {
+                rememberSnackButtonTimerState(mealTimerEndsAt)
+                _uiState.update { it.copy(snackButtonEndsAtMillis = mealTimerEndsAt) }
             }
             rememberLastAddedActivity(savedActivity)
+            if (cleanCategory != "ETC") {
+                attemptDeferredSync()
+            }
             clearPendingActivity()
         }
     }
@@ -329,6 +362,9 @@ class ActivityViewModel(
     }
 
     fun dismissPendingSavedActivity() {
+        viewModelScope.launch {
+            attemptDeferredSync()
+        }
         _uiState.update { it.copy(pendingSavedActivity = null) }
     }
 
@@ -345,6 +381,7 @@ class ActivityViewModel(
             )
             repository.updateActivity(updatedActivity)
             rememberLastAddedActivity(updatedActivity)
+            attemptDeferredSync()
             _uiState.update {
                 it.copy(
                     pendingSavedActivity = null,
@@ -484,8 +521,7 @@ class ActivityViewModel(
             clearBrushTimerState()
             return
         }
-
-        _uiState.update { it.copy(isBrushTimerRunning = true) }
+        _uiState.update { it.copy(isBrushTimerRunning = true, brushDoneEndsAtMillis = endsAtMillis) }
         scheduleBrushTimerStateClear(endsAtMillis)
     }
 
@@ -493,6 +529,7 @@ class ActivityViewModel(
         timerPreferences.edit()
             .putLong(KEY_BRUSH_TIMER_ENDS_AT, endsAtMillis)
             .apply()
+        _uiState.update { it.copy(brushDoneEndsAtMillis = endsAtMillis) }
         scheduleBrushTimerStateClear(endsAtMillis)
     }
 
@@ -510,7 +547,41 @@ class ActivityViewModel(
         timerPreferences.edit()
             .remove(KEY_BRUSH_TIMER_ENDS_AT)
             .apply()
-        _uiState.update { it.copy(isBrushTimerRunning = false) }
+        _uiState.update { it.copy(isBrushTimerRunning = false, brushDoneEndsAtMillis = 0L) }
+    }
+
+    private fun restoreSnackButtonTimerState() {
+        val endsAtMillis = timerPreferences.getLong(KEY_SNACK_BUTTON_TIMER_ENDS_AT, 0L)
+        if (endsAtMillis <= System.currentTimeMillis()) {
+            clearSnackButtonTimerState()
+            return
+        }
+        _uiState.update { it.copy(snackButtonEndsAtMillis = endsAtMillis) }
+        scheduleSnackButtonTimerStateClear(endsAtMillis)
+    }
+
+    private fun rememberSnackButtonTimerState(endsAtMillis: Long) {
+        timerPreferences.edit()
+            .putLong(KEY_SNACK_BUTTON_TIMER_ENDS_AT, endsAtMillis)
+            .apply()
+        scheduleSnackButtonTimerStateClear(endsAtMillis)
+    }
+
+    private fun scheduleSnackButtonTimerStateClear(endsAtMillis: Long) {
+        snackTimerJob?.cancel()
+        snackTimerJob = viewModelScope.launch {
+            delay((endsAtMillis - System.currentTimeMillis()).coerceAtLeast(0L))
+            clearSnackButtonTimerState()
+        }
+    }
+
+    private fun clearSnackButtonTimerState() {
+        snackTimerJob?.cancel()
+        snackTimerJob = null
+        timerPreferences.edit()
+            .remove(KEY_SNACK_BUTTON_TIMER_ENDS_AT)
+            .apply()
+        _uiState.update { it.copy(snackButtonEndsAtMillis = 0L) }
     }
 
     private fun observeAllActivities() {
@@ -703,6 +774,11 @@ class ActivityViewModel(
         }
     }
 
+    private suspend fun attemptDeferredSync() {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        FirebaseSyncCoordinator(appContext).syncEligible(uid)
+    }
+
     private fun saveActiveSession(
         category: String,
         startTime: Long,
@@ -761,6 +837,7 @@ class ActivityViewModel(
         super.onCleared()
         timerJob?.cancel()
         brushTimerJob?.cancel()
+        snackTimerJob?.cancel()
     }
 
     companion object {
@@ -769,6 +846,7 @@ class ActivityViewModel(
         private const val PREFS_TIMER_STATE = "timer_state"
         private const val KEY_LAST_ADDED_ACTIVITY = "last_added_activity"
         private const val KEY_BRUSH_TIMER_ENDS_AT = "brush_timer_ends_at"
+        private const val KEY_SNACK_BUTTON_TIMER_ENDS_AT = "snack_button_timer_ends_at"
         private val undoJson = Json { ignoreUnknownKeys = true }
         private const val KEY_SLEEP_RECORD_2026_05_19 = "sleep_record_2026_05_19_212957"
     }

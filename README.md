@@ -23,6 +23,15 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Fixed snack, meal, and toothbrush timers so each button cancels the other's
+  active timer before starting its own — all three now behave symmetrically.
+- Quick-timer buttons now show live countdowns: the toothbrush button displays
+  a M:SS brush timer, and the snack button displays a M분 thirty-minute timer
+  for snack, meal finish, or post-brush eat-allowed events.
+- Timer state persists across app restarts so countdowns resume correctly on
+  re-entry, and the snack button shows the active-selection highlight while
+  any snack or meal timer is running.
+
 - Added a two-hour stopwatch progress ring with a subtle fire-glow loop after
   the first cycle, plus a `3번 실험` button that previews the same effect with a
   five-second test cycle.
