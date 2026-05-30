@@ -528,7 +528,7 @@ private fun HeaderActions(
                         onBlogClick()
                     }
                 )
-                if (isDeveloper) {
+                if (isDeveloperMode) {
                     DropdownMenuItem(
                         text = { Text("Firebase 업로드") },
                         leadingIcon = {
@@ -555,6 +555,8 @@ private fun HeaderActions(
                             onRestoreTodosClick()
                         }
                     )
+                }
+                if (isDeveloper) {
                     DropdownMenuItem(
                         text = { Text("개발자 모드") },
                         leadingIcon = {
