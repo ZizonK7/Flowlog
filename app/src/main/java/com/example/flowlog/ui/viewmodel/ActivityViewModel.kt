@@ -54,6 +54,8 @@ data class TrendPoint(
 }
 
 data class AnalyticsState(
+    val todayCategoryStats: List<CategoryStat> = emptyList(),
+    val yesterdayCategoryStats: List<CategoryStat> = emptyList(),
     val weeklyDailyAverageStats: List<CategoryStat> = emptyList(),
     val weeklyTrend: List<TrendPoint> = emptyList()
 )
@@ -693,11 +695,41 @@ class ActivityViewModel(
         val weekActivities = activities.filter { activity ->
             activity.startTime >= weekStart && activity.startTime < todayStart
         }
+        val tomorrowStart = startOfDay(Calendar.getInstance().apply {
+            timeInMillis = todayStart
+            add(Calendar.DAY_OF_YEAR, 1)
+        }).timeInMillis
+        val yesterdayStart = startOfDay(Calendar.getInstance().apply {
+            timeInMillis = todayStart
+            add(Calendar.DAY_OF_YEAR, -1)
+        }).timeInMillis
+        val todayActivities = activities.filter { activity ->
+            activity.startTime >= todayStart && activity.startTime < tomorrowStart
+        }
+        val yesterdayActivities = activities.filter { activity ->
+            activity.startTime >= yesterdayStart && activity.startTime < todayStart
+        }
 
         return AnalyticsState(
+            todayCategoryStats = buildCategoryStats(todayActivities),
+            yesterdayCategoryStats = buildCategoryStats(yesterdayActivities),
             weeklyDailyAverageStats = buildDailyAverageCategoryStats(weekActivities, days = 7),
             weeklyTrend = buildTrend(weekActivities, weekStart, 7)
         )
+    }
+
+    private fun buildCategoryStats(activities: List<ActivitySession>): List<CategoryStat> {
+        return activities.groupBy { it.category }
+            .map { (category, sessions) ->
+                val total = sessions.sumOf { it.durationMillis }
+                CategoryStat(
+                    category = category,
+                    totalMillis = total,
+                    count = sessions.size,
+                    averageMillis = total
+                )
+            }
+            .sortedByDescending { it.totalMillis }
     }
 
     private fun buildDailyAverageCategoryStats(

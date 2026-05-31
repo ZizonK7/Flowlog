@@ -23,6 +23,16 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Redesigned the home-screen `통계 리포트` card around today's activity report:
+  it now shows today's category totals with colored bars, hides lower-ranked
+  categories behind a `나머지 N개 보기` control, and removes the previous total
+  count badge.
+- Added an `어제와 비교` section to the home report that compares today's and
+  yesterday's category totals with cleaner paired bars and expandable hidden
+  rows.
+- Removed the older `7일 활동별 하루 평균` and `주간 추세` blocks from the
+  home report so the card focuses on today's work and yesterday comparison.
+
 - Fixed a crash on fresh install for users on Android 13 and later: the midnight
   sync alarm scheduler now checks `canScheduleExactAlarms()` before calling
   `setExactAndAllowWhileIdle`, and falls back to an inexact alarm when the

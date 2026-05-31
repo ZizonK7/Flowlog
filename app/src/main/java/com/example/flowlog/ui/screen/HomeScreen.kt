@@ -20,6 +20,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,6 +40,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
@@ -88,6 +91,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -1145,12 +1149,415 @@ private fun AnalyticsCard(analytics: AnalyticsState) {
         shape = MaterialTheme.shapes.medium
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("통계 리포트", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = FlowInk)
-            SectionLabel("7일 활동별 하루 평균")
-            AverageRows(analytics.weeklyDailyAverageStats)
-            SectionLabel("주간 추세")
-            TrendBars(analytics.weeklyTrend, analytics.weeklyDailyAverageStats)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "통계 리포트",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = FlowInk,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(
+                    imageVector = Icons.Filled.BarChart,
+                    contentDescription = null,
+                    tint = FlowPurple.copy(alpha = 0.62f),
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+            TodayActivityReport(analytics.todayCategoryStats)
+            YesterdayComparisonReport(
+                todayStats = analytics.todayCategoryStats,
+                yesterdayStats = analytics.yesterdayCategoryStats
+            )
         }
+    }
+}
+
+@Composable
+private fun TodayActivityReport(stats: List<CategoryStat>) {
+    var isExpanded by remember { mutableStateOf(false) }
+    val visibleStats = if (isExpanded) stats else stats.take(4)
+
+    SectionHeaderRow(
+        title = "오늘 한 일들",
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.CalendarToday,
+                contentDescription = null,
+                tint = FlowPurple.copy(alpha = 0.62f),
+                modifier = Modifier.size(22.dp)
+            )
+        }
+    )
+
+    ReportPanel {
+        if (stats.isEmpty()) {
+            EmptyReportText("오늘 기록된 활동이 없습니다.")
+            return@ReportPanel
+        }
+
+        val maxMillis = remember(stats) {
+            stats.maxOfOrNull { it.totalMillis }?.coerceAtLeast(1L) ?: 1L
+        }
+        visibleStats.forEachIndexed { index, stat ->
+            TodayCategoryRow(stat = stat, maxMillis = maxMillis)
+            if (index < visibleStats.lastIndex) ReportDivider()
+        }
+        if (stats.size > 4) {
+            ReportMoreButton(
+                text = if (isExpanded) "접기" else "나머지 ${stats.size - 4}개 보기",
+                onClick = { isExpanded = !isExpanded }
+            )
+        }
+    }
+}
+
+@Composable
+private fun YesterdayComparisonReport(
+    todayStats: List<CategoryStat>,
+    yesterdayStats: List<CategoryStat>
+) {
+    var isExpanded by remember { mutableStateOf(false) }
+    val yesterdayByCategory = remember(yesterdayStats) {
+        yesterdayStats.associateBy { it.category }
+    }
+    val categories = remember(todayStats, yesterdayStats) {
+        (todayStats.map { it.category } + yesterdayStats.map { it.category })
+            .distinct()
+            .sortedByDescending { category ->
+                maxOf(
+                    todayStats.firstOrNull { it.category == category }?.totalMillis ?: 0L,
+                    yesterdayByCategory[category]?.totalMillis ?: 0L
+                )
+            }
+    }
+    val visibleCategories = if (isExpanded) categories else categories.take(4)
+    val maxMillis = remember(todayStats, yesterdayStats) {
+        (todayStats + yesterdayStats).maxOfOrNull { it.totalMillis }?.coerceAtLeast(1L) ?: 1L
+    }
+
+    SectionHeaderRow(
+        title = "어제와 비교",
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.BarChart,
+                contentDescription = null,
+                tint = FlowPurple.copy(alpha = 0.62f),
+                modifier = Modifier.size(23.dp)
+            )
+        },
+        trailing = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LegendDot(Color(0xFFC9CBD2))
+                Text("어제", fontSize = 12.sp, color = FlowMuted)
+                Spacer(modifier = Modifier.width(10.dp))
+                LegendDot(FlowPurple)
+                Text("오늘", fontSize = 12.sp, color = FlowMuted)
+            }
+        }
+    )
+
+    ReportPanel {
+        if (categories.isEmpty()) {
+            EmptyReportText("비교할 활동 기록이 없습니다.")
+            return@ReportPanel
+        }
+
+        visibleCategories.forEachIndexed { index, category ->
+            val today = todayStats.firstOrNull { it.category == category }
+            val yesterday = yesterdayByCategory[category]
+            ComparisonCategoryRow(
+                category = category,
+                todayMillis = today?.totalMillis ?: 0L,
+                yesterdayMillis = yesterday?.totalMillis ?: 0L,
+                maxMillis = maxMillis
+            )
+            if (index < visibleCategories.lastIndex) ReportDivider()
+        }
+        if (categories.size > 4) {
+            ReportMoreButton(
+                text = if (isExpanded) "접기" else "나머지 ${categories.size - 4}개 보기",
+                onClick = { isExpanded = !isExpanded }
+            )
+        }
+    }
+    Text(
+        text = "* 비교 기준: 어제 하루 전체 기록",
+        fontSize = 11.sp,
+        color = FlowMuted.copy(alpha = 0.72f),
+        modifier = Modifier.padding(top = 8.dp)
+    )
+}
+
+@Composable
+private fun SectionHeaderRow(
+    title: String,
+    icon: @Composable () -> Unit,
+    trailing: @Composable (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 22.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        icon()
+        Text(
+            text = title,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = FlowInk,
+            modifier = Modifier
+                .padding(start = 10.dp)
+                .weight(1f)
+        )
+        trailing?.invoke()
+    }
+}
+
+@Composable
+private fun ReportPanel(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White, RoundedCornerShape(16.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        content = content
+    )
+}
+
+@Composable
+private fun TodayCategoryRow(stat: CategoryStat, maxMillis: Long) {
+    val fraction = (stat.totalMillis.toFloat() / maxMillis.toFloat())
+        .coerceIn(0f, 1f)
+    val visibleFraction = if (stat.totalMillis > 0L) fraction.coerceAtLeast(0.08f) else 0f
+    val color = categoryColor(stat.category)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CategoryBadge(stat.category)
+        Text(
+            text = displayCategory(stat.category),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = FlowMuted,
+            modifier = Modifier
+                .padding(start = 12.dp)
+                .width(68.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        ProgressTrack(
+            fraction = visibleFraction,
+            color = color,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = formatDurationWithoutSeconds(stat.totalMillis),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = color,
+            textAlign = TextAlign.End,
+            modifier = Modifier
+                .padding(start = 10.dp)
+                .width(56.dp)
+        )
+    }
+}
+
+@Composable
+private fun ComparisonCategoryRow(
+    category: String,
+    todayMillis: Long,
+    yesterdayMillis: Long,
+    maxMillis: Long
+) {
+    val color = categoryColor(category)
+    val todayFraction = (todayMillis.toFloat() / maxMillis.toFloat()).coerceIn(0f, 1f)
+    val yesterdayFraction = (yesterdayMillis.toFloat() / maxMillis.toFloat()).coerceIn(0f, 1f)
+    val delta = todayMillis - yesterdayMillis
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        CategoryBadge(category)
+        Text(
+            text = displayCategory(category),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = FlowMuted,
+            modifier = Modifier
+                .padding(start = 12.dp)
+                .width(58.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            ComparisonBar(
+                fraction = if (yesterdayMillis > 0L) yesterdayFraction.coerceAtLeast(0.08f) else 0f,
+                color = Color(0xFFC9CBD2)
+            )
+            Spacer(modifier = Modifier.height(7.dp))
+            ComparisonBar(
+                fraction = if (todayMillis > 0L) todayFraction.coerceAtLeast(0.08f) else 0f,
+                color = color
+            )
+        }
+        DeltaText(deltaMillis = delta, color = color)
+    }
+}
+
+@Composable
+private fun ComparisonBar(fraction: Float, color: Color) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(9.dp)
+            .background(Color(0xFFE7E7EA), RoundedCornerShape(10.dp))
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(fraction)
+                .height(9.dp)
+                .background(color, RoundedCornerShape(10.dp))
+        )
+    }
+}
+
+@Composable
+private fun ProgressTrack(
+    fraction: Float,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(11.dp)
+            .background(Color(0xFFE7E7EA), RoundedCornerShape(12.dp))
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(fraction)
+                .height(11.dp)
+                .background(color, RoundedCornerShape(12.dp))
+        )
+    }
+}
+
+@Composable
+private fun CategoryBadge(category: String) {
+    val color = categoryColor(category)
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .background(reportCategoryBackground(category), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        CategoryGlyph(
+            category = category,
+            tint = color,
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+@Composable
+private fun DeltaText(deltaMillis: Long, color: Color) {
+    val isUp = deltaMillis >= 0L
+    val deltaColor = if (isUp) color else Color(0xFF19A7B0)
+    val sign = if (isUp) "+" else "-"
+    val arrow = if (isUp) "↑" else "↓"
+    Text(
+        text = "$arrow $sign${formatDurationWithoutSeconds(abs(deltaMillis))}",
+        fontSize = 13.sp,
+        fontWeight = FontWeight.ExtraBold,
+        color = deltaColor,
+        textAlign = TextAlign.End,
+        modifier = Modifier
+            .padding(start = 8.dp)
+            .width(70.dp)
+    )
+}
+
+@Composable
+private fun LegendDot(color: Color) {
+    Box(
+        modifier = Modifier
+            .padding(end = 4.dp)
+            .size(8.dp)
+            .background(color, CircleShape)
+    )
+}
+
+@Composable
+private fun ReportDivider() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 56.dp)
+            .height(1.dp)
+            .background(FlowDivider)
+    )
+}
+
+@Composable
+private fun EmptyReportText(text: String) {
+    Text(
+        text = text,
+        fontSize = 13.sp,
+        color = FlowMuted,
+        modifier = Modifier.padding(vertical = 14.dp)
+    )
+}
+
+@Composable
+private fun ReportMoreButton(
+    text: String,
+    onClick: () -> Unit
+) {
+    androidx.compose.material3.TextButton(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.textButtonColors(
+            containerColor = FlowPurpleSoft.copy(alpha = 0.56f),
+            contentColor = FlowPurple
+        )
+    ) {
+        Text(
+            text = text,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+private fun reportCategoryBackground(category: String): Color {
+    return when (category) {
+        "TOOTHBRUSH" -> Color(0xFFEDE8FF)
+        "SNACK" -> Color(0xFFFFF1DD)
+        "MEAL" -> Color(0xFFFFEDE4)
+        "STUDY" -> Color(0xFFE6F6E8)
+        "WORK" -> Color(0xFFE9EAF0)
+        "DEVELOPMENT" -> Color(0xFFE9E7FF)
+        "WASH" -> Color(0xFFE4F5FF)
+        "SCHOOL" -> Color(0xFFFCE4ED)
+        "EXERCISE" -> Color(0xFFE4F1FF)
+        "SLEEP" -> Color(0xFFF0E4FF)
+        "REST" -> Color(0xFFE2F5F5)
+        else -> Color(0xFFEDEDF1)
     }
 }
 
