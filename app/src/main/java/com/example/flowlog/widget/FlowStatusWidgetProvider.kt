@@ -111,7 +111,7 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
 
     private fun RemoteViews.bindTimerText(activeTimer: ActiveTimerState) {
         val elapsedMillis = activeTimer.elapsedMillis
-        val isOverGoal = elapsedMillis >= FlowStatusWidgetRenderer.GOAL_MILLIS
+        val isOverGoal = elapsedMillis >= activeTimer.goalMillis
         val isPaused = activeTimer.status == TimerStatus.PAUSED
         val textColor = when {
             isPaused -> Color.rgb(51, 47, 62)
@@ -243,7 +243,6 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
 private object FlowStatusWidgetRenderer {
     private const val WIDTH = 900
     private const val HEIGHT = 180
-    const val GOAL_MILLIS = 2L * 60L * 60L * 1000L
     private const val WAVE_LOOP_MILLIS = 6_000L
 
     fun render(activeTimer: ActiveTimerState?): Bitmap {
@@ -281,8 +280,9 @@ private object FlowStatusWidgetRenderer {
         activeTimer: ActiveTimerState
     ) {
         val elapsedMillis = activeTimer.elapsedMillis
-        val progress = min(elapsedMillis.toFloat() / GOAL_MILLIS.toFloat(), 1f)
-        val isOverGoal = elapsedMillis >= GOAL_MILLIS
+        val goalMillis = activeTimer.goalMillis.coerceAtLeast(1L)
+        val progress = min(elapsedMillis.toFloat() / goalMillis.toFloat(), 1f)
+        val isOverGoal = elapsedMillis >= goalMillis
         val isPaused = activeTimer.status == TimerStatus.PAUSED
         val wavePhase = if (isPaused) 0f
         else (SystemClock.elapsedRealtime() % WAVE_LOOP_MILLIS).toFloat() / WAVE_LOOP_MILLIS

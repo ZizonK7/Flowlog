@@ -6,6 +6,7 @@ import android.os.SystemClock
 data class ActiveTimerState(
     val category: String,
     val startTime: Long,
+    val goalMillis: Long = TimerStateStore.DEFAULT_GOAL_MILLIS,
     val status: TimerStatus = TimerStatus.RUNNING,
     val pausedElapsedMillis: Long = 0L,
     val linkedTodoId: Long? = null,
@@ -31,11 +32,13 @@ object TimerStateStore {
     private const val PREFS_TIMER_STATE = "timer_state"
     private const val KEY_ACTIVE_CATEGORY = "active_category"
     private const val KEY_ACTIVE_START_TIME = "active_start_time"
+    private const val KEY_ACTIVE_GOAL_MILLIS = "active_goal_millis"
     private const val KEY_ACTIVE_STATUS = "active_status"
     private const val KEY_PAUSED_ELAPSED_MILLIS = "paused_elapsed_millis"
     private const val KEY_ACTIVE_TODO_ID = "active_todo_id"
     private const val KEY_ACTIVE_TODO_TITLE = "active_todo_title"
     private const val NO_TODO_ID = -1L
+    const val DEFAULT_GOAL_MILLIS = 2L * 60L * 60L * 1000L
 
     fun getActiveTimer(context: Context): ActiveTimerState? {
         val preferences = context.applicationContext.getSharedPreferences(
@@ -45,6 +48,8 @@ object TimerStateStore {
         val category = preferences.getString(KEY_ACTIVE_CATEGORY, null) ?: return null
         val startTime = preferences.getLong(KEY_ACTIVE_START_TIME, 0L)
         if (startTime == 0L) return null
+        val goalMillis = preferences.getLong(KEY_ACTIVE_GOAL_MILLIS, DEFAULT_GOAL_MILLIS)
+            .coerceAtLeast(1L)
 
         val status = runCatching {
             TimerStatus.valueOf(preferences.getString(KEY_ACTIVE_STATUS, TimerStatus.RUNNING.name).orEmpty())
@@ -57,6 +62,7 @@ object TimerStateStore {
         return ActiveTimerState(
             category = category,
             startTime = startTime,
+            goalMillis = goalMillis,
             status = status,
             pausedElapsedMillis = pausedElapsedMillis,
             linkedTodoId = linkedTodoId,
@@ -68,6 +74,7 @@ object TimerStateStore {
         context: Context,
         category: String,
         startTime: Long,
+        goalMillis: Long = DEFAULT_GOAL_MILLIS,
         linkedTodoId: Long? = null,
         linkedTodoTitle: String? = null
     ) {
@@ -75,6 +82,7 @@ object TimerStateStore {
             .edit()
             .putString(KEY_ACTIVE_CATEGORY, category)
             .putLong(KEY_ACTIVE_START_TIME, startTime)
+            .putLong(KEY_ACTIVE_GOAL_MILLIS, goalMillis.coerceAtLeast(1L))
             .putString(KEY_ACTIVE_STATUS, TimerStatus.RUNNING.name)
             .remove(KEY_PAUSED_ELAPSED_MILLIS)
             .putLong(KEY_ACTIVE_TODO_ID, linkedTodoId ?: NO_TODO_ID)
@@ -95,6 +103,7 @@ object TimerStateStore {
             .edit()
             .remove(KEY_ACTIVE_CATEGORY)
             .remove(KEY_ACTIVE_START_TIME)
+            .remove(KEY_ACTIVE_GOAL_MILLIS)
             .remove(KEY_ACTIVE_STATUS)
             .remove(KEY_PAUSED_ELAPSED_MILLIS)
             .remove(KEY_ACTIVE_TODO_ID)

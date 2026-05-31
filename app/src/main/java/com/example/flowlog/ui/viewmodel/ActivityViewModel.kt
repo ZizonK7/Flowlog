@@ -28,6 +28,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.Calendar
 import java.util.TimeZone
+import java.util.concurrent.TimeUnit
 
 data class DailyReport(
     val sessionCount: Int = 0,
@@ -64,6 +65,7 @@ data class ActivityUiState(
     val isRunning: Boolean = false,
     val currentCategory: String = "",
     val elapsedTime: Long = 0L,
+    val timerGoalMillis: Long = TimerStateStore.DEFAULT_GOAL_MILLIS,
     val todayActivities: List<ActivitySession> = emptyList(),
     val allActivities: List<ActivitySession> = emptyList(),
     val dailyReport: DailyReport = DailyReport(),
@@ -128,18 +130,20 @@ class ActivityViewModel(
         if (_uiState.value.isRunning) return
 
         val startTime = System.currentTimeMillis()
+        val goalMillis = goalMillisForTimer(category, startTime)
         _uiState.update {
             it.copy(
                 isRunning = true,
                 currentCategory = category,
                 elapsedTime = 0L,
+                timerGoalMillis = goalMillis,
                 startTime = startTime,
                 linkedTodoId = null,
                 pendingTitle = null,
                 statusMessage = null
             )
         }
-        saveActiveSession(category = category, startTime = startTime)
+        saveActiveSession(category = category, startTime = startTime, goalMillis = goalMillis)
         activityTimerNotifier.showRunningTimer(category, startTime)
         startTimer()
     }
@@ -159,11 +163,13 @@ class ActivityViewModel(
         if (_uiState.value.isRunning) return
 
         val startTime = System.currentTimeMillis()
+        val goalMillis = TimerStateStore.DEFAULT_GOAL_MILLIS
         _uiState.update {
             it.copy(
                 isRunning = true,
                 currentCategory = "TODO",
                 elapsedTime = 0L,
+                timerGoalMillis = goalMillis,
                 startTime = startTime,
                 linkedTodoId = todoId,
                 pendingTitle = title,
@@ -173,6 +179,7 @@ class ActivityViewModel(
         saveActiveSession(
             category = "TODO",
             startTime = startTime,
+            goalMillis = goalMillis,
             linkedTodoId = todoId,
             linkedTodoTitle = title
         )
@@ -298,6 +305,7 @@ class ActivityViewModel(
                 isRunning = false,
                 currentCategory = "",
                 elapsedTime = 0L,
+                timerGoalMillis = TimerStateStore.DEFAULT_GOAL_MILLIS,
                 startTime = 0L,
                 linkedTodoId = null,
                 pendingTitle = null
@@ -507,12 +515,14 @@ class ActivityViewModel(
         val category = activeTimer.category
         val startTime = activeTimer.startTime
         val elapsedTime = (System.currentTimeMillis() - startTime).coerceAtLeast(0L)
+        val goalMillis = activeTimer.goalMillis
 
         _uiState.update {
             it.copy(
                 isRunning = true,
                 currentCategory = category,
                 elapsedTime = elapsedTime,
+                timerGoalMillis = goalMillis,
                 startTime = startTime,
                 linkedTodoId = activeTimer.linkedTodoId,
                 pendingTitle = activeTimer.linkedTodoTitle,
@@ -815,6 +825,7 @@ class ActivityViewModel(
                 isRunning = false,
                 currentCategory = "",
                 elapsedTime = 0L,
+                timerGoalMillis = TimerStateStore.DEFAULT_GOAL_MILLIS,
                 startTime = 0L,
                 linkedTodoId = null,
                 pendingTitle = null,
@@ -831,6 +842,7 @@ class ActivityViewModel(
     private fun saveActiveSession(
         category: String,
         startTime: Long,
+        goalMillis: Long,
         linkedTodoId: Long? = null,
         linkedTodoTitle: String? = null
     ) {
@@ -838,6 +850,7 @@ class ActivityViewModel(
             context = appContext,
             category = category,
             startTime = startTime,
+            goalMillis = goalMillis,
             linkedTodoId = linkedTodoId,
             linkedTodoTitle = linkedTodoTitle
         )
@@ -865,6 +878,32 @@ class ActivityViewModel(
 
     private fun isTimedCategory(category: String): Boolean {
         return category != "SNACK" && category != "TOOTHBRUSH"
+    }
+
+    private fun goalMillisForTimer(category: String, startTime: Long): Long {
+        if (category != "SCHOOL" && category != "COMPANY") {
+            return TimerStateStore.DEFAULT_GOAL_MILLIS
+        }
+
+        val lastWeekStart = startOfDay(Calendar.getInstance().apply {
+            timeInMillis = startTime
+            add(Calendar.DAY_OF_YEAR, -7)
+        }).timeInMillis
+        val lastWeekEnd = startOfDay(Calendar.getInstance().apply {
+            timeInMillis = lastWeekStart
+            add(Calendar.DAY_OF_YEAR, 1)
+        }).timeInMillis
+        val lastWeekSameDaySessions = _uiState.value.allActivities.filter { activity ->
+            activity.category == category &&
+                activity.durationMillis > 0L &&
+                activity.startTime in lastWeekStart until lastWeekEnd
+        }
+
+        return if (lastWeekSameDaySessions.isEmpty()) {
+            DEFAULT_SCHOOL_COMPANY_GOAL_MILLIS
+        } else {
+            lastWeekSameDaySessions.sumOf { it.durationMillis } / lastWeekSameDaySessions.size
+        }.coerceAtLeast(1L)
     }
 
     private fun defaultTitle(category: String): String {
@@ -899,5 +938,6 @@ class ActivityViewModel(
         private const val KEY_SNACK_BUTTON_TIMER_ENDS_AT = "snack_button_timer_ends_at"
         private val undoJson = Json { ignoreUnknownKeys = true }
         private const val KEY_SLEEP_RECORD_2026_05_19 = "sleep_record_2026_05_19_212957"
+        private val DEFAULT_SCHOOL_COMPANY_GOAL_MILLIS = TimeUnit.HOURS.toMillis(10)
     }
 }

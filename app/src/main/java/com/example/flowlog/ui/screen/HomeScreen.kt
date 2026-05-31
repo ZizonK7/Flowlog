@@ -182,6 +182,7 @@ fun HomeScreen(
                 isRunning = uiState.isRunning,
                 currentCategory = uiState.currentCategory,
                 elapsedTime = uiState.elapsedTime,
+                timerGoalMillis = uiState.timerGoalMillis,
                 statusMessage = uiState.statusMessage,
                 appliedTitle = uiState.pendingTitle.orEmpty(),
                 titleSuggestions = titleSuggestions,
@@ -314,6 +315,7 @@ private fun TodayFlowCard(
     isRunning: Boolean,
     currentCategory: String,
     elapsedTime: Long,
+    timerGoalMillis: Long,
     statusMessage: String?,
     appliedTitle: String,
     titleSuggestions: List<String>,
@@ -357,6 +359,7 @@ private fun TodayFlowCard(
                 TimerPage(
                     currentCategory = currentCategory,
                     elapsedTime = elapsedTime,
+                    timerGoalMillis = timerGoalMillis,
                     initialAppliedTitle = appliedTitle,
                     titleSuggestions = titleSuggestions,
                     onStop = onStop,
@@ -377,6 +380,7 @@ private fun TodayFlowCard(
 private fun TimerPage(
     currentCategory: String,
     elapsedTime: Long,
+    timerGoalMillis: Long,
     initialAppliedTitle: String,
     titleSuggestions: List<String>,
     onStop: (String) -> Unit,
@@ -388,7 +392,7 @@ private fun TimerPage(
     val progressCycleMillis = if (currentCategory == "EXPERIMENT_3") {
         TimeUnit.SECONDS.toMillis(5)
     } else {
-        TimeUnit.HOURS.toMillis(2)
+        timerGoalMillis.coerceAtLeast(1L)
     }
     val cycleProgress = (elapsedTime % progressCycleMillis).toFloat() / progressCycleMillis.toFloat()
     val progress = if (elapsedTime > 0L) cycleProgress.coerceAtLeast(0.01f) else 0f
