@@ -36,6 +36,7 @@ fun CategoryButton(
     category: String,
     isSelected: Boolean = false,
     label: String = displayCategory(category),
+    iconCategory: String = category,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -72,7 +73,7 @@ fun CategoryButton(
                 contentAlignment = Alignment.Center
             ) {
                 CategoryGlyph(
-                    category = category,
+                    category = iconCategory,
                     tint = accentColor,
                     modifier = Modifier.size(28.dp)
                 )
@@ -132,6 +133,7 @@ private fun categoryPastelColor(category: String): Color {
         "MEAL" -> Color(0xFFFFEDE4)
         "STUDY" -> Color(0xFFE6F6E8)
         "WORK" -> Color(0xFFE9EAF0)
+        "COMPANY" -> Color(0xFFE6EEF2)
         "DEVELOPMENT" -> Color(0xFFE9E7FF)
         "WASH" -> Color(0xFFE4F5FF)
         "SCHOOL" -> Color(0xFFFCE4ED)

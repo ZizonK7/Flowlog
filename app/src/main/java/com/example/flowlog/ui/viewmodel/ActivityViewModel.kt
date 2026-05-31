@@ -148,6 +148,13 @@ class ActivityViewModel(
         startActivity(activity.category)
     }
 
+    fun setRunningActivityTitle(title: String) {
+        if (!_uiState.value.isRunning) return
+        _uiState.update {
+            it.copy(pendingTitle = title.trim().takeIf { cleanTitle -> cleanTitle.isNotBlank() })
+        }
+    }
+
     fun startTodoActivity(todoId: Long, title: String) {
         if (_uiState.value.isRunning) return
 
@@ -260,7 +267,7 @@ class ActivityViewModel(
         return elapsedTime
     }
 
-    fun stopActivityAndSave() {
+    fun stopActivityAndSave(titleOverride: String? = null) {
         val state = _uiState.value
         if (!state.isRunning || state.currentCategory.isEmpty() || state.startTime == 0L) return
 
@@ -268,9 +275,13 @@ class ActivityViewModel(
         val endTime = System.currentTimeMillis()
         val durationMillis = if (state.elapsedTime > 0L) state.elapsedTime else endTime - state.startTime
         val cleanCategory = state.currentCategory
+        val cleanTitle = titleOverride?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: state.pendingTitle
+            ?: defaultTitle(cleanCategory)
         val activity = ActivitySession(
             category = cleanCategory,
-            title = state.pendingTitle ?: defaultTitle(cleanCategory),
+            title = cleanTitle,
             startTime = state.startTime,
             endTime = endTime,
             durationMillis = durationMillis,
@@ -310,7 +321,7 @@ class ActivityViewModel(
             attemptDeferredSync()
             _uiState.update {
                 it.copy(
-                    pendingSavedActivity = if (cleanCategory == "ETC") savedActivity else null,
+                    pendingSavedActivity = null,
                     statusMessage = "활동이 저장되었습니다."
                 )
             }
@@ -863,6 +874,7 @@ class ActivityViewModel(
             "SLEEP" -> "\uC218\uBA74"
             "STUDY" -> "\uACF5\uBD80"
             "WORK" -> "\uC5C5\uBB34"
+            "COMPANY" -> "\uD68C\uC0AC"
             "DEVELOPMENT" -> "\uAC1C\uBC1C"
             "WASH" -> "\uC53B\uAE30"
             "REST" -> "\uD734\uC2DD"

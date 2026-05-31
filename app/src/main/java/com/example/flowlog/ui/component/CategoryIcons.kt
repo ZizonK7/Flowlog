@@ -4,6 +4,7 @@ import androidx.annotation.DrawableRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Cookie
@@ -21,6 +22,7 @@ fun categoryAppIcon(category: String): ImageVector? = when (category) {
     "MEAL"        -> Icons.Filled.Restaurant
     "STUDY"       -> Icons.AutoMirrored.Filled.MenuBook
     "WORK"        -> Icons.Filled.Work
+    "COMPANY"     -> Icons.Filled.Apartment
     "DEVELOPMENT" -> Icons.Filled.Code
     "WASH"        -> Icons.Filled.Shower
     "SCHOOL"      -> Icons.Filled.School
@@ -38,6 +40,7 @@ fun categoryNotificationIconRes(category: String): Int = when (category) {
     "MEAL"        -> R.drawable.ic_activity_meal
     "STUDY"       -> R.drawable.ic_activity_study
     "WORK"        -> R.drawable.ic_activity_work
+    "COMPANY"     -> R.drawable.ic_activity_work
     "DEVELOPMENT" -> R.drawable.ic_activity_development
     "WASH"        -> R.drawable.ic_activity_wash
     "SCHOOL"      -> R.drawable.ic_activity_school

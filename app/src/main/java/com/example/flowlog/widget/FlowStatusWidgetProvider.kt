@@ -147,6 +147,7 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
         "MEAL" -> "식사"
         "STUDY" -> "공부"
         "WORK" -> "업무"
+        "COMPANY" -> "회사"
         "DEVELOPMENT" -> "개발"
         "WASH" -> "씻기"
         "SCHOOL" -> "학교"

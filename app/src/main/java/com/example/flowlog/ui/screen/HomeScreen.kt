@@ -1,21 +1,17 @@
 package com.example.flowlog.ui.screen
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,6 +33,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -53,6 +50,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -68,18 +67,20 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.flowlog.data.model.ActivitySession
-import com.example.flowlog.ui.component.ActivityTitleDialog
 import com.example.flowlog.ui.component.CategoryButton
 import com.example.flowlog.ui.component.CategoryGlyph
 import com.example.flowlog.ui.component.EditActivityDialog
@@ -171,14 +172,25 @@ fun HomeScreen(
         }
 
         item {
+            val titleSuggestions = remember(uiState.currentCategory, uiState.allActivities) {
+                buildTitleSuggestions(
+                    category = uiState.currentCategory,
+                    activities = uiState.allActivities
+                )
+            }
             TodayFlowCard(
                 isRunning = uiState.isRunning,
                 currentCategory = uiState.currentCategory,
                 elapsedTime = uiState.elapsedTime,
                 statusMessage = uiState.statusMessage,
+                appliedTitle = uiState.pendingTitle.orEmpty(),
+                titleSuggestions = titleSuggestions,
                 categories = categories,
-                onStop = {
-                    viewModel.stopActivityAndSave()
+                onStop = { title ->
+                    viewModel.stopActivityAndSave(title)
+                },
+                onApplyTitle = { title ->
+                    viewModel.setRunningActivityTitle(title)
                 },
                 onStart = { category ->
                     if (!uiState.isRunning || category == "SNACK" || category == "TOOTHBRUSH") {
@@ -186,38 +198,6 @@ fun HomeScreen(
                     }
                 }
             )
-        }
-
-        item {
-            val pendingSavedActivity = uiState.pendingSavedActivity
-            val etcSuggestions = remember(uiState.allActivities) {
-                val defaultTitle = "활동"
-                uiState.allActivities
-                    .filter { it.category == "ETC" && it.title.isNotBlank() && it.title != defaultTitle }
-                    .groupBy { it.title }
-                    .map { (t, sessions) -> Triple(t, sessions.size, sessions.maxOf { it.startTime }) }
-                    .sortedWith(compareByDescending<Triple<String, Int, Long>> { it.second }.thenByDescending { it.third })
-                    .map { it.first }
-                    .take(5)
-            }
-            AnimatedVisibility(
-                visible = pendingSavedActivity != null,
-                enter = expandVertically(tween(280)) + fadeIn(tween(220)),
-                exit = shrinkVertically(tween(220)) + fadeOut(tween(160))
-            ) {
-                ActivityTitleDialog(
-                    isVisible = pendingSavedActivity != null,
-                    category = pendingSavedActivity?.category.orEmpty(),
-                    suggestions = etcSuggestions,
-                    onSave = { category, title ->
-                        viewModel.updatePendingSavedActivity(category, title, null)
-                    },
-                    initialTitle = pendingSavedActivity?.title,
-                    onDismiss = {
-                        viewModel.dismissPendingSavedActivity()
-                    }
-                )
-            }
         }
 
         item {
@@ -335,8 +315,11 @@ private fun TodayFlowCard(
     currentCategory: String,
     elapsedTime: Long,
     statusMessage: String?,
+    appliedTitle: String,
+    titleSuggestions: List<String>,
     categories: List<String>,
-    onStop: () -> Unit,
+    onStop: (String) -> Unit,
+    onApplyTitle: (String) -> Unit,
     onStart: (String) -> Unit
 ) {
     Card(
@@ -374,7 +357,10 @@ private fun TodayFlowCard(
                 TimerPage(
                     currentCategory = currentCategory,
                     elapsedTime = elapsedTime,
-                    onStop = onStop
+                    initialAppliedTitle = appliedTitle,
+                    titleSuggestions = titleSuggestions,
+                    onStop = onStop,
+                    onApplyTitle = onApplyTitle
                 )
             } else {
                 FlowStartPage(
@@ -391,8 +377,14 @@ private fun TodayFlowCard(
 private fun TimerPage(
     currentCategory: String,
     elapsedTime: Long,
-    onStop: () -> Unit
+    initialAppliedTitle: String,
+    titleSuggestions: List<String>,
+    onStop: (String) -> Unit,
+    onApplyTitle: (String) -> Unit
 ) {
+    var title by remember(currentCategory) { mutableStateOf("") }
+    var appliedTitle by remember(currentCategory) { mutableStateOf(initialAppliedTitle) }
+    val focusManager = LocalFocusManager.current
     val progressCycleMillis = if (currentCategory == "EXPERIMENT_3") {
         TimeUnit.SECONDS.toMillis(5)
     } else {
@@ -447,7 +439,17 @@ private fun TimerPage(
                         overflow = TextOverflow.Clip
                     )
                 }
-                FlowPageDots(activePage = 0)
+                if (appliedTitle.isNotBlank()) {
+                    Text(
+                        text = appliedTitle,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = FlowMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                }
             }
             FlowProgressRing(
                 progress = progress,
@@ -458,6 +460,110 @@ private fun TimerPage(
         }
 
         Spacer(modifier = Modifier.height(22.dp))
+        if (titleSuggestions.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(end = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(titleSuggestions.size) { index ->
+                    SuggestionChip(
+                        onClick = { title = titleSuggestions[index] },
+                        label = {
+                            Text(
+                                text = titleSuggestions[index],
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = FlowPurpleSoft,
+                            labelColor = FlowPurple
+                        ),
+                        border = null
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BasicTextField(
+                value = title,
+                onValueChange = { title = it },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(46.dp)
+                    .border(1.dp, FlowDivider, RoundedCornerShape(13.dp))
+                    .background(Color.White, RoundedCornerShape(13.dp))
+                    .padding(horizontal = 14.dp),
+                singleLine = true,
+                textStyle = TextStyle(
+                    color = FlowInk,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                cursorBrush = SolidColor(FlowPurple),
+                decorationBox = { innerTextField ->
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Edit,
+                            contentDescription = null,
+                            tint = FlowPurple.copy(alpha = 0.58f),
+                            modifier = Modifier.size(19.dp)
+                        )
+                        Spacer(modifier = Modifier.width(9.dp))
+                        Box(
+                            modifier = Modifier.weight(1f),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (title.isEmpty()) {
+                                Text(
+                                    text = "직접 입력",
+                                    color = FlowMuted.copy(alpha = 0.78f),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            innerTextField()
+                        }
+                    }
+                }
+            )
+            Button(
+                onClick = {
+                    val cleanTitle = title.trim()
+                    title = cleanTitle
+                    appliedTitle = cleanTitle
+                    onApplyTitle(cleanTitle)
+                    focusManager.clearFocus()
+                },
+                modifier = Modifier
+                    .width(66.dp)
+                    .height(46.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = FlowPurple,
+                    contentColor = Color.White
+                ),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
+                contentPadding = PaddingValues(horizontal = 0.dp)
+            ) {
+                Text(
+                    text = "적용",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(22.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -465,7 +571,11 @@ private fun TimerPage(
                 .background(FlowDivider)
         )
         Button(
-            onClick = onStop,
+            onClick = {
+                val finalTitle = appliedTitle.ifBlank { title }.trim()
+                onApplyTitle(finalTitle)
+                onStop(finalTitle)
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 14.dp),
@@ -485,6 +595,36 @@ private fun TimerPage(
     }
 }
 
+private fun buildTitleSuggestions(
+    category: String,
+    activities: List<ActivitySession>
+): List<String> {
+    val defaultTitle = defaultActivityTitle(category)
+    return activities
+        .filter { it.category == category && it.title.isNotBlank() && it.title != defaultTitle }
+        .groupBy { it.title.trim() }
+        .map { (title, sessions) -> Triple(title, sessions.size, sessions.maxOf { it.startTime }) }
+        .sortedWith(compareByDescending<Triple<String, Int, Long>> { it.second }.thenByDescending { it.third })
+        .map { it.first }
+        .take(5)
+}
+
+private fun defaultActivityTitle(category: String): String {
+    return when (category) {
+        "MEAL" -> "식사"
+        "EXERCISE" -> "운동"
+        "SLEEP" -> "수면"
+        "STUDY" -> "공부"
+        "WORK" -> "업무"
+        "COMPANY" -> "회사"
+        "DEVELOPMENT" -> "개발"
+        "WASH" -> "씻기"
+        "REST" -> "휴식"
+        "SCHOOL" -> "학교"
+        else -> "활동"
+    }
+}
+
 @Composable
 private fun FlowStartPage(
     categories: List<String>,
@@ -497,7 +637,15 @@ private fun FlowStartPage(
 
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("flowlog_prefs", android.content.Context.MODE_PRIVATE) }
-    var schoolSlotCategory by remember { mutableStateOf(prefs.getString("school_slot_category", "SCHOOL") ?: "SCHOOL") }
+    var schoolSlotCategory by remember {
+        mutableStateOf(
+            when (prefs.getString("school_slot_category", "SCHOOL")) {
+                "WORK" -> "COMPANY"
+                "COMPANY" -> "COMPANY"
+                else -> "SCHOOL"
+            }
+        )
+    }
     var showToggleDialog by remember { mutableStateOf(false) }
 
     if (showToggleDialog) {
@@ -513,7 +661,7 @@ private fun FlowStartPage(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val next = if (isSchool) "WORK" else "SCHOOL"
+                    val next = if (isSchool) "COMPANY" else "SCHOOL"
                     schoolSlotCategory = next
                     prefs.edit().putString("school_slot_category", next).apply()
                     showToggleDialog = false
@@ -574,8 +722,7 @@ private fun FlowStartPage(
             items(activityCategories.size) { index ->
                 val rawCategory = activityCategories[index]
                 val effectiveCategory = if (rawCategory == "SCHOOL") schoolSlotCategory else rawCategory
-                val effectiveLabel = if (rawCategory == "SCHOOL" && schoolSlotCategory == "WORK") "회사"
-                    else displayCategory(effectiveCategory)
+                val effectiveLabel = displayCategory(effectiveCategory)
                 CategoryButton(
                     category = effectiveCategory,
                     label = effectiveLabel,

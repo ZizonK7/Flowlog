@@ -349,7 +349,7 @@ class TodoViewModel(
         val yesterdayEnd = yesterdayStart + DAY_MILLIS
         val yesterday = activities.filter { it.startTime in yesterdayStart until yesterdayEnd }
         val totals = yesterday.groupBy { it.category }.mapValues { entry -> entry.value.sumOf { it.durationMillis } }
-        val productive = listOf("STUDY", "WORK", "DEVELOPMENT").sumOf { totals[it] ?: 0L }
+        val productive = listOf("STUDY", "WORK", "COMPANY", "DEVELOPMENT").sumOf { totals[it] ?: 0L }
         val rest = totals["REST"] ?: 0L
         val sleep = totals["SLEEP"] ?: 0L
         val hasOpenTodo = todos.any { !it.isCompleted }

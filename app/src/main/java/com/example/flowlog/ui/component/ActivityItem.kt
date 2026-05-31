@@ -136,6 +136,7 @@ fun displayCategory(category: String): String {
         "MEAL" -> "\uC2DD\uC0AC"
         "STUDY" -> "\uACF5\uBD80"
         "WORK" -> "\uC5C5\uBB34"
+        "COMPANY" -> "\uD68C\uC0AC"
         "DEVELOPMENT" -> "\uAC1C\uBC1C"
         "WASH" -> "\uC53B\uAE30"
         "SCHOOL" -> "\uD559\uAD50"
@@ -159,6 +160,7 @@ fun categoryColor(category: String): Color {
         "TOOTHBRUSH" -> Color(0xFF26A69A)
         "EXERCISE" -> Color(0xFF2196F3)
         "WORK" -> Color(0xFF546E7A)
+        "COMPANY" -> Color(0xFF455A64)
         "DEVELOPMENT" -> Color(0xFF3949AB)
         "WASH" -> Color(0xFF1E88E5)
         "SLEEP" -> Color(0xFF9C27B0)

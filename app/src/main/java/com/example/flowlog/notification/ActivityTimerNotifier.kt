@@ -239,6 +239,7 @@ class ActivityTimerNotifier(private val context: Context) {
         return when (category) {
             "STUDY" -> "\uACF5\uBD80\uB97C \uD558\uB294 \uC911\uC785\uB2C8\uB2E4!"
             "WORK" -> "\uC5C5\uBB34\uB97C \uD558\uB294 \uC911\uC785\uB2C8\uB2E4!"
+            "COMPANY" -> "\uD68C\uC0AC \uD65C\uB3D9 \uC911\uC785\uB2C8\uB2E4!"
             "DEVELOPMENT" -> "\uAC1C\uBC1C\uC744 \uD558\uB294 \uC911\uC785\uB2C8\uB2E4!"
             "MEAL" -> "\uC2DD\uC0AC\uB97C \uD558\uB294 \uC911\uC785\uB2C8\uB2E4!"
             "EXERCISE" -> "\uC6B4\uB3D9\uC744 \uD558\uB294 \uC911\uC785\uB2C8\uB2E4!"
