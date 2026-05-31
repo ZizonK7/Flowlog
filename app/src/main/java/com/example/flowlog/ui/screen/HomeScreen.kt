@@ -52,7 +52,9 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -73,6 +75,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.flowlog.data.model.ActivitySession
@@ -492,6 +495,38 @@ private fun FlowStartPage(
         categories.filter { it !in setOf("TOOTHBRUSH", "SNACK", "EXPERIMENT_1", "EXPERIMENT_2", "EXPERIMENT_3") }
     }
 
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("flowlog_prefs", android.content.Context.MODE_PRIVATE) }
+    var schoolSlotCategory by remember { mutableStateOf(prefs.getString("school_slot_category", "SCHOOL") ?: "SCHOOL") }
+    var showToggleDialog by remember { mutableStateOf(false) }
+
+    if (showToggleDialog) {
+        val isSchool = schoolSlotCategory == "SCHOOL"
+        AlertDialog(
+            onDismissRequest = { showToggleDialog = false },
+            title = { Text("버튼 변경") },
+            text = {
+                Text(
+                    if (isSchool) "'학교' 버튼을 '회사' 버튼으로 변경할까요?"
+                    else "'회사' 버튼을 '학교' 버튼으로 변경할까요?"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val next = if (isSchool) "WORK" else "SCHOOL"
+                    schoolSlotCategory = next
+                    prefs.edit().putString("school_slot_category", next).apply()
+                    showToggleDialog = false
+                }) {
+                    Text(if (isSchool) "회사로 변경" else "학교로 변경")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showToggleDialog = false }) { Text("취소") }
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -537,10 +572,17 @@ private fun FlowStartPage(
             userScrollEnabled = false
         ) {
             items(activityCategories.size) { index ->
-                val category = activityCategories[index]
+                val rawCategory = activityCategories[index]
+                val effectiveCategory = if (rawCategory == "SCHOOL") schoolSlotCategory else rawCategory
+                val effectiveLabel = if (rawCategory == "SCHOOL" && schoolSlotCategory == "WORK") "회사"
+                    else displayCategory(effectiveCategory)
                 CategoryButton(
-                    category = category,
-                    onClick = { onStart(category) }
+                    category = effectiveCategory,
+                    label = effectiveLabel,
+                    onClick = { onStart(effectiveCategory) },
+                    onLongClick = if (rawCategory == "SCHOOL") {
+                        { showToggleDialog = true }
+                    } else null
                 )
             }
         }

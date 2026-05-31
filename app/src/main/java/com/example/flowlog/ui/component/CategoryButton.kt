@@ -3,6 +3,7 @@ package com.example.flowlog.ui.component
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,16 +37,20 @@ fun CategoryButton(
     isSelected: Boolean = false,
     label: String = displayCategory(category),
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val accentColor = categoryColor(category)
     val iconBackground = categoryPastelColor(category)
 
     Card(
-        onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .height(84.dp),
+            .height(84.dp)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 5.dp else 3.dp),
         border = BorderStroke(

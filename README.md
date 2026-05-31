@@ -23,6 +23,11 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Added a long-press toggle on the '학교' activity button: holding the button
+  opens a confirmation dialog that swaps it to a '회사' button (backed by the
+  WORK category), and long-pressing again restores it to '학교'. The chosen
+  state is saved to SharedPreferences so it persists across app restarts.
+
 - Improved the ETC activity completion card:
   - Added suggestion chips that surface up to five of the most frequent and most
     recently used ETC titles; tapping a chip fills the title field instantly.
