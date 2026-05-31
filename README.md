@@ -42,6 +42,10 @@ Google account can view the data from the pfkfks website.
   the app now targets two Todo goals by default, includes every D-0 assignment
   regardless of count, orders D-0 assignments from lower burden to higher
   burden, and expands when urgent assignment pressure requires it.
+- Refined Todo completion and delete-edit handling:
+  completed regular todos now stay in the bottom undo/check area only on the
+  day they were completed, and the edit panel no longer shows duplicate cancel
+  actions while confirming deletion.
 - Added DailyGoal audit reconciliation so previous recommendations can derive
   shown, started, completed, and ignored signals from `DailyGoalItem` records,
   linked Todo activity sessions, completion time, and the original Todo

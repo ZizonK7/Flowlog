@@ -110,8 +110,16 @@ fun TodoScreen(
     // 완료 여부 무관하게 오늘의 목표에 있는 항목은 전체 할 일에서 제외
     val activeTodos   = remember(todos, focusIds) { todos.filter { !it.isCompleted && it.id !in focusIds } }
     // 전체 할 일에서 완료된 항목: 최대 1개만 존재 (completeTodo가 이전 항목 삭제)
-    val completedRegular = remember(todos, focusIds) {
-        todos.filter { it.isCompleted && it.id !in focusIds }
+    val todayStart = startOfDay(System.currentTimeMillis())
+    val tomorrowStart = todayStart + DAY_MILLIS
+    val completedRegular = remember(todos, focusIds, todayStart) {
+        todos.filter {
+            val completedAt = it.completedAt
+            it.isCompleted &&
+                it.id !in focusIds &&
+                completedAt != null &&
+                completedAt in todayStart until tomorrowStart
+        }
             .maxByOrNull { it.completedAt ?: 0L }
     }
 
@@ -682,18 +690,30 @@ private fun TodoCard(
                                 Spacer(Modifier.width(3.dp))
                                 Text("삭제", fontSize = 13.sp)
                             }
-                        } else {
-                            Text("정말 삭제할까요?", fontSize = 13.sp, color = TextMuted)
-                            TextButton(onClick = onDelete, colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE35B5B))) {
-                                Text("삭제", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            }
-                            TextButton(onClick = { confirmDelete = false }) {
+                            Spacer(Modifier.weight(1f))
+                            TextButton(onClick = onEditToggle) {
                                 Text("취소", fontSize = 13.sp, color = TextMuted)
                             }
-                        }
-                        Spacer(Modifier.weight(1f))
-                        TextButton(onClick = onEditToggle) {
-                            Text("취소", fontSize = 13.sp, color = TextMuted)
+                        } else {
+                            Text(
+                                "정말 삭제할까요?",
+                                fontSize = 13.sp,
+                                color = TextMuted,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(
+                                onClick = onDelete,
+                                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE35B5B)),
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                Text("삭제", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+                            TextButton(
+                                onClick = { confirmDelete = false },
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                Text("취소", fontSize = 13.sp, color = TextMuted)
+                            }
                         }
                         Button(
                             onClick = { onSave(editTitle.trim(), editCategory, editDate) },
@@ -850,3 +870,16 @@ private fun fmtDate(millis: Long): String {
     val c = java.util.Calendar.getInstance().apply { timeInMillis = millis }
     return "${c.get(java.util.Calendar.MONTH) + 1}/${c.get(java.util.Calendar.DAY_OF_MONTH)}"
 }
+
+private fun startOfDay(millis: Long): Long {
+    val c = java.util.Calendar.getInstance().apply {
+        timeInMillis = millis
+        set(java.util.Calendar.HOUR_OF_DAY, 0)
+        set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+    }
+    return c.timeInMillis
+}
+
+private const val DAY_MILLIS = 24L * 60L * 60L * 1000L
