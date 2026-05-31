@@ -23,6 +23,18 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Reworked Today's Focus recommendations:
+  the app now targets two Todo goals by default, includes every D-0 assignment
+  regardless of count, orders D-0 assignments from lower burden to higher
+  burden, and expands when urgent assignment pressure requires it.
+- Added DailyGoal audit reconciliation so previous recommendations can derive
+  shown, started, completed, and ignored signals from `DailyGoalItem` records,
+  linked Todo activity sessions, completion time, and the original Todo
+  snapshot.
+- Added a lightweight suggestion card below Today's Focus. It is visually
+  separate from goals and uses yesterday's activity flow to suggest a gentle
+  next action without storing it as a DailyGoalItem.
+
 - Redesigned the home-screen `통계 리포트` card around today's activity report:
   it now shows today's category totals with colored bars, hides lower-ranked
   categories behind a `나머지 N개 보기` control, and removes the previous total

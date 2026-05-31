@@ -8,8 +8,10 @@ import com.example.flowlog.data.constants.SyncStatus
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.local.entity.DailyGoalItemEntity
 import com.example.flowlog.data.local.entity.DailyGoalRecommendationEntity
+import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.TodoItem
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
@@ -118,11 +120,53 @@ class DailyGoalRepository(context: Context) {
         )
     }
 
+    suspend fun reconcilePastRecommendations(
+        currentTodos: List<TodoItem>,
+        activities: List<ActivitySession> = emptyList(),
+        beforeDateKey: String = todayDateKey()
+    ) {
+        val currentByLegacyId = currentTodos.associateBy { "legacy_todo_${it.id}" }
+        val now = System.currentTimeMillis()
+        dao.getRecommendationsBeforeDate(userId, beforeDateKey).forEach { recommendation ->
+            val dayStart = dateFormat.parse(recommendation.dateKey)?.time ?: return@forEach
+            val dayEnd = dayStart + DAY_MILLIS
+            dao.getGoalItems(recommendation.recommendationId).forEach { item ->
+                if (item.wasCompleted || item.wasSkipped || item.wasDeleted) return@forEach
+                val current = currentByLegacyId[item.todoId] ?: return@forEach
+                val shownSnapshot = runCatching {
+                    item.todoSnapshotJson?.let { json.decodeFromString<TodoItem>(it) }
+                }.getOrNull()
+                val startedByActivity = activities.any { activity ->
+                    activity.linkedTodoId == current.id &&
+                        activity.durationMillis > 0L &&
+                        activity.startTime in dayStart until dayEnd
+                }
+                val startedByAccumulatedDelta = current.accumulatedSeconds > (shownSnapshot?.accumulatedSeconds ?: 0L)
+                val startedOnShownDate = startedByActivity || (activities.isEmpty() && startedByAccumulatedDelta)
+                val completedOnShownDate = current.completedAt?.let { it in dayStart until dayEnd } == true
+
+                when {
+                    completedOnShownDate -> dao.markItemCompletedPending(
+                        recommendationId = recommendation.recommendationId,
+                        todoId = item.todoId,
+                        updatedAt = now
+                    )
+                    !startedOnShownDate -> dao.markItemSkippedPending(
+                        recommendationId = recommendation.recommendationId,
+                        todoId = item.todoId,
+                        updatedAt = now
+                    )
+                }
+            }
+        }
+    }
+
     suspend fun getTodayRecommendation(dateKey: String): DailyGoalRecommendationEntity? {
         return dao.getRecommendationByDate(userId, dateKey)
     }
 
     companion object {
         private const val TAG = "DailyGoalRepository"
+        private const val DAY_MILLIS = 24L * 60 * 60 * 1000
     }
 }

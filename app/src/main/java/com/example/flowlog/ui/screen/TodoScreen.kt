@@ -77,6 +77,7 @@ import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.ui.component.formatDuration
 import com.example.flowlog.ui.viewmodel.TodoViewModel
+import com.example.flowlog.ui.viewmodel.YesterdayFlowSuggestion
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -98,11 +99,13 @@ private val ChipShape    = RoundedCornerShape(20.dp)
 fun TodoScreen(
     viewModel: TodoViewModel,
     onStartTodo: (TodoItem) -> Unit,
+    onStartSuggestion: (String) -> Unit,
     isDeveloperMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val todos         by viewModel.todos.collectAsState()
     val focusTodos    by viewModel.todayFocusItems.collectAsState()
+    val yesterdaySuggestion by viewModel.yesterdaySuggestion.collectAsState()
     val focusIds      = remember(focusTodos) { focusTodos.map { it.id }.toSet() }
     // 완료 여부 무관하게 오늘의 목표에 있는 항목은 전체 할 일에서 제외
     val activeTodos   = remember(todos, focusIds) { todos.filter { !it.isCompleted && it.id !in focusIds } }
@@ -231,12 +234,24 @@ fun TodoScreen(
                     isEditing    = editingId == todo.id,
                     isCompleting = completingId == todo.id,
                     isFocus      = true,
-                    onStartTodo  = { onStartTodo(todo) },
+                    onStartTodo  = {
+                        viewModel.startFocusTodo(todo)
+                        onStartTodo(todo)
+                    },
                     onComplete   = { onCompleteFocus(todo) },
                     onUncomplete = { viewModel.uncompleteTodo(todo) },
                     onEditToggle = { editingId = if (editingId == todo.id) null else todo.id },
                     onSave       = { t, c, d -> viewModel.updateTodo(todo.copy(title = t, category = c, selectedDate = d)); editingId = null },
                     onDelete     = { viewModel.deleteTodo(todo); editingId = null }
+                )
+            }
+        }
+
+        yesterdaySuggestion?.let { suggestion ->
+            item(key = "yesterday_suggestion") {
+                YesterdayFlowSuggestionCard(
+                    suggestion = suggestion,
+                    onStart = { onStartSuggestion(suggestion.actionCategory) }
                 )
             }
         }
@@ -286,6 +301,58 @@ fun TodoScreen(
                     onUndo   = { viewModel.uncompleteTodo(todo) },
                     onDelete = { viewModel.deleteTodo(todo) }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun YesterdayFlowSuggestionCard(
+    suggestion: YesterdayFlowSuggestion,
+    onStart: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = CardShape,
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF7F8FB)),
+        border = BorderStroke(1.dp, Color(0xFFE5E7EF))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Info,
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = suggestion.message,
+                    color = TextPrimary,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            OutlinedButton(
+                onClick = onStart,
+                shape = ChipShape,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Purple)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(suggestion.actionLabel, fontWeight = FontWeight.SemiBold)
             }
         }
     }

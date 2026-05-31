@@ -87,6 +87,18 @@ interface DailyGoalDao {
     ): DailyGoalRecommendationEntity?
 
     @Query("""
+        SELECT * FROM daily_goal_recommendations
+        WHERE userId = :userId AND dateKey < :dateKey
+        ORDER BY createdAt DESC
+        LIMIT :limit
+    """)
+    suspend fun getRecommendationsBeforeDate(
+        userId: String,
+        dateKey: String,
+        limit: Int = 7
+    ): List<DailyGoalRecommendationEntity>
+
+    @Query("""
         SELECT * FROM daily_goal_items
         WHERE recommendationId = :recommendationId
         ORDER BY rank ASC
@@ -102,28 +114,42 @@ interface DailyGoalDao {
 
     @Query("""
         UPDATE daily_goal_items
-        SET wasCompleted = 1, updatedAt = :updatedAt
+        SET wasCompleted = 1, updatedAt = :updatedAt, syncStatus = '${SyncStatus.PENDING}'
         WHERE recommendationId = :recommendationId AND todoId = :todoId
     """)
     suspend fun markItemCompleted(recommendationId: String, todoId: String, updatedAt: Long)
 
     @Query("""
         UPDATE daily_goal_items
-        SET wasClicked = 1, updatedAt = :updatedAt
+        SET wasCompleted = 1, updatedAt = :updatedAt, syncStatus = '${SyncStatus.PENDING}'
+        WHERE recommendationId = :recommendationId AND todoId = :todoId
+    """)
+    suspend fun markItemCompletedPending(recommendationId: String, todoId: String, updatedAt: Long)
+
+    @Query("""
+        UPDATE daily_goal_items
+        SET wasClicked = 1, updatedAt = :updatedAt, syncStatus = '${SyncStatus.PENDING}'
         WHERE recommendationId = :recommendationId AND todoId = :todoId
     """)
     suspend fun markItemClicked(recommendationId: String, todoId: String, updatedAt: Long)
 
     @Query("""
         UPDATE daily_goal_items
-        SET wasSkipped = 1, updatedAt = :updatedAt
+        SET wasSkipped = 1, updatedAt = :updatedAt, syncStatus = '${SyncStatus.PENDING}'
         WHERE recommendationId = :recommendationId AND todoId = :todoId
     """)
     suspend fun markItemSkipped(recommendationId: String, todoId: String, updatedAt: Long)
 
     @Query("""
         UPDATE daily_goal_items
-        SET wasDeleted = 1, updatedAt = :updatedAt
+        SET wasSkipped = 1, updatedAt = :updatedAt, syncStatus = '${SyncStatus.PENDING}'
+        WHERE recommendationId = :recommendationId AND todoId = :todoId
+    """)
+    suspend fun markItemSkippedPending(recommendationId: String, todoId: String, updatedAt: Long)
+
+    @Query("""
+        UPDATE daily_goal_items
+        SET wasDeleted = 1, updatedAt = :updatedAt, syncStatus = '${SyncStatus.PENDING}'
         WHERE recommendationId = :recommendationId AND todoId = :todoId
     """)
     suspend fun markItemDeleted(recommendationId: String, todoId: String, updatedAt: Long)
