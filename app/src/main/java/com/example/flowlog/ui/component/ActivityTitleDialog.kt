@@ -20,6 +20,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,10 +46,9 @@ private val EtcCardBorder     = Color(0xFFE8E8EE)
 fun ActivityTitleDialog(
     isVisible: Boolean,
     category: String,
-    categories: List<String>,
-    onSave: (String, String, String?) -> Unit,
+    suggestions: List<String> = emptyList(),
+    onSave: (String, String) -> Unit,
     initialTitle: String? = null,
-    initialNote: String? = null,
     onDismiss: () -> Unit
 ) {
     var title by remember { mutableStateOf("") }
@@ -95,6 +96,27 @@ fun ActivityTitleDialog(
                     )
                 }
             }
+            if (suggestions.isNotEmpty()) {
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp),
+                    contentPadding = PaddingValues(end = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(suggestions.size) { i ->
+                        SuggestionChip(
+                            onClick = { title = suggestions[i] },
+                            label = { Text(suggestions[i], fontSize = 13.sp) },
+                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                containerColor = EtcCardPurpleSoft,
+                                labelColor = EtcCardPurple
+                            ),
+                            border = null
+                        )
+                    }
+                }
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -124,7 +146,7 @@ fun ActivityTitleDialog(
                     )
                 )
                 Button(
-                    onClick = { onSave(category, title.trim(), null) },
+                    onClick = { onSave(category, title.trim()) },
                     shape = RoundedCornerShape(22.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = EtcCardPurpleSoft,

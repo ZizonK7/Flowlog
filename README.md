@@ -23,6 +23,14 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Improved the ETC activity completion card:
+  - Added suggestion chips that surface up to five of the most frequent and most
+    recently used ETC titles; tapping a chip fills the title field instantly.
+  - ETC activities now sync to Firestore immediately on save, the same as every
+    other category, instead of waiting until the card was dismissed or saved.
+  - Removed unused `categories` and `initialNote` parameters that were accepted
+    by the card but never reflected in the UI.
+
 - Reworked Today's Focus recommendations:
   the app now targets two Todo goals by default, includes every D-0 assignment
   regardless of count, orders D-0 assignments from lower burden to higher

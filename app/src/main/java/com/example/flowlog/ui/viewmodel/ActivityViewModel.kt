@@ -307,9 +307,7 @@ class ActivityViewModel(
                 _uiState.update { it.copy(snackButtonEndsAtMillis = mealTimerEndsAt) }
             }
             rememberLastAddedActivity(savedActivity)
-            if (cleanCategory != "ETC") {
-                attemptDeferredSync()
-            }
+            attemptDeferredSync()
             _uiState.update {
                 it.copy(
                     pendingSavedActivity = if (cleanCategory == "ETC") savedActivity else null,
@@ -364,9 +362,6 @@ class ActivityViewModel(
     }
 
     fun dismissPendingSavedActivity() {
-        viewModelScope.launch {
-            attemptDeferredSync()
-        }
         _uiState.update { it.copy(pendingSavedActivity = null) }
     }
 

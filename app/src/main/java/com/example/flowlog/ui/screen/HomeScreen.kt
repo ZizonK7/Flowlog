@@ -187,6 +187,16 @@ fun HomeScreen(
 
         item {
             val pendingSavedActivity = uiState.pendingSavedActivity
+            val etcSuggestions = remember(uiState.allActivities) {
+                val defaultTitle = "활동"
+                uiState.allActivities
+                    .filter { it.category == "ETC" && it.title.isNotBlank() && it.title != defaultTitle }
+                    .groupBy { it.title }
+                    .map { (t, sessions) -> Triple(t, sessions.size, sessions.maxOf { it.startTime }) }
+                    .sortedWith(compareByDescending<Triple<String, Int, Long>> { it.second }.thenByDescending { it.third })
+                    .map { it.first }
+                    .take(5)
+            }
             AnimatedVisibility(
                 visible = pendingSavedActivity != null,
                 enter = expandVertically(tween(280)) + fadeIn(tween(220)),
@@ -195,12 +205,11 @@ fun HomeScreen(
                 ActivityTitleDialog(
                     isVisible = pendingSavedActivity != null,
                     category = pendingSavedActivity?.category.orEmpty(),
-                    categories = activityCategories,
-                    onSave = { category, title, note ->
-                        viewModel.updatePendingSavedActivity(category, title, note)
+                    suggestions = etcSuggestions,
+                    onSave = { category, title ->
+                        viewModel.updatePendingSavedActivity(category, title, null)
                     },
                     initialTitle = pendingSavedActivity?.title,
-                    initialNote = pendingSavedActivity?.note,
                     onDismiss = {
                         viewModel.dismissPendingSavedActivity()
                     }
