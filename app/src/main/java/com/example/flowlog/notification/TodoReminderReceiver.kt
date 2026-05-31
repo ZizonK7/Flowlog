@@ -44,6 +44,10 @@ class TodoReminderReceiver : BroadcastReceiver() {
                 TodoReminderScheduler(context).scheduleNextRandomReminder(todoId)
 
                 if (!canPostNotifications(context)) return@launch
+                val shouldSilence = SleepAlarmGuard.shouldSilenceAlerts(context)
+                if (shouldSilence) {
+                    SleepAlarmGuard.ensureSilentNotificationChannel(context)
+                }
 
                 val openPendingIntent = PendingIntent.getActivity(
                     context,
@@ -54,7 +58,12 @@ class TodoReminderReceiver : BroadcastReceiver() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
-                val notification = NotificationCompat.Builder(context, ToothbrushReminderReceiver.CHANNEL_ID)
+                val channelId = if (shouldSilence) {
+                    SleepAlarmGuard.SILENT_CHANNEL_ID
+                } else {
+                    ToothbrushReminderReceiver.CHANNEL_ID
+                }
+                val builder = NotificationCompat.Builder(context, channelId)
                     .setSmallIcon(R.drawable.ic_timer_notification)
                     .setColor(NOTIFICATION_ICON_COLOR)
                     .setContentTitle("할 일이 아직 남아 있어요")
@@ -65,11 +74,20 @@ class TodoReminderReceiver : BroadcastReceiver() {
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                     .setAutoCancel(true)
-                    .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
-                    .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
-                    .build()
 
-                NotificationManagerCompat.from(context).notify(todoId.toInt(), notification)
+                if (shouldSilence) {
+                    builder
+                        .setSilent(true)
+                        .setDefaults(0)
+                        .setVibrate(null)
+                        .setSound(null)
+                } else {
+                    builder
+                        .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
+                        .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+                }
+
+                NotificationManagerCompat.from(context).notify(todoId.toInt(), builder.build())
             } catch (e: Exception) {
                 Log.e(TAG, "Error in TodoReminderReceiver", e)
             } finally {

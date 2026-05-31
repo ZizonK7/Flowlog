@@ -144,7 +144,9 @@ class ActivityViewModel(
             )
         }
         saveActiveSession(category = category, startTime = startTime, goalMillis = goalMillis)
-        activityTimerNotifier.showRunningTimer(category, startTime)
+        if (category != "SLEEP") {
+            activityTimerNotifier.showRunningTimer(category, startTime)
+        }
         startTimer()
     }
 
@@ -529,7 +531,9 @@ class ActivityViewModel(
                 statusMessage = null
             )
         }
-        activityTimerNotifier.showRunningTimer(category, startTime)
+        if (category != "SLEEP") {
+            activityTimerNotifier.showRunningTimer(category, startTime)
+        }
         startTimer()
     }
 

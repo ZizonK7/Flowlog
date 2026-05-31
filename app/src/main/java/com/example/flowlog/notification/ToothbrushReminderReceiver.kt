@@ -33,6 +33,10 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
         }
 
         if (!canPostNotifications(context)) return
+        val shouldSilence = SleepAlarmGuard.shouldSilenceAlerts(context)
+        if (shouldSilence) {
+            SleepAlarmGuard.ensureSilentNotificationChannel(context)
+        }
 
         val title = when (reminderType) {
             TYPE_BRUSH_DONE -> "\uC591\uCE58 \uC644\uB8CC \uC2DC\uAC04"
@@ -55,7 +59,8 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val builder = NotificationCompat.Builder(context, DING_CHANNEL_ID)
+        val channelId = if (shouldSilence) SleepAlarmGuard.SILENT_CHANNEL_ID else DING_CHANNEL_ID
+        val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_timer_notification)
             .setColor(NOTIFICATION_ICON_COLOR)
             .setContentTitle(title)
@@ -66,9 +71,19 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setTimeoutAfter(ALERT_NOTIFICATION_TIMEOUT_MILLIS)
-            .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
-            .setSound(KakaoStyleAlertPlayer.soundUri(context))
-            .setVibrate(longArrayOf(0L, 500L, 250L, 500L))
+
+        if (shouldSilence) {
+            builder
+                .setSilent(true)
+                .setDefaults(0)
+                .setVibrate(null)
+                .setSound(null)
+        } else {
+            builder
+                .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
+                .setSound(KakaoStyleAlertPlayer.soundUri(context))
+                .setVibrate(longArrayOf(0L, 500L, 250L, 500L))
+        }
 
         val notificationId = intent.getLongExtra(
             EXTRA_ACTIVITY_ID,
