@@ -23,6 +23,18 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Fixed a crash on fresh install for users on Android 13 and later: the midnight
+  sync alarm scheduler now checks `canScheduleExactAlarms()` before calling
+  `setExactAndAllowWhileIdle`, and falls back to an inexact alarm when the
+  `SCHEDULE_EXACT_ALARM` permission has not yet been granted.
+- Fixed a data-contamination bug where a developer-only sleep-record migration
+  ran for every new user, inserting a historical record into a brand-new empty
+  database; the migration now skips insertion when the database is empty.
+- Added a defensive early-return guard inside `TimetableBar` so the composable
+  is safe to call with an empty list even if the caller-side guard is bypassed.
+- Replaced a non-null assertion (`!!`) on `editingActivity` in `HomeScreen` with
+  a null-safe `?.let` pattern.
+
 - Fixed snack, meal, and toothbrush timers so each button cancels the other's
   active timer before starting its own — all three now behave symmetrically.
 - Quick-timer buttons now show live countdowns: the toothbrush button displays

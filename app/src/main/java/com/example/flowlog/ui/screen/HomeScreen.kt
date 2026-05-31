@@ -265,19 +265,19 @@ fun HomeScreen(
 
     } // LazyColumn 닫기
 
-    if (uiState.editingActivity != null) {
+    uiState.editingActivity?.let { editingActivity ->
         EditActivityDialog(
-                activity = uiState.editingActivity!!,
-                categories = activityCategories,
-                isVisible = true,
-                onSave = { category, title, note ->
-                    viewModel.saveEditedActivity(category, title, note)
-                },
-                onDismiss = {
-                    viewModel.cancelEditActivity()
-                }
-            )
-        }
+            activity = editingActivity,
+            categories = activityCategories,
+            isVisible = true,
+            onSave = { category, title, note ->
+                viewModel.saveEditedActivity(category, title, note)
+            },
+            onDismiss = {
+                viewModel.cancelEditActivity()
+            }
+        )
+    }
 
     }
 }
@@ -1370,6 +1370,7 @@ private fun TimetableCard(activities: List<ActivitySession>) {
 private fun TimetableBar(
     activities: List<ActivitySession>
 ) {
+    if (activities.isEmpty()) return
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val firstStart = activities.minOf { it.startTime }
     val lastEnd = activities.maxOf { it.endTime.coerceAtLeast(it.startTime + 1L) }

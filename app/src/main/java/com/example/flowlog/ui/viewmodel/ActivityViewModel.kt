@@ -611,9 +611,20 @@ class ActivityViewModel(
         if (migrationPreferences.getBoolean(KEY_SLEEP_RECORD_2026_05_19, false)) return
 
         viewModelScope.launch {
+            val allActivities = repository.getAllActivities().first()
+
+            // 신규 설치(빈 DB)면 삽입 없이 플래그만 세우고 종료.
+            // 이 마이그레이션은 기존 데이터가 있는 기기에서만 적용한다.
+            if (allActivities.isEmpty()) {
+                migrationPreferences.edit()
+                    .putBoolean(KEY_SLEEP_RECORD_2026_05_19, true)
+                    .apply()
+                return@launch
+            }
+
             val startTime = koreaTimeMillis(2026, Calendar.MAY, 19, 21, 29, 57)
             val endTime = koreaTimeMillis(2026, Calendar.MAY, 20, 1, 18, 10)
-            val alreadyExists = repository.getAllActivities().first().any { activity ->
+            val alreadyExists = allActivities.any { activity ->
                 activity.category == "SLEEP" &&
                     activity.startTime == startTime &&
                     activity.endTime == endTime
