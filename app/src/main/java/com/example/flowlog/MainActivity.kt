@@ -79,6 +79,7 @@ import com.example.flowlog.data.local.UserRole
 import com.example.flowlog.data.local.UserRoleStore
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.remote.awaitResult
+import com.example.flowlog.data.sync.FirebaseRestoreDataSource
 import com.example.flowlog.data.sync.FirebaseSyncAlarmScheduler
 import com.example.flowlog.data.sync.FirebaseSyncCoordinator
 import androidx.core.app.ActivityCompat
@@ -177,6 +178,18 @@ class MainActivity : ComponentActivity() {
                                 db.autoButtonScheduleDao().reassignAnonymousUser(user.uid)
                                 db.todoDao().reassignAnonymousUser(user.uid)
                                 db.eventLogDao().reassignAnonymousUser(user.uid)
+                            }
+                        }
+                        runCatching {
+                            // 신규 설치·재설치 감지: 로컬에 activity/todo 데이터가 모두 없으면 Firebase에서 복원
+                            val shouldRestore = withContext(Dispatchers.IO) {
+                                val db = FlowlogDatabase.getInstance(applicationContext)
+                                val activityCount = db.activityDao().getActiveActivitiesCount(user.uid)
+                                val todoCount = db.todoDao().getActiveTodosCount(user.uid)
+                                activityCount == 0 && todoCount == 0
+                            }
+                            if (shouldRestore) {
+                                FirebaseRestoreDataSource(applicationContext).restoreFromFirestore(user.uid)
                             }
                         }
                         runCatching {

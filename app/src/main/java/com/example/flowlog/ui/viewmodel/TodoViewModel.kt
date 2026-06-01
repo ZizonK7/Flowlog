@@ -43,6 +43,7 @@ class TodoViewModel(
     private val _yesterdaySuggestion = MutableStateFlow<YesterdayFlowSuggestion?>(null)
     val yesterdaySuggestion: StateFlow<YesterdayFlowSuggestion?> = _yesterdaySuggestion.asStateFlow()
     private var latestActivities: List<ActivitySession> = emptyList()
+    private var isRefreshing = false
 
     val todayFocusItems: StateFlow<List<TodoItem>> = combine(_todos, _focusIds) { todos, ids ->
         val idToIndex = ids.mapIndexed { i, id -> id to i }.toMap()
@@ -210,6 +211,7 @@ class TodoViewModel(
     }
 
     fun refreshSort() {
+        if (isRefreshing) return
         val currentTodos = _todos.value
         if (currentTodos.isEmpty()) return
 
@@ -224,30 +226,35 @@ class TodoViewModel(
             .putString("focus_ids_ordered", newIds.joinToString(","))
             .apply()
 
+        isRefreshing = true
         viewModelScope.launch {
-            // Room에 새로고침 추천 저장
-            runCatching {
-                dailyGoalRepository.reconcilePastRecommendations(currentTodos, latestActivities)
-                repository.updateBurdenCaches(burdenAnalyses)
-                dailyGoalRepository.saveRecommendation(
-                    dateKey = dailyGoalRepository.todayDateKey(),
-                    selectedItems = selectionResult,
-                    candidateTodos = currentTodos.filter { !it.isCompleted },
-                    isRefresh = true
-                )
-                dailyGoalRepository.ensureTodayTimePlan(
-                    dateKey = dailyGoalRepository.todayDateKey(),
-                    activities = latestActivities,
-                    forceRefresh = true,
-                    recommendationModeOverride = DailyGoalRepository.MODE_MANUAL_REFRESH
-                )
-            }
-
-            selectionResult
-                .filter { it.todo.category == TodoCategory.REVIEW && it.todo.reviewStage == 1 && it.todo.isCompleted }
-                .forEach { goalItem ->
-                    repository.updateTodo(goalItem.todo.copy(isCompleted = false, updatedAt = System.currentTimeMillis()))
+            try {
+                // Room에 새로고침 추천 저장
+                runCatching {
+                    dailyGoalRepository.reconcilePastRecommendations(currentTodos, latestActivities)
+                    repository.updateBurdenCaches(burdenAnalyses)
+                    dailyGoalRepository.saveRecommendation(
+                        dateKey = dailyGoalRepository.todayDateKey(),
+                        selectedItems = selectionResult,
+                        candidateTodos = currentTodos.filter { !it.isCompleted },
+                        isRefresh = true
+                    )
+                    dailyGoalRepository.ensureTodayTimePlan(
+                        dateKey = dailyGoalRepository.todayDateKey(),
+                        activities = latestActivities,
+                        forceRefresh = true,
+                        recommendationModeOverride = DailyGoalRepository.MODE_MANUAL_REFRESH
+                    )
                 }
+
+                selectionResult
+                    .filter { it.todo.category == TodoCategory.REVIEW && it.todo.reviewStage == 1 && it.todo.isCompleted }
+                    .forEach { goalItem ->
+                        repository.updateTodo(goalItem.todo.copy(isCompleted = false, updatedAt = System.currentTimeMillis()))
+                    }
+            } finally {
+                isRefreshing = false
+            }
         }
     }
 

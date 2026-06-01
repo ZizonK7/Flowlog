@@ -120,6 +120,11 @@ interface DailyGoalDao {
             AND recommendation.dateKey = :dateKey
             AND item.plannedStartMillis IS NOT NULL
             AND item.plannedEndMillis IS NOT NULL
+            AND recommendation.recommendationId = (
+                SELECT recommendationId FROM daily_goal_recommendations
+                WHERE userId = :userId AND dateKey = :dateKey
+                ORDER BY createdAt DESC LIMIT 1
+            )
         ORDER BY item.plannedStartMillis ASC, item.rank ASC
     """)
     fun observePlannedItemsForDate(userId: String, dateKey: String): Flow<List<DailyGoalItemEntity>>
