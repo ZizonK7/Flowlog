@@ -23,6 +23,18 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Improved the home timetable display compression:
+  - The timetable now builds `DisplayActivitySegment` objects only for UI
+    rendering, preserving the original Activity records for Room, Firebase sync,
+    and statistics.
+  - Short `A - B - A` breaks are merged visually when productive activities
+    surround a sub-10-minute rest/etc bridge, and a second smoothing pass absorbs
+    remaining micro segments into nearby productive flows.
+  - Precise categories such as sleep, school, company, meal, and exercise, plus
+    auto-button generated activity records, are protected from visual hiding.
+  - Todo recommendation blocks now render as one-hour dotted timetable blocks
+    from the recommended start hour, such as 22:00-23:00.
+
 - Renamed all user-facing "고정 시간" labels to "반복 루틴" across the routine
   management sheet, add/edit sheet titles, delete dialog, info panel, and the
   auto-end notification text in `ActivityTimerNotifier`.

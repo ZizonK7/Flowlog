@@ -719,12 +719,6 @@ class ActivityViewModel(
         }
     }
 
-    fun dismissRecommendedTodoBlock(itemId: String) {
-        viewModelScope.launch {
-            dailyGoalRepository.dismissPlannedItem(itemId)
-        }
-    }
-
     fun regenerateTodayRecommendedTimePlan() {
         viewModelScope.launch {
             val regenerated = dailyGoalRepository.ensureTodayTimePlan(

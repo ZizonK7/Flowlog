@@ -120,7 +120,6 @@ interface DailyGoalDao {
             AND recommendation.dateKey = :dateKey
             AND item.plannedStartMillis IS NOT NULL
             AND item.plannedEndMillis IS NOT NULL
-            AND item.userActionStatus != 'DISMISSED'
         ORDER BY item.plannedStartMillis ASC, item.rank ASC
     """)
     fun observePlannedItemsForDate(userId: String, dateKey: String): Flow<List<DailyGoalItemEntity>>

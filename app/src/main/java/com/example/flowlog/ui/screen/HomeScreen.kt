@@ -147,6 +147,7 @@ private val FlowMuted = Color(0xFF697386)
 private val FlowDivider = Color(0xFFE8E8EE)
 private const val TIMETABLE_TAG = "FlowlogTimetable"
 private const val MERGE_THRESHOLD_MILLIS = 10 * 60 * 1000L
+private const val RECOMMENDED_TODO_DISPLAY_DURATION_MILLIS = 60 * 60 * 1000L
 private val MERGEABLE_TIMETABLE_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK")
 private val HIDEABLE_TIMETABLE_BRIDGE_CATEGORIES = setOf("REST", "ETC", "MOVE")
 private val PRECISE_TIMETABLE_CATEGORIES = setOf(
@@ -2208,7 +2209,7 @@ private fun buildDisplayActivitySegments(
         index = cursor + 1
     }
 
-    return smoothMicroDisplaySegments(segments)
+    return mergeAdjacentProductiveSegments(smoothMicroDisplaySegments(segments))
 }
 
 private fun ActivitySession.toDisplaySegment(): DisplayActivitySegment {
@@ -2331,6 +2332,32 @@ private fun smoothMicroDisplaySegments(
     return segments
 }
 
+private fun mergeAdjacentProductiveSegments(
+    initialSegments: List<DisplayActivitySegment>
+): List<DisplayActivitySegment> {
+    val segments = initialSegments.toMutableList()
+    var index = 0
+
+    while (index < segments.lastIndex) {
+        val current = segments[index]
+        val next = segments[index + 1]
+        if (current.isProductiveSegment() && next.isProductiveSegment()) {
+            val category = chooseProductiveFlowCategory(current, next)
+            segments[index] = combineDisplaySegments(
+                visibleSegments = listOf(current, next),
+                hiddenSegments = emptyList(),
+                category = category
+            )
+            segments.removeAt(index + 1)
+            index = (index - 1).coerceAtLeast(0)
+        } else {
+            index += 1
+        }
+    }
+
+    return segments
+}
+
 private fun DisplayActivitySegment.isMicroSegment(): Boolean {
     return durationMillis < MERGE_THRESHOLD_MILLIS
 }
@@ -2382,6 +2409,10 @@ private fun combineDisplaySegments(
     )
 }
 
+private fun RecommendedTodoBlock.displayEndMillis(): Long {
+    return plannedStartMillis + RECOMMENDED_TODO_DISPLAY_DURATION_MILLIS
+}
+
 private fun displayTitleForMergedSegment(
     category: String,
     mergedSegments: List<ActivitySession>
@@ -2409,7 +2440,7 @@ private fun TimetableBar(
         when (it) {
             is TimelineBlock.ActualActivity -> it.segment.endTime.coerceAtLeast(it.segment.startTime + 1L)
             is TimelineBlock.ScheduledAutoButton -> it.block.endTime.coerceAtLeast(it.block.startTime + 1L)
-            is TimelineBlock.RecommendedTodo -> it.block.plannedEndMillis.coerceAtLeast(it.block.plannedStartMillis + 1L)
+            is TimelineBlock.RecommendedTodo -> it.block.displayEndMillis()
         }
     }
     val paddingMillis = 15L * 60L * 1000L
@@ -2438,7 +2469,7 @@ private fun TimetableBar(
                         val hit = recommended.firstOrNull { block ->
                             val startFraction = ((block.plannedStartMillis - windowStart).toFloat() / windowDuration.toFloat())
                                 .coerceIn(0f, 1f)
-                            val endFraction = ((block.plannedEndMillis - windowStart).toFloat() / windowDuration.toFloat())
+                            val endFraction = ((block.displayEndMillis() - windowStart).toFloat() / windowDuration.toFloat())
                                 .coerceIn(startFraction, 1f)
                             val startX = size.width * startFraction
                             val endX = size.width * endFraction
@@ -2528,7 +2559,7 @@ private fun TimetableBar(
                     val item = block.block
                     val startFraction = ((item.plannedStartMillis - windowStart).toFloat() / windowDuration.toFloat())
                         .coerceIn(0f, 1f)
-                    val endFraction = ((item.plannedEndMillis.coerceAtLeast(item.plannedStartMillis + 1L) - windowStart).toFloat() / windowDuration.toFloat())
+                    val endFraction = ((item.displayEndMillis() - windowStart).toFloat() / windowDuration.toFloat())
                         .coerceIn(startFraction, 1f)
                     val x = size.width * startFraction
                     val width = (size.width * (endFraction - startFraction)).coerceAtLeast(4.dp.toPx())
