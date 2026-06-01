@@ -168,6 +168,26 @@ interface TodoDao {
     """)
     suspend fun addToAccumulatedWorkMillis(todoId: String, deltaMillis: Long, updatedAt: Long)
 
+    @Query("""
+        UPDATE todos
+        SET burdenLevel = :burdenLevel,
+            burdenGroupKey = :burdenGroupKey,
+            burdenScore = :burdenScore,
+            burdenReasonJson = :burdenReasonJson,
+            updatedAt = :updatedAt,
+            syncStatus = '${SyncStatus.PENDING}'
+        WHERE todoId = :todoId
+          AND isDeleted = 0
+    """)
+    suspend fun updateBurdenCache(
+        todoId: String,
+        burdenLevel: String,
+        burdenGroupKey: String,
+        burdenScore: Int,
+        burdenReasonJson: String,
+        updatedAt: Long
+    )
+
 
     @Query("""
         SELECT COUNT(*) FROM todos

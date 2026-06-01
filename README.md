@@ -23,6 +23,20 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Added local Todo burden scoring for Today's Focus and recommended time plans:
+  - The app now calculates `LIGHT`, `MEDIUM`, and `HEAVY` Todo burden locally
+    using category/topic grouping, completed Todo baselines, accumulated work
+    time, and rule-based fallbacks aligned with the statistics admin preview.
+  - Today's Focus now picks burden combinations in priority order:
+    `LIGHT + HEAVY`, `MEDIUM + MEDIUM`, `LIGHT + MEDIUM`, then
+    `LIGHT + LIGHT`, with display order kept light-to-heavy.
+  - Recommended time plans use burden-aware distributions: `HEAVY` and
+    `MEDIUM` use productive heavy-like slots, `LIGHT` uses light/rest-like
+    slots, and paired items avoid overlapping fixed school/work/company blocks.
+  - Recommendation records now snapshot burden metadata and store an optional
+    `notificationScheduledAtMillis` for future reminder scheduling while keeping
+    the UI focused on the suggested start time only.
+
 - Added inline title entry to the running stopwatch card:
   - Every timed activity now shows recent title suggestion chips and a compact
     direct-entry row inside the active timer card.

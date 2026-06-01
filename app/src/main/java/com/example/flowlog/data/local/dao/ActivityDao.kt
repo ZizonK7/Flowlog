@@ -124,6 +124,23 @@ interface ActivityDao {
     """)
     suspend fun getActiveActivitiesCount(userId: String): Int
 
+    @Query("""
+        SELECT COUNT(*) FROM activities
+        WHERE userId = :userId
+          AND isDeleted = 0
+          AND sourceType = :sourceType
+          AND sourceId = :sourceId
+          AND startTime >= :startOfDay
+          AND startTime < :endOfDay
+    """)
+    suspend fun countActivitiesBySourceForDate(
+        userId: String,
+        sourceType: String,
+        sourceId: String,
+        startOfDay: Long,
+        endOfDay: Long
+    ): Int
+
     @Query("UPDATE activities SET userId = :newUserId, syncStatus = 'PENDING' WHERE userId = 'anonymous'")
     suspend fun reassignAnonymousUser(newUserId: String): Int
 

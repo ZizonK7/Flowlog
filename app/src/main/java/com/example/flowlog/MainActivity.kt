@@ -45,6 +45,7 @@ import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Switch
@@ -87,6 +88,7 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.example.flowlog.notification.ReminderScheduler
+import com.example.flowlog.notification.AutoButtonScheduler
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.flowlog.ui.screen.HomeScreen
@@ -114,6 +116,9 @@ class MainActivity : ComponentActivity() {
         requestedScreen = intent.getStringExtra(EXTRA_OPEN_SCREEN) ?: SCREEN_HOME
         ReminderScheduler(applicationContext).ensureNotificationChannel()
         FirebaseSyncAlarmScheduler.scheduleNextMidnightSync(applicationContext)
+        lifecycleScope.launch {
+            runCatching { AutoButtonScheduler(applicationContext).rescheduleAll() }
+        }
         requestNotificationPermission()
         requestExactAlarmPermission()
         enableEdgeToEdge()
@@ -138,6 +143,7 @@ class MainActivity : ComponentActivity() {
                 val auth = remember { FirebaseAuth.getInstance() }
                 var signedInUser by remember { mutableStateOf(auth.currentUser) }
                 var syncStatus by remember { mutableStateOf<String?>(null) }
+                var showAutoButtonManager by remember { mutableStateOf(false) }
                 val scope = rememberCoroutineScope()
 
                 val userRoleStore = remember { UserRoleStore(this@MainActivity) }
@@ -169,12 +175,16 @@ class MainActivity : ComponentActivity() {
                             withContext(Dispatchers.IO) {
                                 val db = FlowlogDatabase.getInstance(applicationContext)
                                 db.activityDao().reassignAnonymousUser(user.uid)
+                                db.autoButtonScheduleDao().reassignAnonymousUser(user.uid)
                                 db.todoDao().reassignAnonymousUser(user.uid)
                                 db.eventLogDao().reassignAnonymousUser(user.uid)
                             }
                         }
                         runCatching {
                             uploadLocalFlowlogSnapshot()
+                        }
+                        runCatching {
+                            AutoButtonScheduler(applicationContext).rescheduleAll()
                         }
                     }
                 }
@@ -222,6 +232,10 @@ class MainActivity : ComponentActivity() {
                         }
                         Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
                     }
+                }
+                val regenerateRecommendedTimePlan: () -> Unit = {
+                    activityViewModel.regenerateTodayRecommendedTimePlan()
+                    Toast.makeText(this@MainActivity, "오늘 추천 시간 계획을 다시 만들었습니다.", Toast.LENGTH_SHORT).show()
                 }
 
                 val restoreTodosLauncher = rememberLauncherForActivityResult(
@@ -299,9 +313,11 @@ class MainActivity : ComponentActivity() {
                                             onStatsClick = openStatsSite,
                                             onBlogClick = openDeveloperBlog,
                                             onAccountClick = runAccountSync,
+                                            onAutoButtonManageClick = { showAutoButtonManager = true },
                                             isDeveloper = isDeveloper,
                                             isDeveloperMode = isDeveloperMode,
                                             onFirebaseUploadClick = runFirebaseUpload,
+                                            onRegenerateRecommendedTimePlanClick = regenerateRecommendedTimePlan,
                                             onRestoreTodosClick = {
                                                 restoreTodosLauncher.launch(arrayOf("application/json", "text/plain", "text/json"))
                                             },
@@ -312,7 +328,9 @@ class MainActivity : ComponentActivity() {
                                             }
                                         )
                                     },
-                                    modifier = Modifier.fillMaxSize()
+                                    modifier = Modifier.fillMaxSize(),
+                                    autoButtonManagerOpen = showAutoButtonManager,
+                                    onAutoButtonManagerDismiss = { showAutoButtonManager = false }
                                 )
                             }
                         }
@@ -462,9 +480,11 @@ private fun HeaderActions(
     onStatsClick: () -> Unit,
     onBlogClick: () -> Unit,
     onAccountClick: () -> Unit,
+    onAutoButtonManageClick: () -> Unit,
     isDeveloper: Boolean = false,
     isDeveloperMode: Boolean = false,
     onFirebaseUploadClick: () -> Unit = {},
+    onRegenerateRecommendedTimePlanClick: () -> Unit = {},
     onRestoreTodosClick: () -> Unit = {},
     onToggleDevMode: () -> Unit = {}
 ) {
@@ -504,14 +524,16 @@ private fun HeaderActions(
             }
             DropdownMenu(
                 expanded = menuExpanded,
-                onDismissRequest = { menuExpanded = false }
+                onDismissRequest = { menuExpanded = false },
+                containerColor = Color.White
             ) {
                 DropdownMenuItem(
-                    text = { Text(accountActionLabel(isSignedIn, syncStatus)) },
+                    text = { Text(accountActionLabel(isSignedIn, syncStatus), color = Color(0xFF10182C)) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Login,
-                            contentDescription = null
+                            contentDescription = null,
+                            tint = Color(0xFF5140D8)
                         )
                     },
                     onClick = {
@@ -520,11 +542,31 @@ private fun HeaderActions(
                     }
                 )
                 DropdownMenuItem(
-                    text = { Text("개발자 블로그") },
+                    text = {
+                        Text(
+                            "고정 시간 버튼 관리",
+                            color = Color(0xFF10182C)
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.Schedule,
+                            contentDescription = null,
+                            tint = Color(0xFF5140D8)
+                        )
+                    },
+                    onClick = {
+                        menuExpanded = false
+                        onAutoButtonManageClick()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("개발자 블로그", color = Color(0xFF10182C)) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Article,
-                            contentDescription = null
+                            contentDescription = null,
+                            tint = Color(0xFF5140D8)
                         )
                     },
                     onClick = {
@@ -534,7 +576,7 @@ private fun HeaderActions(
                 )
                 if (isDeveloperMode) {
                     DropdownMenuItem(
-                        text = { Text("Firebase 업로드") },
+                        text = { Text("Firebase 업로드", color = Color(0xFF10182C)) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Filled.CheckBox,
@@ -547,7 +589,20 @@ private fun HeaderActions(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("Todo 복원") },
+                        text = { Text("오늘 추천 시간 재생성", color = Color(0xFF10182C)) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.Schedule,
+                                contentDescription = null
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            onRegenerateRecommendedTimePlanClick()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Todo 복원", color = Color(0xFF10182C)) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Filled.CheckBox,
@@ -562,7 +617,7 @@ private fun HeaderActions(
                 }
                 if (isDeveloper) {
                     DropdownMenuItem(
-                        text = { Text("개발자 모드") },
+                        text = { Text("개발자 모드", color = Color(0xFF10182C)) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Filled.Build,

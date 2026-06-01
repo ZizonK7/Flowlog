@@ -7,6 +7,8 @@ import com.example.flowlog.data.constants.RecommendationReason
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
+import com.example.flowlog.data.recommendation.TodoBurdenAnalysis
+import com.example.flowlog.data.recommendation.TodoBurdenCalculator
 import com.example.flowlog.data.repository.ActivityRepository
 import com.example.flowlog.data.repository.DailyGoalRepository
 import com.example.flowlog.data.repository.GoalItem
@@ -84,7 +86,9 @@ class TodoViewModel(
         }
 
         dailyGoalRepository.reconcilePastRecommendations(allTodos, latestActivities)
-        val selectionResult = selectTodayFocus(allTodos)
+        val burdenAnalyses = TodoBurdenCalculator.analyze(allTodos, latestActivities)
+        repository.updateBurdenCaches(burdenAnalyses)
+        val selectionResult = selectTodayFocus(allTodos, burdenAnalyses)
         val newIds = selectionResult.map { it.todo.id }
         _focusIds.value = newIds
 
@@ -102,6 +106,11 @@ class TodoViewModel(
                     selectedItems = selectionResult,
                     candidateTodos = allTodos.filter { !it.isCompleted },
                     isRefresh = false
+                )
+                dailyGoalRepository.ensureTodayTimePlan(
+                    dateKey = dateKey,
+                    activities = latestActivities,
+                    forceRefresh = false
                 )
             }
         }
@@ -204,7 +213,8 @@ class TodoViewModel(
         val currentTodos = _todos.value
         if (currentTodos.isEmpty()) return
 
-        val selectionResult = selectTodayFocus(currentTodos)
+        val burdenAnalyses = TodoBurdenCalculator.analyze(currentTodos, latestActivities)
+        val selectionResult = selectTodayFocus(currentTodos, burdenAnalyses)
         val newIds = selectionResult.map { it.todo.id }
         _focusIds.value = newIds
 
@@ -218,11 +228,18 @@ class TodoViewModel(
             // Room에 새로고침 추천 저장
             runCatching {
                 dailyGoalRepository.reconcilePastRecommendations(currentTodos, latestActivities)
+                repository.updateBurdenCaches(burdenAnalyses)
                 dailyGoalRepository.saveRecommendation(
                     dateKey = dailyGoalRepository.todayDateKey(),
                     selectedItems = selectionResult,
                     candidateTodos = currentTodos.filter { !it.isCompleted },
                     isRefresh = true
+                )
+                dailyGoalRepository.ensureTodayTimePlan(
+                    dateKey = dailyGoalRepository.todayDateKey(),
+                    activities = latestActivities,
+                    forceRefresh = true,
+                    recommendationModeOverride = DailyGoalRepository.MODE_MANUAL_REFRESH
                 )
             }
 
@@ -249,23 +266,42 @@ class TodoViewModel(
     // ── 오늘의 목표 선정 ──────────────────────────────────────────────────
     // 우선순위: D-0 과제는 최우선. 일반 추천은 Todo 2개를 목표로 하되,
     // D-0 과제는 개수 제한 없이 모두 포함하고, D-1 등 긴급 Todo가 많으면 최대 3개까지 허용한다.
-    private fun selectTodayFocus(allTodos: List<TodoItem>): List<GoalItem> {
+    private fun selectTodayFocus(
+        allTodos: List<TodoItem>,
+        burdenAnalyses: List<TodoBurdenAnalysis> = TodoBurdenCalculator.analyze(allTodos, latestActivities)
+    ): List<GoalItem> {
         val todayStart = startOfDay(System.currentTimeMillis())
         val active = allTodos.filter {
             !it.isCompleted || (it.category == TodoCategory.REVIEW && it.reviewStage == 1)
         }
+        if (active.isEmpty()) return emptyList()
 
-        data class Candidate(val todo: TodoItem, val priority: Int, val reason: String) {
+        val analysisById = burdenAnalyses.associateBy { it.todo.id }
+
+        data class Candidate(
+            val todo: TodoItem,
+            override val priority: Int,
+            val reason: String
+        ) : TodayFocusCandidateLike {
             val isUrgent: Boolean = priority <= 1
-        }
-
-        fun burdenRank(todo: TodoItem): Int {
-            val ageDays = ((todayStart - startOfDay(todo.createdAt)) / DAY_MILLIS).coerceAtLeast(0L)
-            val workHours = todo.accumulatedSeconds / 3600L
-            return when {
-                ageDays <= 1L && workHours == 0L -> 0
-                ageDays >= 7L || workHours >= 3L -> 2
-                else -> 1
+            val analysis: TodoBurdenAnalysis? get() = analysisById[todo.id]
+            override val burdenLevel: String get() = analysis?.burdenLevel ?: todo.burdenLevel ?: "MEDIUM"
+            override val burdenScore: Int get() = analysis?.burdenScore ?: todo.burdenScore
+            override val createdAt: Long get() = todo.createdAt
+            override fun toGoalItem(): GoalItem {
+                return GoalItem(
+                    todo = todo.copy(
+                        burdenLevel = analysis?.burdenLevel ?: todo.burdenLevel,
+                        burdenGroupKey = analysis?.burdenGroupKey ?: todo.burdenGroupKey,
+                        burdenScore = analysis?.burdenScore ?: todo.burdenScore,
+                        burdenReasonJson = analysis?.burdenReasonJson ?: todo.burdenReasonJson
+                    ),
+                    reason = reason,
+                    burdenLevel = analysis?.burdenLevel ?: todo.burdenLevel,
+                    burdenGroupKey = analysis?.burdenGroupKey ?: todo.burdenGroupKey,
+                    burdenScore = analysis?.burdenScore ?: todo.burdenScore,
+                    burdenReasonJson = analysis?.burdenReasonJson ?: todo.burdenReasonJson
+                )
             }
         }
 
@@ -302,43 +338,88 @@ class TodoViewModel(
             }
             Candidate(todo, priority, reason)
         }
-
-        val d0Candidates = priorityCandidates
-            .filter { it.priority == 0 }
-            .sortedWith(compareBy<Candidate> { burdenRank(it.todo) }.thenBy { it.todo.selectedDate ?: Long.MAX_VALUE }.thenByDescending { it.todo.createdAt })
-
-        val result = d0Candidates
-            .map { GoalItem(it.todo, it.reason) }
-            .toMutableList()
-
-        val urgentCount = priorityCandidates.count { it.isUrgent }
-        val targetCount = if (result.isNotEmpty()) {
-            result.size.coerceAtLeast(if (urgentCount >= 3) 3 else 2)
-        } else if (urgentCount >= 3) {
-            3
-        } else {
-            2
+        val candidatesById = active.associate { todo ->
+            val priorityCandidate = priorityCandidates.firstOrNull { it.todo.id == todo.id }
+            todo.id to (priorityCandidate ?: Candidate(todo, 99, RecommendationReason.EMPTY_GOAL_FILL))
         }
 
-        val takenIds = result.map { it.todo.id }.toSet()
-        val remainingPriority = priorityCandidates
-            .filter { it.todo.id !in takenIds }
-            .sortedWith(compareBy<Candidate> { it.priority }.thenBy { burdenRank(it.todo) }.thenByDescending { it.todo.accumulatedSeconds })
-            .take((targetCount - result.size).coerceAtLeast(0))
-            .map { GoalItem(it.todo, it.reason) }
-        result.addAll(remainingPriority)
+        val available = candidatesById.values.toList()
+        val selected = selectBurdenCombination(available)
+        return sortForTodayFocusDisplay(selected).map { it.toGoalItem() }
+    }
 
-        if (result.size < targetCount) {
-            val filledIds = result.map { it.todo.id }.toSet()
-            val fills = active
-                .filter { it.id !in filledIds && !it.isCompleted }
-                .sortedWith(compareByDescending<TodoItem> { it.accumulatedSeconds == 0L }.thenByDescending { it.createdAt })
-                .take(targetCount - result.size)
-                .map { GoalItem(it, RecommendationReason.EMPTY_GOAL_FILL) }
-            result.addAll(fills)
+    private fun selectBurdenCombination(candidates: List<TodayFocusCandidateLike>): List<TodayFocusCandidateLike> {
+        if (candidates.size <= 1) return candidates
+
+        val byBurden = candidates.groupBy { it.burdenLevel }
+        fun lightPool() = byBurden["LIGHT"].orEmpty().sortedWith(lightCandidateComparator())
+        fun mediumPool() = byBurden["MEDIUM"].orEmpty().sortedWith(mediumCandidateComparator())
+        fun heavyPool() = byBurden["HEAVY"].orEmpty().sortedWith(heavyCandidateComparator())
+
+        val light = lightPool()
+        val medium = mediumPool()
+        val heavy = heavyPool()
+
+        val combo = when {
+            light.isNotEmpty() && heavy.isNotEmpty() -> listOf(light.first(), heavy.first())
+            medium.size >= 2 -> medium.take(2)
+            light.isNotEmpty() && medium.isNotEmpty() -> listOf(light.first(), medium.first())
+            light.size >= 2 -> light.take(2)
+            else -> candidates
+                .sortedWith(fallbackCandidateComparator())
+                .take(2)
         }
+        return combo
+    }
 
-        return result
+    private interface TodayFocusCandidateLike {
+        val priority: Int
+        val burdenLevel: String
+        val burdenScore: Int
+        val createdAt: Long
+        fun toGoalItem(): GoalItem
+    }
+
+    private fun sortForTodayFocusDisplay(candidates: List<TodayFocusCandidateLike>): List<TodayFocusCandidateLike> {
+        return candidates.sortedWith(
+            compareBy<TodayFocusCandidateLike> { burdenOrder(it.burdenLevel) }
+                .thenBy { it.priority }
+                .thenByDescending { it.burdenScore }
+                .thenByDescending { it.createdAt }
+        )
+    }
+
+    private fun lightCandidateComparator(): Comparator<TodayFocusCandidateLike> {
+        return compareBy<TodayFocusCandidateLike> { it.priority }
+            .thenBy { it.burdenScore }
+            .thenByDescending { it.createdAt }
+    }
+
+    private fun mediumCandidateComparator(): Comparator<TodayFocusCandidateLike> {
+        return compareBy<TodayFocusCandidateLike> { it.priority }
+            .thenByDescending { it.burdenScore }
+            .thenByDescending { it.createdAt }
+    }
+
+    private fun heavyCandidateComparator(): Comparator<TodayFocusCandidateLike> {
+        return compareBy<TodayFocusCandidateLike> { it.priority }
+            .thenByDescending { it.burdenScore }
+            .thenByDescending { it.createdAt }
+    }
+
+    private fun fallbackCandidateComparator(): Comparator<TodayFocusCandidateLike> {
+        return compareBy<TodayFocusCandidateLike> { it.priority }
+            .thenByDescending { it.burdenScore }
+            .thenByDescending { it.createdAt }
+    }
+
+    private fun burdenOrder(level: String): Int {
+        return when (level) {
+            "LIGHT" -> 0
+            "MEDIUM" -> 1
+            "HEAVY" -> 2
+            else -> 1
+        }
     }
 
     private fun buildYesterdaySuggestion(

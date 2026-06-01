@@ -6,6 +6,7 @@ import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.local.RoomTodoLocalDataSource
 import com.example.flowlog.data.local.entity.TodoEntity
 import com.example.flowlog.data.model.TodoItem
+import com.example.flowlog.data.recommendation.TodoBurdenAnalysis
 import com.example.flowlog.notification.TodoReminderScheduler
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.channels.awaitClose
@@ -141,6 +142,22 @@ class TodoRepository(context: Context) {
         }
     }
 
+    suspend fun updateBurdenCaches(analyses: List<TodoBurdenAnalysis>) {
+        analyses.forEach { analysis ->
+            if (analysis.todo.id != 0L) {
+                runCatching {
+                    roomDataSource.updateBurdenCacheByLegacyId(
+                        legacyId = analysis.todo.id,
+                        burdenLevel = analysis.burdenLevel,
+                        burdenGroupKey = analysis.burdenGroupKey,
+                        burdenScore = analysis.burdenScore,
+                        burdenReasonJson = analysis.burdenReasonJson
+                    )
+                }
+            }
+        }
+    }
+
     suspend fun restoreTodosFromBackup(jsonText: String): Int {
         val envelope = runCatching {
             restoreJson.decodeFromString<TodoRestoreEnvelope>(jsonText)
@@ -186,6 +203,10 @@ class TodoRepository(context: Context) {
             scaleEstimate = scaleEstimate,
             scaleAlgorithmVersion = scaleAlgorithmVersion,
             accumulatedWorkMillis = resolvedAccumulatedMillis,
+            burdenLevel = burdenLevel,
+            burdenGroupKey = burdenGroupKey,
+            burdenScore = burdenScore,
+            burdenReasonJson = burdenReasonJson,
             reviewStage = reviewStage,
             reviewStage1CompletedAt = reviewStage1CompletedAt,
             legacyId = legacyIdValue,
@@ -216,6 +237,10 @@ class TodoRepository(context: Context) {
         val isDeleted: Boolean = false,
         val accumulatedSeconds: Long = 0L,
         val accumulatedMillis: Long? = null,
+        val burdenLevel: String? = null,
+        val burdenGroupKey: String? = null,
+        val burdenScore: Int = 0,
+        val burdenReasonJson: String? = null,
         val reviewStage: Int = 0,
         val reviewStage1CompletedAt: Long? = null,
         val scaleEstimate: String? = null,

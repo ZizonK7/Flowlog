@@ -1,5 +1,6 @@
 package com.example.flowlog.notification
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -42,7 +43,7 @@ class ActivityTimerNotifier(private val context: Context) {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-        NotificationManagerCompat.from(context).notify(TIMER_NOTIFICATION_ID, notification)
+        notifySafely(TIMER_NOTIFICATION_ID, notification)
     }
 
     fun clearRunningTimer() {
@@ -124,7 +125,7 @@ class ActivityTimerNotifier(private val context: Context) {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
 
-        NotificationManagerCompat.from(context).notify(BRUSH_START_NOTIFICATION_ID, notification)
+        notifySafely(BRUSH_START_NOTIFICATION_ID, notification)
     }
 
     fun clearSnackTimer() {
@@ -145,6 +146,55 @@ class ActivityTimerNotifier(private val context: Context) {
 
     fun clearBrushStartNotification() {
         NotificationManagerCompat.from(context).cancel(BRUSH_START_NOTIFICATION_ID)
+    }
+
+    fun showAutoButtonStarted(
+        title: String,
+        category: String,
+        switchedFromTitle: String?,
+        undoSnapshotId: String?
+    ) {
+        val text = if (switchedFromTitle.isNullOrBlank()) {
+            "${title} 기록을 시작했어요."
+        } else {
+            "${switchedFromTitle} 기록을 종료하고 ${title} 기록을 시작했어요."
+        }
+        showAutoButtonNotification(
+            notificationId = AUTO_BUTTON_START_NOTIFICATION_ID,
+            title = "${title} 시간이 되어 기록을 전환했어요.",
+            text = text,
+            category = category,
+            undoSnapshotId = undoSnapshotId,
+            playSound = true
+        )
+    }
+
+    fun showAutoButtonEnded(title: String, category: String) {
+        showAutoButtonNotification(
+            notificationId = AUTO_BUTTON_END_NOTIFICATION_ID,
+            title = "${title} 기록이 자동으로 종료됐어요.",
+            text = "고정 시간 버튼 일정에 맞춰 기록을 마쳤어요.",
+            category = category,
+            playSound = true
+        )
+    }
+
+    fun showAutoButtonUndoRestored(title: String, category: String) {
+        showAutoButtonNotification(
+            notificationId = AUTO_BUTTON_UNDO_NOTIFICATION_ID,
+            title = "자동 전환을 되돌렸어요.",
+            text = "${title} 기록을 다시 진행 중으로 복원했어요.",
+            category = category
+        )
+    }
+
+    fun showAutoButtonUndoUnavailable() {
+        showAutoButtonNotification(
+            notificationId = AUTO_BUTTON_UNDO_NOTIFICATION_ID,
+            title = "되돌릴 수 없어요.",
+            text = "이미 다른 기록이 진행 중이거나 되돌리기 시간이 지났어요.",
+            category = "ETC"
+        )
     }
 
     private fun showCountdownTimer(
@@ -183,7 +233,70 @@ class ActivityTimerNotifier(private val context: Context) {
             builder.setChronometerCountDown(true)
         }
 
-        NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+        notifySafely(notificationId, builder.build())
+    }
+
+    private fun showAutoButtonNotification(
+        notificationId: Int,
+        title: String,
+        text: String,
+        category: String,
+        undoSnapshotId: String? = null,
+        playSound: Boolean = false
+    ) {
+        if (!canPostNotifications()) return
+        if (playSound) {
+            ensureDingNotificationChannel()
+        } else {
+            ensureNotificationChannel()
+        }
+
+        val openPendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId,
+            Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val channelId = if (playSound) ToothbrushReminderReceiver.DING_CHANNEL_ID else CHANNEL_ID
+        val builder = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(notificationIcon(category))
+            .setColor(NOTIFICATION_ICON_COLOR)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openPendingIntent)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setPriority(if (playSound) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
+            .setDefaults(if (playSound) NotificationCompat.DEFAULT_VIBRATE else 0)
+        if (playSound && Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            builder.setSound(KakaoStyleAlertPlayer.soundUri(context))
+        }
+        if (!undoSnapshotId.isNullOrBlank()) {
+            val undoPendingIntent = PendingIntent.getBroadcast(
+                context,
+                AUTO_BUTTON_UNDO_REQUEST_CODE,
+                Intent(context, AutoButtonUndoReceiver::class.java).apply {
+                    putExtra(AutoButtonUndoReceiver.EXTRA_SNAPSHOT_ID, undoSnapshotId)
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(
+                R.drawable.ic_timer_notification,
+                "되돌리기",
+                undoPendingIntent
+            )
+        }
+
+        notifySafely(notificationId, builder.build())
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun notifySafely(notificationId: Int, notification: android.app.Notification) {
+        runCatching {
+            NotificationManagerCompat.from(context).notify(notificationId, notification)
+        }
     }
 
     private fun notificationIcon(category: String): Int = categoryNotificationIconRes(category)
@@ -259,6 +372,10 @@ class ActivityTimerNotifier(private val context: Context) {
         private const val BRUSH_EAT_NOTIFICATION_ID = 2004
         private const val MEAL_NOTIFICATION_ID = 2005
         private const val BRUSH_START_NOTIFICATION_ID = 2006
+        private const val AUTO_BUTTON_START_NOTIFICATION_ID = 2007
+        private const val AUTO_BUTTON_END_NOTIFICATION_ID = 2008
+        private const val AUTO_BUTTON_UNDO_REQUEST_CODE = 2009
+        private const val AUTO_BUTTON_UNDO_NOTIFICATION_ID = 2010
         private const val BRUSH_START_NOTIFICATION_TIMEOUT_MILLIS = 3_000L
         private val NOTIFICATION_ICON_COLOR = 0xFF4F5060.toInt()
     }

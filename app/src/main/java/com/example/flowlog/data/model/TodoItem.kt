@@ -15,7 +15,24 @@ data class TodoItem(
     val isCompleted: Boolean = false,
     val completedAt: Long? = null,
     val accumulatedSeconds: Long = 0L,
+    val burdenLevel: String? = null,
+    val burdenGroupKey: String? = null,
+    val burdenScore: Int = 0,
+    val burdenReasonJson: String? = null,
     val updatedAt: Long = System.currentTimeMillis(),
     val reviewStage: Int = 0,                      // 0=미시작, 1=D+1완료(D+7대기), 2=D+7완료(최종)
     val reviewStage1CompletedAt: Long? = null       // D+1 복습 완료 시각
+)
+
+data class RecommendedTodoBlock(
+    val itemId: String,
+    val recommendationId: String,
+    val todoId: Long,
+    val title: String,
+    val burdenLevel: String,
+    val reason: String?,
+    val plannedStartMillis: Long,
+    val plannedEndMillis: Long,
+    val recommendedDurationMinutes: Int,
+    val userActionStatus: String
 )

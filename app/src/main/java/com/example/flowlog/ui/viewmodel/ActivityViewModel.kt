@@ -3,13 +3,20 @@ package com.example.flowlog.ui.viewmodel
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.flowlog.data.constants.ActivitySourceType
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
+import com.example.flowlog.data.model.AutoButtonSchedule
 import com.example.flowlog.data.model.ActivitySession
+import com.example.flowlog.data.model.RecommendedTodoBlock
+import com.example.flowlog.data.model.ScheduledAutoButtonBlock
 import com.example.flowlog.data.repository.ActivityRepository
+import com.example.flowlog.data.repository.AutoButtonScheduleRepository
+import com.example.flowlog.data.repository.DailyGoalRepository
 import com.example.flowlog.data.repository.TodoRepository
 import com.example.flowlog.data.sync.FirebaseSyncCoordinator
 import com.example.flowlog.notification.ActivityTimerNotifier
+import com.example.flowlog.notification.AutoButtonScheduler
 import com.example.flowlog.notification.ReminderScheduler
 import com.example.flowlog.widget.FlowStatusWidgetProvider
 import com.google.firebase.auth.FirebaseAuth
@@ -74,6 +81,8 @@ data class ActivityUiState(
     val analytics: AnalyticsState = AnalyticsState(),
     val startTime: Long = 0L,
     val linkedTodoId: Long? = null,
+    val sourceType: String = ActivitySourceType.MANUAL,
+    val sourceId: String? = null,
     val pendingTitle: String? = null,
     val pendingSavedActivity: ActivitySession? = null,
     val lastAddedActivity: ActivitySession? = null,
@@ -82,7 +91,10 @@ data class ActivityUiState(
     val statusMessage: String? = null,
     val isBrushTimerRunning: Boolean = false,
     val brushDoneEndsAtMillis: Long = 0L,
-    val snackButtonEndsAtMillis: Long = 0L
+    val snackButtonEndsAtMillis: Long = 0L,
+    val autoButtonSchedules: List<AutoButtonSchedule> = emptyList(),
+    val scheduledAutoButtonBlocks: List<ScheduledAutoButtonBlock> = emptyList(),
+    val recommendedTodoBlocks: List<RecommendedTodoBlock> = emptyList()
 )
 
 class ActivityViewModel(
@@ -95,9 +107,13 @@ class ActivityViewModel(
     val uiState: StateFlow<ActivityUiState> = _uiState.asStateFlow()
 
     private var timerJob: Job? = null
+    private var activeSessionWatcherJob: Job? = null
     private var brushTimerJob: Job? = null
     private var snackTimerJob: Job? = null
     private val activityTimerNotifier = ActivityTimerNotifier(appContext)
+    private val autoButtonScheduleRepository = AutoButtonScheduleRepository(appContext)
+    private val dailyGoalRepository = DailyGoalRepository(appContext)
+    private val autoButtonScheduler = AutoButtonScheduler(appContext)
     private val undoPreferences = appContext.getSharedPreferences(
         PREFS_ACTIVITY_UNDO,
         Context.MODE_PRIVATE
@@ -114,6 +130,10 @@ class ActivityViewModel(
         seedMissingSleepRecord()
         observeAllActivities()
         observeTodayActivities()
+        observeAutoButtonSchedules()
+        observeScheduledAutoButtonBlocks()
+        observeRecommendedTodoBlocks()
+        watchActiveSessionStore()
     }
 
     fun startActivity(category: String) {
@@ -139,6 +159,8 @@ class ActivityViewModel(
                 timerGoalMillis = goalMillis,
                 startTime = startTime,
                 linkedTodoId = null,
+                sourceType = ActivitySourceType.MANUAL,
+                sourceId = null,
                 pendingTitle = null,
                 statusMessage = null
             )
@@ -174,6 +196,8 @@ class ActivityViewModel(
                 timerGoalMillis = goalMillis,
                 startTime = startTime,
                 linkedTodoId = todoId,
+                sourceType = ActivitySourceType.MANUAL,
+                sourceId = null,
                 pendingTitle = title,
                 statusMessage = null
             )
@@ -187,6 +211,41 @@ class ActivityViewModel(
         )
         activityTimerNotifier.showRunningTimer("TODO", startTime)
         startTimer()
+    }
+
+    fun startRecommendedTodoActivity(block: RecommendedTodoBlock) {
+        if (_uiState.value.isRunning) return
+
+        val startTime = System.currentTimeMillis()
+        val goalMillis = TimerStateStore.DEFAULT_GOAL_MILLIS
+        _uiState.update {
+            it.copy(
+                isRunning = true,
+                currentCategory = "TODO",
+                elapsedTime = 0L,
+                timerGoalMillis = goalMillis,
+                startTime = startTime,
+                linkedTodoId = block.todoId,
+                sourceType = ActivitySourceType.MANUAL,
+                sourceId = block.itemId,
+                pendingTitle = block.title,
+                statusMessage = null
+            )
+        }
+        saveActiveSession(
+            category = "TODO",
+            startTime = startTime,
+            goalMillis = goalMillis,
+            linkedTodoId = block.todoId,
+            linkedTodoTitle = block.title,
+            sourceType = ActivitySourceType.MANUAL,
+            sourceId = block.itemId
+        )
+        activityTimerNotifier.showRunningTimer("TODO", startTime)
+        startTimer()
+        viewModelScope.launch {
+            dailyGoalRepository.markPlannedItemStarted(block.itemId)
+        }
     }
 
     fun scheduleSnackReminder() {
@@ -295,7 +354,9 @@ class ActivityViewModel(
             endTime = endTime,
             durationMillis = durationMillis,
             tags = emptyList(),
-            linkedTodoId = state.linkedTodoId
+            linkedTodoId = state.linkedTodoId,
+            sourceType = state.sourceType,
+            sourceId = state.sourceId
         )
 
         clearActiveSession()
@@ -310,6 +371,8 @@ class ActivityViewModel(
                 timerGoalMillis = TimerStateStore.DEFAULT_GOAL_MILLIS,
                 startTime = 0L,
                 linkedTodoId = null,
+                sourceType = ActivitySourceType.MANUAL,
+                sourceId = null,
                 pendingTitle = null
             )
         }
@@ -319,7 +382,16 @@ class ActivityViewModel(
             val savedActivity = activity.copy(id = newId)
             state.linkedTodoId?.let { todoId ->
                 todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
+                if (state.sourceId != null) {
+                    dailyGoalRepository.markPlannedItemCompleted(state.sourceId, todoId, newId)
+                } else {
+                    dailyGoalRepository.markOpenPlannedItemCompleted(todoId, newId)
+                }
             }
+            dailyGoalRepository.ensureTodayTimePlan(
+                activities = _uiState.value.allActivities + savedActivity,
+                forceRefresh = false
+            )
             val mealTimerEndsAt = runCatching {
                 reminderScheduler.scheduleToothbrushReminder(savedActivity)
             }.getOrNull()
@@ -354,7 +426,9 @@ class ActivityViewModel(
             durationMillis = durationMillis,
             note = note?.takeIf { it.isNotBlank() },
             tags = emptyList(),
-            linkedTodoId = state.linkedTodoId
+            linkedTodoId = state.linkedTodoId,
+            sourceType = state.sourceType,
+            sourceId = state.sourceId
         )
 
         viewModelScope.launch {
@@ -362,7 +436,16 @@ class ActivityViewModel(
             val savedActivity = activity.copy(id = newId)
             state.linkedTodoId?.let { todoId ->
                 todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
+                if (state.sourceId != null) {
+                    dailyGoalRepository.markPlannedItemCompleted(state.sourceId, todoId, newId)
+                } else {
+                    dailyGoalRepository.markOpenPlannedItemCompleted(todoId, newId)
+                }
             }
+            dailyGoalRepository.ensureTodayTimePlan(
+                activities = _uiState.value.allActivities + savedActivity,
+                forceRefresh = false
+            )
             val mealTimerEndsAt = runCatching {
                 reminderScheduler.scheduleToothbrushReminder(savedActivity)
             }.getOrNull()
@@ -527,6 +610,8 @@ class ActivityViewModel(
                 timerGoalMillis = goalMillis,
                 startTime = startTime,
                 linkedTodoId = activeTimer.linkedTodoId,
+                sourceType = activeTimer.sourceType,
+                sourceId = activeTimer.sourceId,
                 pendingTitle = activeTimer.linkedTodoTitle,
                 statusMessage = null
             )
@@ -535,6 +620,128 @@ class ActivityViewModel(
             activityTimerNotifier.showRunningTimer(category, startTime)
         }
         startTimer()
+    }
+
+    fun saveAutoButtonSchedule(schedule: AutoButtonSchedule) {
+        viewModelScope.launch {
+            val scheduleId = autoButtonScheduleRepository.upsertSchedule(schedule)
+            autoButtonScheduler.reschedule(scheduleId)
+        }
+    }
+
+    private fun watchActiveSessionStore() {
+        activeSessionWatcherJob?.cancel()
+        activeSessionWatcherJob = viewModelScope.launch {
+            while (true) {
+                syncActiveSessionFromStore()
+                delay(1_000L)
+            }
+        }
+    }
+
+    private fun syncActiveSessionFromStore() {
+        val activeTimer = TimerStateStore.getActiveTimer(appContext)
+        val state = _uiState.value
+        if (activeTimer == null) {
+            if (state.isRunning) {
+                timerJob?.cancel()
+                timerJob = null
+                _uiState.update {
+                    it.copy(
+                        isRunning = false,
+                        currentCategory = "",
+                        elapsedTime = 0L,
+                        timerGoalMillis = TimerStateStore.DEFAULT_GOAL_MILLIS,
+                        startTime = 0L,
+                        linkedTodoId = null,
+                        sourceType = ActivitySourceType.MANUAL,
+                        sourceId = null,
+                        pendingTitle = null
+                    )
+                }
+            }
+            return
+        }
+
+        val shouldUpdate = !state.isRunning ||
+            state.currentCategory != activeTimer.category ||
+            state.startTime != activeTimer.startTime ||
+            state.linkedTodoId != activeTimer.linkedTodoId ||
+            state.sourceType != activeTimer.sourceType ||
+            state.sourceId != activeTimer.sourceId
+
+        if (shouldUpdate) {
+            _uiState.update {
+                it.copy(
+                    isRunning = true,
+                    currentCategory = activeTimer.category,
+                    elapsedTime = activeTimer.elapsedMillis,
+                    timerGoalMillis = activeTimer.goalMillis,
+                    startTime = activeTimer.startTime,
+                    linkedTodoId = activeTimer.linkedTodoId,
+                    sourceType = activeTimer.sourceType,
+                    sourceId = activeTimer.sourceId,
+                    pendingTitle = activeTimer.linkedTodoTitle,
+                    statusMessage = null
+                )
+            }
+            if (timerJob == null || timerJob?.isActive != true) {
+                startTimer()
+            }
+        }
+    }
+
+    fun setAutoButtonEnabled(scheduleId: String, isEnabled: Boolean) {
+        viewModelScope.launch {
+            autoButtonScheduleRepository.setEnabled(scheduleId, isEnabled)
+            autoButtonScheduler.reschedule(scheduleId)
+        }
+    }
+
+    fun skipAutoButtonToday(scheduleId: String) {
+        viewModelScope.launch {
+            autoButtonScheduleRepository.skipToday(scheduleId)
+            autoButtonScheduler.reschedule(scheduleId)
+        }
+    }
+
+    fun unskipAutoButtonToday(scheduleId: String) {
+        viewModelScope.launch {
+            autoButtonScheduleRepository.unskipToday(scheduleId)
+            autoButtonScheduler.reschedule(scheduleId)
+        }
+    }
+
+    fun deleteAutoButtonSchedule(scheduleId: String) {
+        viewModelScope.launch {
+            autoButtonScheduler.cancel(scheduleId)
+            autoButtonScheduleRepository.deleteSchedule(scheduleId)
+        }
+    }
+
+    fun dismissRecommendedTodoBlock(itemId: String) {
+        viewModelScope.launch {
+            dailyGoalRepository.dismissPlannedItem(itemId)
+        }
+    }
+
+    fun regenerateTodayRecommendedTimePlan() {
+        viewModelScope.launch {
+            val regenerated = dailyGoalRepository.ensureTodayTimePlan(
+                activities = _uiState.value.allActivities,
+                forceRefresh = true,
+                recommendationModeOverride = DailyGoalRepository.MODE_MANUAL_REFRESH
+            )
+            _uiState.update {
+                it.copy(
+                    statusMessage = if (regenerated) {
+                        "추천 시간 계획을 다시 만들었습니다."
+                    } else {
+                        "오늘의 목표가 아직 없어 추천 시간 계획을 만들 수 없습니다."
+                    }
+                )
+            }
+        }
     }
 
     private fun restoreBrushTimerState() {
@@ -832,6 +1039,8 @@ class ActivityViewModel(
                 timerGoalMillis = TimerStateStore.DEFAULT_GOAL_MILLIS,
                 startTime = 0L,
                 linkedTodoId = null,
+                sourceType = ActivitySourceType.MANUAL,
+                sourceId = null,
                 pendingTitle = null,
                 statusMessage = null
             )
@@ -848,7 +1057,9 @@ class ActivityViewModel(
         startTime: Long,
         goalMillis: Long,
         linkedTodoId: Long? = null,
-        linkedTodoTitle: String? = null
+        linkedTodoTitle: String? = null,
+        sourceType: String = ActivitySourceType.MANUAL,
+        sourceId: String? = null
     ) {
         TimerStateStore.saveActiveTimer(
             context = appContext,
@@ -856,7 +1067,9 @@ class ActivityViewModel(
             startTime = startTime,
             goalMillis = goalMillis,
             linkedTodoId = linkedTodoId,
-            linkedTodoTitle = linkedTodoTitle
+            linkedTodoTitle = linkedTodoTitle,
+            sourceType = sourceType,
+            sourceId = sourceId
         )
         FlowStatusWidgetProvider.updateAll(appContext)
     }
@@ -882,6 +1095,30 @@ class ActivityViewModel(
 
     private fun isTimedCategory(category: String): Boolean {
         return category != "SNACK" && category != "TOOTHBRUSH"
+    }
+
+    private fun observeAutoButtonSchedules() {
+        viewModelScope.launch {
+            autoButtonScheduleRepository.observeSchedules().collect { schedules ->
+                _uiState.update { it.copy(autoButtonSchedules = schedules) }
+            }
+        }
+    }
+
+    private fun observeScheduledAutoButtonBlocks() {
+        viewModelScope.launch {
+            autoButtonScheduleRepository.observeTodayBlocks().collect { blocks ->
+                _uiState.update { it.copy(scheduledAutoButtonBlocks = blocks) }
+            }
+        }
+    }
+
+    private fun observeRecommendedTodoBlocks() {
+        viewModelScope.launch {
+            dailyGoalRepository.observeTodayRecommendedBlocks().collect { blocks ->
+                _uiState.update { it.copy(recommendedTodoBlocks = blocks) }
+            }
+        }
     }
 
     private fun goalMillisForTimer(category: String, startTime: Long): Long {
@@ -929,6 +1166,7 @@ class ActivityViewModel(
     override fun onCleared() {
         super.onCleared()
         timerJob?.cancel()
+        activeSessionWatcherJob?.cancel()
         brushTimerJob?.cancel()
         snackTimerJob?.cancel()
     }

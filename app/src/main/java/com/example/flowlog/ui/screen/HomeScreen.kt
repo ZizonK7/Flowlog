@@ -1,5 +1,6 @@
 package com.example.flowlog.ui.screen
 
+import android.app.TimePickerDialog
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.RepeatMode
@@ -13,6 +14,10 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,8 +55,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -67,10 +79,12 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -81,6 +95,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.flowlog.data.model.ActivitySession
+import com.example.flowlog.data.model.AutoButtonSchedule
+import com.example.flowlog.data.model.RecommendedTodoBlock
+import com.example.flowlog.data.model.ScheduledAutoButtonBlock
 import com.example.flowlog.ui.component.CategoryButton
 import com.example.flowlog.ui.component.CategoryGlyph
 import com.example.flowlog.ui.component.EditActivityDialog
@@ -92,6 +109,7 @@ import com.example.flowlog.ui.viewmodel.AnalyticsState
 import com.example.flowlog.ui.viewmodel.CategoryStat
 import com.example.flowlog.ui.viewmodel.TrendPoint
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -101,6 +119,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 private val FlowPurple = Color(0xFF5140D8)
+private val FlowPurpleDeep = Color(0xFF2F238F)
 private val FlowPurpleSoft = Color(0xFFEDE9FF)
 private val FlowInk = Color(0xFF10182C)
 private val FlowMuted = Color(0xFF697386)
@@ -110,9 +129,12 @@ private val FlowDivider = Color(0xFFE8E8EE)
 fun HomeScreen(
     viewModel: ActivityViewModel,
     topActions: @Composable () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    autoButtonManagerOpen: Boolean = false,
+    onAutoButtonManagerDismiss: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var localAutoButtonManagerOpen by remember { mutableStateOf(false) }
     val activityCategories = remember {
         listOf(
             "TOOTHBRUSH",
@@ -123,6 +145,7 @@ fun HomeScreen(
             "DEVELOPMENT",
             "WASH",
             "SCHOOL",
+            "COMPANY",
             "EXERCISE",
             "SLEEP",
             "REST",
@@ -217,7 +240,19 @@ fun HomeScreen(
         }
 
         item {
-            TimetableCard(activities = uiState.todayActivities)
+            TimetableCard(
+                activities = uiState.todayActivities,
+                scheduledBlocks = uiState.scheduledAutoButtonBlocks,
+                recommendedBlocks = uiState.recommendedTodoBlocks,
+                onSkipToday = { viewModel.skipAutoButtonToday(it) },
+                onUnskipToday = { viewModel.unskipAutoButtonToday(it) },
+                onEditSchedule = { scheduleId ->
+                    localAutoButtonManagerOpen = true
+                },
+                onManageSchedules = { localAutoButtonManagerOpen = true },
+                onStartRecommended = { viewModel.startRecommendedTodoActivity(it) },
+                onDismissRecommended = { viewModel.dismissRecommendedTodoBlock(it) }
+            )
         }
 
         item {
@@ -273,6 +308,22 @@ fun HomeScreen(
             onDismiss = {
                 viewModel.cancelEditActivity()
             }
+        )
+    }
+
+    if (autoButtonManagerOpen || localAutoButtonManagerOpen) {
+        AutoButtonManagerSheet(
+            schedules = uiState.autoButtonSchedules,
+            categories = activityCategories,
+            onDismiss = {
+                localAutoButtonManagerOpen = false
+                onAutoButtonManagerDismiss()
+            },
+            onSave = viewModel::saveAutoButtonSchedule,
+            onToggleEnabled = viewModel::setAutoButtonEnabled,
+            onSkipToday = viewModel::skipAutoButtonToday,
+            onUnskipToday = viewModel::unskipAutoButtonToday,
+            onDelete = viewModel::deleteAutoButtonSchedule
         )
     }
 
@@ -636,7 +687,7 @@ private fun FlowStartPage(
     onStart: (String) -> Unit
 ) {
     val activityCategories = remember(categories) {
-        categories.filter { it !in setOf("TOOTHBRUSH", "SNACK", "EXPERIMENT_1", "EXPERIMENT_2", "EXPERIMENT_3") }
+        categories.filter { it !in setOf("TOOTHBRUSH", "SNACK", "COMPANY", "EXPERIMENT_1", "EXPERIMENT_2", "EXPERIMENT_3") }
     }
 
     val context = LocalContext.current
@@ -726,10 +777,9 @@ private fun FlowStartPage(
             items(activityCategories.size) { index ->
                 val rawCategory = activityCategories[index]
                 val effectiveCategory = if (rawCategory == "SCHOOL") schoolSlotCategory else rawCategory
-                val effectiveLabel = displayCategory(effectiveCategory)
                 CategoryButton(
                     category = effectiveCategory,
-                    label = effectiveLabel,
+                    label = displayCategory(effectiveCategory),
                     onClick = { onStart(effectiveCategory) },
                     onLongClick = if (rawCategory == "SCHOOL") {
                         { showToggleDialog = true }
@@ -1756,6 +1806,7 @@ private fun reportCategoryBackground(category: String): Color {
         "DEVELOPMENT" -> Color(0xFFE9E7FF)
         "WASH" -> Color(0xFFE4F5FF)
         "SCHOOL" -> Color(0xFFFCE4ED)
+        "COMPANY" -> Color(0xFFE6EEF2)
         "EXERCISE" -> Color(0xFFE4F1FF)
         "SLEEP" -> Color(0xFFF0E4FF)
         "REST" -> Color(0xFFE2F5F5)
@@ -1932,10 +1983,36 @@ private fun CategoryLegend(categories: List<String>) {
     }
 }
 
+private sealed class TimelineBlock {
+    data class ActualActivity(val activity: ActivitySession) : TimelineBlock()
+    data class ScheduledAutoButton(val block: ScheduledAutoButtonBlock) : TimelineBlock()
+    data class RecommendedTodo(val block: RecommendedTodoBlock) : TimelineBlock()
+}
+
 @Composable
-private fun TimetableCard(activities: List<ActivitySession>) {
-    val timelineItems = remember(activities) {
-        activities.sortedBy { it.startTime }
+private fun TimetableCard(
+    activities: List<ActivitySession>,
+    scheduledBlocks: List<ScheduledAutoButtonBlock>,
+    recommendedBlocks: List<RecommendedTodoBlock>,
+    onSkipToday: (String) -> Unit,
+    onUnskipToday: (String) -> Unit,
+    onEditSchedule: (String) -> Unit,
+    onManageSchedules: () -> Unit,
+    onStartRecommended: (RecommendedTodoBlock) -> Unit,
+    onDismissRecommended: (String) -> Unit
+) {
+    var selectedBlock by remember { mutableStateOf<ScheduledAutoButtonBlock?>(null) }
+    var selectedRecommendedBlock by remember { mutableStateOf<RecommendedTodoBlock?>(null) }
+    val timelineItems = remember(activities, scheduledBlocks, recommendedBlocks) {
+        activities.map { TimelineBlock.ActualActivity(it) } +
+            scheduledBlocks.map { TimelineBlock.ScheduledAutoButton(it) } +
+            recommendedBlocks.map { TimelineBlock.RecommendedTodo(it) }
+    }.sortedBy { block ->
+        when (block) {
+            is TimelineBlock.ActualActivity -> block.activity.startTime
+            is TimelineBlock.ScheduledAutoButton -> block.block.startTime
+            is TimelineBlock.RecommendedTodo -> block.block.plannedStartMillis
+        }
     }
 
     Card(
@@ -1947,12 +2024,21 @@ private fun TimetableCard(activities: List<ActivitySession>) {
         shape = MaterialTheme.shapes.medium
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "타임테이블",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                color = FlowInk
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "타임테이블",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = FlowInk,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(
+                    onClick = onManageSchedules,
+                    colors = ButtonDefaults.textButtonColors(contentColor = FlowInk)
+                ) {
+                    Text("고정 시간", fontWeight = FontWeight.Bold)
+                }
+            }
             Text(
                 text = "오늘 활동 흐름을 한 줄 색상 막대로 보여줍니다.",
                 fontSize = 12.sp,
@@ -1969,32 +2055,119 @@ private fun TimetableCard(activities: List<ActivitySession>) {
                 )
             } else {
                 Spacer(modifier = Modifier.height(12.dp))
-                TimetableBar(activities = timelineItems)
+                TimetableBar(
+                    blocks = timelineItems,
+                    onScheduledLongPress = { block -> selectedBlock = block },
+                    onRecommendedClick = { block -> selectedRecommendedBlock = block }
+                )
+                ScheduledAutoButtonList(
+                    blocks = scheduledBlocks,
+                    onShowMenu = { block -> selectedBlock = block }
+                )
+                RecommendedTodoBlockList(
+                    blocks = recommendedBlocks,
+                    onShowMenu = { block -> selectedRecommendedBlock = block }
+                )
             }
         }
+    }
+
+    selectedBlock?.let { block ->
+        ScheduledAutoButtonActionSheet(
+            block = block,
+            onDismiss = { selectedBlock = null },
+            onSkipToday = onSkipToday,
+            onUnskipToday = onUnskipToday,
+            onEditSchedule = onEditSchedule
+        )
+    }
+
+    selectedRecommendedBlock?.let { block ->
+        RecommendedTodoActionSheet(
+            block = block,
+            onDismiss = { selectedRecommendedBlock = null },
+            onStart = {
+                onStartRecommended(block)
+                selectedRecommendedBlock = null
+            },
+            onHideToday = {
+                onDismissRecommended(block.itemId)
+                selectedRecommendedBlock = null
+            }
+        )
     }
 }
 
 @Composable
 private fun TimetableBar(
-    activities: List<ActivitySession>
+    blocks: List<TimelineBlock>,
+    onScheduledLongPress: (ScheduledAutoButtonBlock) -> Unit,
+    onRecommendedClick: (RecommendedTodoBlock) -> Unit
 ) {
-    if (activities.isEmpty()) return
+    if (blocks.isEmpty()) return
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-    val firstStart = activities.minOf { it.startTime }
-    val lastEnd = activities.maxOf { it.endTime.coerceAtLeast(it.startTime + 1L) }
+    val firstStart = blocks.minOf {
+        when (it) {
+            is TimelineBlock.ActualActivity -> it.activity.startTime
+            is TimelineBlock.ScheduledAutoButton -> it.block.startTime
+            is TimelineBlock.RecommendedTodo -> it.block.plannedStartMillis
+        }
+    }
+    val lastEnd = blocks.maxOf {
+        when (it) {
+            is TimelineBlock.ActualActivity -> it.activity.endTime.coerceAtLeast(it.activity.startTime + 1L)
+            is TimelineBlock.ScheduledAutoButton -> it.block.endTime.coerceAtLeast(it.block.startTime + 1L)
+            is TimelineBlock.RecommendedTodo -> it.block.plannedEndMillis.coerceAtLeast(it.block.plannedStartMillis + 1L)
+        }
+    }
     val paddingMillis = 15L * 60L * 1000L
     val windowStart = (firstStart - paddingMillis).coerceAtLeast(0L)
     val windowEnd = (lastEnd + paddingMillis).coerceAtLeast(windowStart + 60L * 60L * 1000L)
     val windowDuration = (windowEnd - windowStart).coerceAtLeast(1L)
-    val categories = remember(activities) {
-        activities.map { it.category }.distinct()
+    val scheduled = blocks.filterIsInstance<TimelineBlock.ScheduledAutoButton>().map { it.block }
+    val recommended = blocks.filterIsInstance<TimelineBlock.RecommendedTodo>().map { it.block }
+    val categories = remember(blocks) {
+        blocks.map {
+            when (it) {
+                is TimelineBlock.ActualActivity -> it.activity.category
+                is TimelineBlock.ScheduledAutoButton -> it.block.category
+                is TimelineBlock.RecommendedTodo -> "TODO"
+            }
+        }.distinct()
     }
 
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
             .height(72.dp)
+            .pointerInput(scheduled, recommended, windowStart, windowDuration) {
+                detectTapGestures(
+                    onTap = { offset ->
+                        val hit = recommended.firstOrNull { block ->
+                            val startFraction = ((block.plannedStartMillis - windowStart).toFloat() / windowDuration.toFloat())
+                                .coerceIn(0f, 1f)
+                            val endFraction = ((block.plannedEndMillis - windowStart).toFloat() / windowDuration.toFloat())
+                                .coerceIn(startFraction, 1f)
+                            val startX = size.width * startFraction
+                            val endX = size.width * endFraction
+                            offset.x in startX..endX
+                        }
+                        if (hit != null) onRecommendedClick(hit)
+                    },
+                    onLongPress = { offset ->
+                        val hit = scheduled.firstOrNull { block ->
+                            val startFraction = ((block.startTime - windowStart).toFloat() / windowDuration.toFloat())
+                                .coerceIn(0f, 1f)
+                            val endFraction = ((block.endTime - windowStart).toFloat() / windowDuration.toFloat())
+                                .coerceIn(startFraction, 1f)
+                            val startX = size.width * startFraction
+                            val endX = size.width * endFraction
+                            offset.x in startX..endX
+                        }
+                        if (hit != null) onScheduledLongPress(hit)
+                    }
+                )
+            }
     ) {
         val guideColor = Color(0x332196F3)
         val trackColor = Color(0xFFE8EDF3)
@@ -2019,19 +2192,73 @@ private fun TimetableBar(
             cornerRadius = radius
         )
 
-        activities.forEach { activity ->
-            val startFraction = ((activity.startTime - windowStart).toFloat() / windowDuration.toFloat())
-                .coerceIn(0f, 1f)
-            val endFraction = ((activity.endTime.coerceAtLeast(activity.startTime + 1L) - windowStart).toFloat() / windowDuration.toFloat())
-                .coerceIn(startFraction, 1f)
-            val x = size.width * startFraction
-            val width = (size.width * (endFraction - startFraction)).coerceAtLeast(3.dp.toPx())
-            drawRoundRect(
-                color = categoryColor(activity.category),
-                topLeft = Offset(x, top),
-                size = Size(width, barHeight),
-                cornerRadius = radius
-            )
+        blocks.forEach { block ->
+            when (block) {
+                is TimelineBlock.ActualActivity -> {
+                    val activity = block.activity
+                    val startFraction = ((activity.startTime - windowStart).toFloat() / windowDuration.toFloat())
+                        .coerceIn(0f, 1f)
+                    val endFraction = ((activity.endTime.coerceAtLeast(activity.startTime + 1L) - windowStart).toFloat() / windowDuration.toFloat())
+                        .coerceIn(startFraction, 1f)
+                    val x = size.width * startFraction
+                    val width = (size.width * (endFraction - startFraction)).coerceAtLeast(3.dp.toPx())
+                    drawRoundRect(
+                        color = categoryColor(activity.category),
+                        topLeft = Offset(x, top),
+                        size = Size(width, barHeight),
+                        cornerRadius = radius
+                    )
+                }
+                is TimelineBlock.ScheduledAutoButton -> {
+                    val item = block.block
+                    val startFraction = ((item.startTime - windowStart).toFloat() / windowDuration.toFloat())
+                        .coerceIn(0f, 1f)
+                    val endFraction = ((item.endTime.coerceAtLeast(item.startTime + 1L) - windowStart).toFloat() / windowDuration.toFloat())
+                        .coerceIn(startFraction, 1f)
+                    val x = size.width * startFraction
+                    val width = (size.width * (endFraction - startFraction)).coerceAtLeast(3.dp.toPx())
+                    val strokeColor = categoryColor(item.category).copy(alpha = if (item.isSkippedToday) 0.28f else 0.58f)
+                    drawRoundRect(
+                        color = strokeColor.copy(alpha = if (item.isSkippedToday) 0.08f else 0.16f),
+                        topLeft = Offset(x, top),
+                        size = Size(width, barHeight),
+                        cornerRadius = radius
+                    )
+                    drawRoundRect(
+                        color = strokeColor,
+                        topLeft = Offset(x, top),
+                        size = Size(width, barHeight),
+                        cornerRadius = radius,
+                        style = Stroke(width = 2.dp.toPx())
+                    )
+                }
+                is TimelineBlock.RecommendedTodo -> {
+                    val item = block.block
+                    val startFraction = ((item.plannedStartMillis - windowStart).toFloat() / windowDuration.toFloat())
+                        .coerceIn(0f, 1f)
+                    val endFraction = ((item.plannedEndMillis.coerceAtLeast(item.plannedStartMillis + 1L) - windowStart).toFloat() / windowDuration.toFloat())
+                        .coerceIn(startFraction, 1f)
+                    val x = size.width * startFraction
+                    val width = (size.width * (endFraction - startFraction)).coerceAtLeast(4.dp.toPx())
+                    val color = FlowPurple.copy(alpha = 0.7f)
+                    drawRoundRect(
+                        color = FlowPurpleSoft.copy(alpha = 0.45f),
+                        topLeft = Offset(x, top + 4.dp.toPx()),
+                        size = Size(width, barHeight - 8.dp.toPx()),
+                        cornerRadius = radius
+                    )
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(x, top + 4.dp.toPx()),
+                        size = Size(width, barHeight - 8.dp.toPx()),
+                        cornerRadius = radius,
+                        style = Stroke(
+                            width = 1.5.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8.dp.toPx(), 5.dp.toPx()))
+                        )
+                    )
+                }
+            }
         }
 
         drawLine(
@@ -2085,6 +2312,802 @@ private fun TimetableBar(
             }
         }
     }
+}
+
+@Composable
+private fun ScheduledAutoButtonList(
+    blocks: List<ScheduledAutoButtonBlock>,
+    onShowMenu: (ScheduledAutoButtonBlock) -> Unit
+) {
+    if (blocks.isEmpty()) return
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+
+    LazyRow(
+        modifier = Modifier.padding(top = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(blocks.size) { index ->
+            val block = blocks[index]
+            Row(
+                modifier = Modifier
+                    .border(
+                        width = 1.dp,
+                        color = categoryColor(block.category).copy(alpha = if (block.isSkippedToday) 0.2f else 0.45f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    .background(
+                        categoryColor(block.category).copy(alpha = if (block.isSkippedToday) 0.04f else 0.08f),
+                        RoundedCornerShape(12.dp)
+                    )
+                    .combinedClickable(onClick = {}, onLongClick = { onShowMenu(block) })
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Text(
+                    text = "${timeFormat.format(Date(block.startTime))}-${timeFormat.format(Date(block.endTime))}",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = FlowMuted
+                )
+                Text(
+                    text = block.title,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (block.isSkippedToday) FlowMuted else FlowInk,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (block.isSkippedToday) {
+                    Text(
+                        text = "꺼짐",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier
+                            .background(FlowPurple.copy(alpha = 0.75f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecommendedTodoBlockList(
+    blocks: List<RecommendedTodoBlock>,
+    onShowMenu: (RecommendedTodoBlock) -> Unit
+) {
+    if (blocks.isEmpty()) return
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+
+    LazyRow(
+        modifier = Modifier.padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(blocks.size) { index ->
+            val block = blocks[index]
+            Row(
+                modifier = Modifier
+                    .border(
+                        width = 1.dp,
+                        color = FlowPurple.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    .background(
+                        FlowPurpleSoft.copy(alpha = 0.42f),
+                        RoundedCornerShape(12.dp)
+                    )
+                    .combinedClickable(onClick = { onShowMenu(block) }, onLongClick = { onShowMenu(block) })
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Text(
+                    text = "${timeFormat.format(Date(block.plannedStartMillis))} 시작 추천",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = FlowMuted
+                )
+                Text(
+                    text = "${block.title} - ${burdenLabel(block.burdenLevel)} 추천",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = FlowInk,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "추천",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier
+                        .background(FlowPurple.copy(alpha = 0.78f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScheduledAutoButtonActionSheet(
+    block: ScheduledAutoButtonBlock,
+    onDismiss: () -> Unit,
+    onSkipToday: (String) -> Unit,
+    onUnskipToday: (String) -> Unit,
+    onEditSchedule: (String) -> Unit
+) {
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color.White,
+        contentColor = FlowInk
+    ) {
+        Column(
+            modifier = Modifier
+                .background(Color.White)
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+        ) {
+            Text(
+                block.title,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = FlowInk
+            )
+            Text(
+                "${timeFormat.format(Date(block.startTime))} - ${timeFormat.format(Date(block.endTime))}",
+                fontSize = 13.sp,
+                color = FlowMuted,
+                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+            )
+            Button(
+                onClick = {
+                    if (block.isSkippedToday) onUnskipToday(block.scheduleId) else onSkipToday(block.scheduleId)
+                    onDismiss()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = FlowPurple,
+                    contentColor = Color.White
+                )
+            ) {
+                Text(if (block.isSkippedToday) "오늘 다시 켜기" else "오늘만 끄기")
+            }
+            TextButton(
+                onClick = {
+                    onEditSchedule(block.scheduleId)
+                    onDismiss()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.textButtonColors(contentColor = FlowInk)
+            ) {
+                Text("설정 수정", fontWeight = FontWeight.Bold)
+            }
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.textButtonColors(contentColor = FlowMuted)
+            ) {
+                Text("닫기")
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RecommendedTodoActionSheet(
+    block: RecommendedTodoBlock,
+    onDismiss: () -> Unit,
+    onStart: () -> Unit,
+    onHideToday: () -> Unit
+) {
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    var showReason by remember(block.itemId) { mutableStateOf(false) }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color.White,
+        contentColor = FlowInk
+    ) {
+        Column(
+            modifier = Modifier
+                .background(Color.White)
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+        ) {
+            Text(
+                "${block.title} - ${burdenLabel(block.burdenLevel)} 추천",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = FlowInk
+            )
+            Text(
+                "${timeFormat.format(Date(block.plannedStartMillis))} 시작 추천",
+                fontSize = 13.sp,
+                color = FlowMuted,
+                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+            )
+            Button(
+                onClick = onStart,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = FlowPurple,
+                    contentColor = Color.White
+                )
+            ) {
+                Text("시작하기", fontWeight = FontWeight.Bold)
+            }
+            TextButton(
+                onClick = onHideToday,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.textButtonColors(contentColor = FlowInk)
+            ) {
+                Text("오늘 숨기기", fontWeight = FontWeight.Bold)
+            }
+            TextButton(
+                onClick = { showReason = !showReason },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.textButtonColors(contentColor = FlowInk)
+            ) {
+                Text("추천 이유 보기", fontWeight = FontWeight.Bold)
+            }
+            if (showReason) {
+                Text(
+                    text = block.reason ?: "오늘의 목표와 최근 시간대 기록을 바탕으로 추천했어요.",
+                    fontSize = 13.sp,
+                    color = FlowMuted,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFF7F7FA), RoundedCornerShape(12.dp))
+                        .padding(12.dp)
+                )
+            }
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.textButtonColors(contentColor = FlowMuted)
+            ) {
+                Text("닫기")
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+    }
+}
+
+private fun burdenLabel(level: String): String {
+    return when (level) {
+        "HEAVY" -> "과중함"
+        "LIGHT" -> "가벼움"
+        else -> "보통"
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AutoButtonManagerSheet(
+    schedules: List<AutoButtonSchedule>,
+    categories: List<String>,
+    onDismiss: () -> Unit,
+    onSave: (AutoButtonSchedule) -> Unit,
+    onToggleEnabled: (String, Boolean) -> Unit,
+    onSkipToday: (String) -> Unit,
+    onUnskipToday: (String) -> Unit,
+    onDelete: (String) -> Unit
+) {
+    var editing by remember { mutableStateOf<AutoButtonSchedule?>(null) }
+    var confirmDeleteId by remember { mutableStateOf<String?>(null) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color.White,
+        contentColor = FlowInk
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                "고정 시간 버튼 관리",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = FlowInk
+            )
+            Text(
+                "반복되는 학교/회사 시간을 추가하면 타임테이블에 예정으로 표시됩니다.",
+                fontSize = 13.sp,
+                color = FlowMuted
+            )
+            if (schedules.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    schedules.forEach { schedule ->
+                        AutoButtonScheduleRow(
+                            schedule = schedule,
+                            onEdit = { editing = schedule },
+                            onToggleEnabled = { onToggleEnabled(schedule.scheduleId, it) },
+                            onSkipToday = {
+                                if (schedule.isSkippedToday) onUnskipToday(schedule.scheduleId)
+                                else onSkipToday(schedule.scheduleId)
+                            },
+                            onDelete = { confirmDeleteId = schedule.scheduleId }
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Button(
+                onClick = { editing = defaultAutoButtonSchedule() },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = FlowPurpleDeep,
+                    contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("+ 고정 시간 추가", fontWeight = FontWeight.ExtraBold)
+            }
+        }
+    }
+
+    editing?.let { schedule ->
+        AutoButtonEditSheet(
+            initial = schedule,
+            onDismiss = { editing = null },
+            onSave = {
+                onSave(it)
+                editing = null
+            }
+        )
+    }
+
+    confirmDeleteId?.let { scheduleId ->
+        AlertDialog(
+            onDismissRequest = { confirmDeleteId = null },
+            containerColor = Color.White,
+            titleContentColor = FlowInk,
+            textContentColor = FlowMuted,
+            title = { Text("고정 시간 삭제", fontWeight = FontWeight.ExtraBold) },
+            text = { Text("이 고정 시간 설정을 삭제할까요? 되돌릴 수 없습니다.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDelete(scheduleId)
+                        confirmDeleteId = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFD32F2F),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text("삭제", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { confirmDeleteId = null },
+                    colors = ButtonDefaults.textButtonColors(contentColor = FlowMuted)
+                ) {
+                    Text("취소")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun AutoButtonScheduleRow(
+    schedule: AutoButtonSchedule,
+    onEdit: () -> Unit,
+    onToggleEnabled: (Boolean) -> Unit,
+    onSkipToday: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, FlowDivider, RoundedCornerShape(12.dp))
+            .padding(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        schedule.title,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = FlowInk
+                    )
+                    if (schedule.isSkippedToday) {
+                        Text(
+                            text = "오늘 꺼짐",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier
+                                .background(FlowPurple, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+                Text(
+                    "${displayCategory(schedule.category)} · ${formatMinuteOfDay(schedule.startMinuteOfDay)}-${formatMinuteOfDay(schedule.endMinuteOfDay)} · ${formatRepeatDays(schedule.repeatDays)}",
+                    fontSize = 12.sp,
+                    color = FlowMuted,
+                    modifier = Modifier.padding(top = 2.dp),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            IconButton(onClick = onEdit) {
+                Icon(
+                    Icons.Filled.Edit,
+                    contentDescription = "수정",
+                    tint = FlowMuted,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = "삭제",
+                    tint = FlowMuted,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Switch(
+                checked = schedule.isEnabled,
+                onCheckedChange = onToggleEnabled
+            )
+            Text(
+                "활성화",
+                fontSize = 12.sp,
+                color = FlowMuted,
+                modifier = Modifier.padding(start = 6.dp)
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            TextButton(
+                onClick = onSkipToday,
+                colors = ButtonDefaults.textButtonColors(contentColor = FlowInk),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    if (schedule.isSkippedToday) "오늘 다시 켜기" else "오늘만 끄기",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AutoButtonEditSheet(
+    initial: AutoButtonSchedule,
+    onDismiss: () -> Unit,
+    onSave: (AutoButtonSchedule) -> Unit
+) {
+    var title by remember(initial.scheduleId) { mutableStateOf(initial.title) }
+    val fixedCategories = remember { listOf("COMPANY", "SCHOOL") }
+    var category by remember(initial.scheduleId) {
+        mutableStateOf(initial.category.takeIf { it in fixedCategories } ?: "SCHOOL")
+    }
+    var startMinute by remember(initial.scheduleId) { mutableStateOf(initial.startMinuteOfDay.coerceIn(0, 23 * 60 + 59)) }
+    var endMinute by remember(initial.scheduleId) { mutableStateOf(initial.endMinuteOfDay.coerceIn(0, 23 * 60 + 59)) }
+    var repeatDays by remember(initial.scheduleId) { mutableStateOf(initial.repeatDays.ifEmpty { weekdayDefaults() }) }
+    var notifyOnStart by remember(initial.scheduleId) { mutableStateOf(initial.notifyOnStart) }
+    var notifyOnEnd by remember(initial.scheduleId) { mutableStateOf(initial.notifyOnEnd) }
+    var isEnabled by remember(initial.scheduleId) { mutableStateOf(initial.isEnabled) }
+    var errorMessage by remember(initial.scheduleId) { mutableStateOf<String?>(null) }
+    val scrollState = rememberScrollState()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color.White,
+        contentColor = FlowInk
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(scrollState)
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column {
+                Text(
+                    if (initial.scheduleId.isBlank()) "고정 시간 추가" else "고정 시간 수정",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = FlowInk
+                )
+                Text(
+                    "반복되는 회사/학교 시간을 입력하세요.",
+                    fontSize = 12.sp,
+                    color = FlowMuted,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+            FormPanel {
+                Text("이름", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    placeholder = { Text("예: 회사, 학교", color = FlowMuted) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp)
+                )
+            }
+            FormPanel {
+                Text("카테고리", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    fixedCategories.forEach { item ->
+                        FilterChip(
+                            selected = category == item,
+                            onClick = {
+                                category = item
+                                if (title.isBlank()) title = displayCategory(item)
+                            },
+                            label = {
+                                Text(
+                                    displayCategory(item),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (category == item) Color.White else FlowInk
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = FlowPurpleDeep,
+                                selectedLabelColor = Color.White,
+                                containerColor = Color(0xFFF7F7FA),
+                                labelColor = FlowInk
+                            )
+                        )
+                    }
+                }
+            }
+            FormPanel {
+                Text("시간", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(top = 6.dp)
+                ) {
+                    TimePickerCard(
+                        label = "시작",
+                        minuteOfDay = startMinute,
+                        onChange = { startMinute = it },
+                        modifier = Modifier.weight(1f)
+                    )
+                    TimePickerCard(
+                        label = "종료",
+                        minuteOfDay = endMinute,
+                        onChange = { endMinute = it },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+            FormPanel {
+                Text("반복 요일", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    items(dayOptions.size) { index ->
+                        val (day, label) = dayOptions[index]
+                        FilterChip(
+                            selected = day in repeatDays,
+                            onClick = {
+                                repeatDays = if (day in repeatDays) repeatDays - day else repeatDays + day
+                            },
+                            label = {
+                                Text(
+                                    label,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (day in repeatDays) Color.White else FlowInk
+                                )
+                            },
+                            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = FlowPurpleDeep,
+                                selectedLabelColor = Color.White,
+                                containerColor = Color(0xFFF7F7FA),
+                                labelColor = FlowInk
+                            )
+                        )
+                    }
+                }
+            }
+            FormPanel {
+                ToggleRow("활성화", isEnabled) { isEnabled = it }
+                ToggleRow("시작 알림", notifyOnStart) { notifyOnStart = it }
+                ToggleRow("종료 알림", notifyOnEnd) { notifyOnEnd = it }
+            }
+            errorMessage?.let { message ->
+                Text(
+                    text = message,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFD32F2F)
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColors(contentColor = FlowMuted)
+                ) {
+                    Text("취소", fontWeight = FontWeight.Bold)
+                }
+                Button(
+                    onClick = {
+                        val cleanTitle = title.trim()
+                        errorMessage = when {
+                            cleanTitle.isBlank() -> "이름을 입력해주세요."
+                            endMinute <= startMinute -> "종료 시간은 시작 시간보다 늦어야 합니다."
+                            repeatDays.isEmpty() -> "반복 요일을 하나 이상 선택해주세요."
+                            else -> null
+                        }
+                        if (errorMessage == null) {
+                            onSave(
+                                initial.copy(
+                                    title = cleanTitle,
+                                    category = category,
+                                    repeatDays = repeatDays,
+                                    startMinuteOfDay = startMinute,
+                                    endMinuteOfDay = endMinute,
+                                    isEnabled = isEnabled,
+                                    notifyOnStart = notifyOnStart,
+                                    notifyOnEnd = notifyOnEnd
+                                )
+                            )
+                        }
+                    },
+                    modifier = Modifier.weight(2f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = FlowPurpleDeep,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("저장", fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimePickerCard(
+    label: String,
+    minuteOfDay: Int,
+    onChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    Column(
+        modifier = modifier
+            .background(Color(0xFFF9F9FC), RoundedCornerShape(12.dp))
+            .border(1.dp, FlowDivider, RoundedCornerShape(12.dp))
+            .combinedClickable(
+                onClick = {
+                    TimePickerDialog(
+                        context,
+                        { _, hourOfDay, minute -> onChange(hourOfDay * 60 + minute) },
+                        minuteOfDay / 60,
+                        minuteOfDay % 60,
+                        true
+                    ).show()
+                }
+            )
+            .padding(vertical = 14.dp, horizontal = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = FlowMuted)
+        Text(
+            text = formatMinuteOfDay(minuteOfDay),
+            fontSize = 26.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = FlowInk,
+            modifier = Modifier.padding(top = 6.dp, bottom = 4.dp)
+        )
+        Text(
+            "탭하여 변경",
+            fontSize = 10.sp,
+            color = FlowMuted.copy(alpha = 0.6f)
+        )
+    }
+}
+
+@Composable
+private fun FormPanel(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF9F9FC), RoundedCornerShape(14.dp))
+            .border(1.dp, FlowDivider, RoundedCornerShape(14.dp))
+            .padding(12.dp),
+        content = content
+    )
+}
+
+@Composable
+private fun ToggleRow(text: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Checkbox(checked = checked, onCheckedChange = onCheckedChange)
+        Text(text, fontSize = 13.sp, color = FlowInk)
+    }
+}
+
+private val dayOptions = listOf(
+    Calendar.SUNDAY to "일",
+    Calendar.MONDAY to "월",
+    Calendar.TUESDAY to "화",
+    Calendar.WEDNESDAY to "수",
+    Calendar.THURSDAY to "목",
+    Calendar.FRIDAY to "금",
+    Calendar.SATURDAY to "토"
+)
+
+private fun weekdayDefaults(): Set<Int> = setOf(
+    Calendar.MONDAY,
+    Calendar.TUESDAY,
+    Calendar.WEDNESDAY,
+    Calendar.THURSDAY,
+    Calendar.FRIDAY
+)
+
+private fun defaultAutoButtonSchedule(): AutoButtonSchedule {
+    return AutoButtonSchedule(
+        title = "학교",
+        category = "SCHOOL",
+        repeatDays = weekdayDefaults(),
+        startMinuteOfDay = 9 * 60,
+        endMinuteOfDay = 17 * 60
+    )
+}
+
+private fun formatRepeatDays(days: Set<Int>): String {
+    if (days == weekdayDefaults()) return "평일"
+    return dayOptions.filter { it.first in days }.joinToString(" ") { it.second }
+}
+
+private fun formatMinuteOfDay(minuteOfDay: Int): String {
+    val minute = minuteOfDay.coerceIn(0, 24 * 60 - 1)
+    return "%02d:%02d".format(minute / 60, minute % 60)
+}
+
+private fun parseMinuteOfDay(value: String): Int? {
+    val parts = value.split(":")
+    if (parts.size != 2) return null
+    val hour = parts[0].toIntOrNull() ?: return null
+    val minute = parts[1].toIntOrNull() ?: return null
+    if (hour !in 0..23 || minute !in 0..59) return null
+    return hour * 60 + minute
 }
 
 fun formatTime(millis: Long): String {

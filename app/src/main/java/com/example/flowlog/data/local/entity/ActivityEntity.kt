@@ -2,7 +2,9 @@ package com.example.flowlog.data.local.entity
 
 import androidx.room.Entity
 import androidx.room.Index
+import androidx.room.ColumnInfo
 import androidx.room.PrimaryKey
+import com.example.flowlog.data.constants.ActivitySourceType
 import com.example.flowlog.data.constants.SyncStatus
 
 @Entity(
@@ -29,6 +31,9 @@ data class ActivityEntity(
     val legacyId: Long? = null,
     val legacyLinkedTodoId: Long? = null,   // 원본 Long linkedTodoId 보존용
     val tagsJson: String? = null,           // ActivitySession.tags → JSON 문자열로 보존
+    @ColumnInfo(defaultValue = "'MANUAL'")
+    val sourceType: String = ActivitySourceType.MANUAL,
+    val sourceId: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val deletedAt: Long? = null,

@@ -1,5 +1,6 @@
 package com.example.flowlog.notification
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -87,7 +88,7 @@ class TodoReminderReceiver : BroadcastReceiver() {
                         .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
                 }
 
-                NotificationManagerCompat.from(context).notify(todoId.toInt(), builder.build())
+                notifySafely(context, todoId.toInt(), builder.build())
             } catch (e: Exception) {
                 Log.e(TAG, "Error in TodoReminderReceiver", e)
             } finally {
@@ -102,6 +103,13 @@ class TodoReminderReceiver : BroadcastReceiver() {
             context,
             Manifest.permission.POST_NOTIFICATIONS
         ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun notifySafely(context: Context, notificationId: Int, notification: android.app.Notification) {
+        runCatching {
+            NotificationManagerCompat.from(context).notify(notificationId, notification)
+        }
     }
 
     companion object {

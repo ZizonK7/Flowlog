@@ -184,7 +184,21 @@ class FirestoreSyncRepository(
         "generatedAt" to generatedAt,
         "reasonSummary" to reasonSummary,
         "candidateSnapshotJson" to candidateSnapshotJson,
-        "createdAt" to createdAt
+        "createdAt" to createdAt,
+        "updatedAt" to updatedAt,
+        "recommendationMode" to recommendationMode,
+        "workplaceDetected" to workplaceDetected,
+        "workplaceBlocksJson" to workplaceBlocksJson,
+        "selectedTodoIdsJson" to selectedTodoIdsJson,
+        "heavyTodoId" to heavyTodoId,
+        "heavyBurdenLevel" to heavyBurdenLevel,
+        "heavyReason" to heavyReason,
+        "heavyDistributionSnapshotJson" to heavyDistributionSnapshotJson,
+        "lightTodoId" to lightTodoId,
+        "lightBurdenLevel" to lightBurdenLevel,
+        "lightReason" to lightReason,
+        "lightDistributionSnapshotJson" to lightDistributionSnapshotJson,
+        "plannedItemsJson" to plannedItemsJson
     )
 
     private fun DailyGoalItemEntity.toRemoteMap(): Map<String, Any?> = mapOf(
@@ -195,6 +209,17 @@ class FirestoreSyncRepository(
         "rank" to rank,
         "reason" to reason,
         "todoSnapshotJson" to todoSnapshotJson,
+        "burdenLevel" to burdenLevel,
+        "burdenReasonJson" to burdenReasonJson,
+        "plannedStartMillis" to plannedStartMillis,
+        "plannedEndMillis" to plannedEndMillis,
+        "recommendedDurationMinutes" to recommendedDurationMinutes,
+        "notificationScheduledAtMillis" to notificationScheduledAtMillis,
+        "userActionStatus" to userActionStatus,
+        "actualStartedAt" to actualStartedAt,
+        "actualCompletedAt" to actualCompletedAt,
+        "linkedActivityId" to linkedActivityId,
+        "completedTodoId" to completedTodoId,
         "wasClicked" to wasClicked,
         "wasCompleted" to wasCompleted,
         "wasSkipped" to wasSkipped,
@@ -231,6 +256,8 @@ class FirestoreSyncRepository(
         "tags" to tags,
         "isFavorite" to isFavorite,
         "linkedTodoId" to linkedTodoId,
+        "sourceType" to sourceType,
+        "sourceId" to sourceId,
         "modifiedTime" to modifiedTime
     )
 
@@ -243,6 +270,10 @@ class FirestoreSyncRepository(
         "completedAt" to completedAt,
         "selectedDate" to selectedDate,
         "accumulatedSeconds" to accumulatedSeconds,
+        "burdenLevel" to burdenLevel,
+        "burdenGroupKey" to burdenGroupKey,
+        "burdenScore" to burdenScore,
+        "burdenReasonJson" to burdenReasonJson,
         "updatedAt" to updatedAt
     )
 }

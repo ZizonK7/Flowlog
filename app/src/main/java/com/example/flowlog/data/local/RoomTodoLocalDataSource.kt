@@ -52,6 +52,10 @@ class RoomTodoLocalDataSource(context: Context) {
                 isCompleted = todo.isCompleted,
                 completedAt = todo.completedAt,
                 accumulatedWorkMillis = todo.accumulatedSeconds * 1000L,
+                burdenLevel = todo.burdenLevel,
+                burdenGroupKey = todo.burdenGroupKey,
+                burdenScore = todo.burdenScore,
+                burdenReasonJson = todo.burdenReasonJson,
                 reviewStage = todo.reviewStage,
                 reviewStage1CompletedAt = todo.reviewStage1CompletedAt,
                 updatedAt = System.currentTimeMillis(),
@@ -90,6 +94,23 @@ class RoomTodoLocalDataSource(context: Context) {
         dao.addToAccumulatedWorkMillis(
             todoId = "legacy_todo_$legacyId",
             deltaMillis = deltaMillis,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
+    suspend fun updateBurdenCacheByLegacyId(
+        legacyId: Long,
+        burdenLevel: String,
+        burdenGroupKey: String,
+        burdenScore: Int,
+        burdenReasonJson: String
+    ) {
+        dao.updateBurdenCache(
+            todoId = "legacy_todo_$legacyId",
+            burdenLevel = burdenLevel,
+            burdenGroupKey = burdenGroupKey,
+            burdenScore = burdenScore,
+            burdenReasonJson = burdenReasonJson,
             updatedAt = System.currentTimeMillis()
         )
     }

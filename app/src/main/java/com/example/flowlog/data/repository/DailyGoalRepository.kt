@@ -9,21 +9,69 @@ import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.local.entity.DailyGoalItemEntity
 import com.example.flowlog.data.local.entity.DailyGoalRecommendationEntity
 import com.example.flowlog.data.model.ActivitySession
+import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.TodoItem
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.util.Calendar
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.TimeUnit
+import kotlin.math.max
+import kotlin.random.Random
 
-data class GoalItem(val todo: TodoItem, val reason: String)
+data class GoalItem(
+    val todo: TodoItem,
+    val reason: String,
+    val burdenLevel: String? = null,
+    val burdenGroupKey: String? = null,
+    val burdenScore: Int? = null,
+    val burdenReasonJson: String? = null
+)
+
+@Serializable
+private data class TimeBlockSnapshot(
+    val category: String,
+    val title: String,
+    val startMillis: Long,
+    val endMillis: Long
+)
+
+@Serializable
+private data class DistributionSnapshot(
+    val rawScoreByHour: List<Double>,
+    val smoothedScoreByHour: List<Double>? = null,
+    val workplaceMaskedScoreByHour: List<Double>,
+    val restExcludedHours: List<Int> = emptyList(),
+    val normalizedProbabilityByHour: List<Double>,
+    val sampledHour: Int,
+    val mode: String
+)
+
+@Serializable
+private data class PlannedItemSnapshot(
+    val itemId: String,
+    val todoId: String,
+    val title: String,
+    val burdenLevel: String,
+    val plannedStartMillis: Long,
+    val plannedEndMillis: Long,
+    val recommendedDurationMinutes: Int,
+    val notificationScheduledAtMillis: Long?,
+    val reason: String?
+)
 
 class DailyGoalRepository(context: Context) {
 
     private val dao = FlowlogDatabase.getInstance(context).dailyGoalDao()
+    private val autoButtonDao = FlowlogDatabase.getInstance(context).autoButtonScheduleDao()
     private val eventLogRepository = EventLogRepository(context)
     private val json = Json { ignoreUnknownKeys = true }
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
@@ -32,6 +80,12 @@ class DailyGoalRepository(context: Context) {
         get() = FirebaseAuth.getInstance().currentUser?.uid ?: "anonymous"
 
     fun todayDateKey(): String = dateFormat.format(Date())
+
+    fun observeTodayRecommendedBlocks(dateKey: String = todayDateKey()): Flow<List<RecommendedTodoBlock>> {
+        return dao.observePlannedItemsForDate(userId, dateKey).map { items ->
+            items.mapNotNull { it.toRecommendedBlock() }
+        }
+    }
 
     /**
      * 오늘의 목표 추천 결과를 저장.
@@ -81,6 +135,8 @@ class DailyGoalRepository(context: Context) {
                     todoSnapshotJson = runCatching {
                         json.encodeToString(goalItem.todo)
                     }.getOrNull(),
+                    burdenLevel = goalItem.burdenLevel,
+                    burdenReasonJson = goalItem.burdenReasonJson,
                     createdAt = now,
                     updatedAt = now,
                     syncStatus = SyncStatus.PENDING
@@ -97,6 +153,136 @@ class DailyGoalRepository(context: Context) {
         }
 
         Log.d(TAG, "Saved recommendation $recommendationId (refresh=$isRefresh, items=${selectedItems.size})")
+    }
+
+    suspend fun ensureTodayTimePlan(
+        dateKey: String = todayDateKey(),
+        activities: List<ActivitySession>,
+        forceRefresh: Boolean = false,
+        recommendationModeOverride: String? = null
+    ): Boolean {
+        val currentUserId = userId
+        val recommendation = dao.getRecommendationByDate(currentUserId, dateKey) ?: return false
+        val items = dao.getGoalItems(recommendation.recommendationId)
+        if (items.isEmpty()) return false
+        if (!forceRefresh && items.any { it.plannedStartMillis != null && it.plannedEndMillis != null }) {
+            return false
+        }
+        val plannableItems = items.filter { it.userActionStatus in REPLANNABLE_ACTION_STATUSES }
+        if (plannableItems.isEmpty()) return false
+
+        val dayStart = dateFormat.parse(dateKey)?.time ?: startOfDay(System.currentTimeMillis())
+        val workplaceBlocks = todayWorkplaceBlocks(dayStart)
+        val workplaceMaskedHours = maskedHours(dayStart, workplaceBlocks)
+        val pastWorkdayActivities = activitiesBeforeTodayOnWorkdays(activities, dayStart)
+        val workdayCount = pastWorkdayActivities.keys.size
+        val heavyMode = recommendationModeOverride ?: if (workdayCount < 5) {
+            MODE_COLD_START_RANDOM
+        } else {
+            MODE_PERSONALIZED_DISTRIBUTION
+        }
+
+        val planned = mutableListOf<PlannedComputation>()
+        val roles = selectTimePlanRoles(plannableItems)
+        val firstPlan = roles.firstOrNull()?.let { role ->
+            buildPlannedComputation(
+                role = role,
+                dayStart = dayStart,
+                workplaceMaskedHours = workplaceMaskedHours,
+                pastWorkdayActivities = pastWorkdayActivities.values.flatten(),
+                historicalActivities = activities,
+                workplaceBlocks = workplaceBlocks,
+                heavyMode = heavyMode,
+                recommendationModeOverride = recommendationModeOverride,
+                excludedHours = emptySet()
+            )
+        }
+        if (firstPlan != null) planned += firstPlan
+
+        val secondPlan = roles.getOrNull(1)?.let { role ->
+            val excluded = firstPlan?.let { first ->
+                val firstHour = ((first.startMillis - dayStart) / HOUR_MILLIS).toInt()
+                (0..(firstHour + 2).coerceAtMost(23)).toSet()
+            } ?: emptySet()
+            buildPlannedComputation(
+                role = role,
+                dayStart = dayStart,
+                workplaceMaskedHours = workplaceMaskedHours,
+                pastWorkdayActivities = pastWorkdayActivities.values.flatten(),
+                historicalActivities = activities,
+                workplaceBlocks = workplaceBlocks,
+                heavyMode = heavyMode,
+                recommendationModeOverride = recommendationModeOverride,
+                excludedHours = excluded
+            )
+        }
+        if (secondPlan != null) planned += secondPlan
+        if (planned.isEmpty()) return false
+
+        val now = System.currentTimeMillis()
+        planned.forEach { plan ->
+            dao.updateItemTimePlan(
+                userId = currentUserId,
+                itemId = plan.item.itemId,
+                burdenLevel = plan.burdenLevel,
+                plannedStartMillis = plan.startMillis,
+                plannedEndMillis = plan.endMillis,
+                recommendedDurationMinutes = plan.durationMinutes,
+                notificationScheduledAtMillis = plan.notificationScheduledAtMillis,
+                updatedAt = now
+            )
+        }
+
+        val plannedSnapshots = planned.map { it.toSnapshot() }
+        dao.updateRecommendationTimePlan(
+            userId = currentUserId,
+            recommendationId = recommendation.recommendationId,
+            updatedAt = now,
+            recommendationMode = recommendationModeOverride ?: heavyMode,
+            workplaceDetected = workplaceBlocks.isNotEmpty(),
+            workplaceBlocksJson = json.encodeToString(workplaceBlocks),
+            selectedTodoIdsJson = json.encodeToString(items.map { it.todoId }),
+            heavyTodoId = firstPlan?.item?.todoId,
+            heavyBurdenLevel = firstPlan?.burdenLevel,
+            heavyReason = firstPlan?.item?.reason,
+            heavyDistributionSnapshotJson = firstPlan?.let { json.encodeToString(it.distribution) },
+            lightTodoId = secondPlan?.item?.todoId,
+            lightBurdenLevel = secondPlan?.burdenLevel,
+            lightReason = secondPlan?.item?.reason,
+            lightDistributionSnapshotJson = secondPlan?.let { json.encodeToString(it.distribution) },
+            plannedItemsJson = json.encodeToString(plannedSnapshots)
+        )
+
+        Log.d(TAG, "Time plan saved recommendation=${recommendation.recommendationId}, mode=${recommendationModeOverride ?: heavyMode}, workplace=${workplaceBlocks.size}, planned=${planned.size}")
+        return true
+    }
+
+    suspend fun dismissPlannedItem(itemId: String) {
+        dao.updateItemActionStatus(userId, itemId, "DISMISSED", System.currentTimeMillis())
+    }
+
+    suspend fun markPlannedItemStarted(itemId: String) {
+        dao.markPlannedItemStarted(userId, itemId, System.currentTimeMillis())
+    }
+
+    suspend fun markOpenPlannedItemCompleted(todoLegacyId: Long, activityLegacyId: Long) {
+        dao.markOpenPlannedItemCompleted(
+            userId = userId,
+            todoId = "legacy_todo_$todoLegacyId",
+            actualCompletedAt = System.currentTimeMillis(),
+            linkedActivityId = activityLegacyId.toString(),
+            completedTodoId = "legacy_todo_$todoLegacyId"
+        )
+    }
+
+    suspend fun markPlannedItemCompleted(itemId: String, todoLegacyId: Long, activityLegacyId: Long) {
+        dao.markPlannedItemCompleted(
+            userId = userId,
+            itemId = itemId,
+            actualCompletedAt = System.currentTimeMillis(),
+            linkedActivityId = activityLegacyId.toString(),
+            completedTodoId = "legacy_todo_$todoLegacyId"
+        )
     }
 
     /**
@@ -165,8 +351,431 @@ class DailyGoalRepository(context: Context) {
         return dao.getRecommendationByDate(userId, dateKey)
     }
 
+    private data class PlannedComputation(
+        val item: DailyGoalItemEntity,
+        val burdenLevel: String,
+        val startMillis: Long,
+        val durationMinutes: Int,
+        val distribution: DistributionSnapshot,
+        val mode: String,
+        val notificationScheduledAtMillis: Long?
+    ) {
+        val endMillis: Long = minOf(
+            startMillis + TimeUnit.MINUTES.toMillis(durationMinutes.toLong()),
+            Calendar.getInstance().apply {
+                timeInMillis = startMillis
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+                add(Calendar.DAY_OF_YEAR, 1)
+            }.timeInMillis - 1L
+        )
+    }
+
+    private data class TimePlanRole(
+        val item: DailyGoalItemEntity,
+        val slot: TimePlanSlot
+    )
+
+    private enum class TimePlanSlot {
+        HEAVY_LIKE,
+        LIGHT_LIKE
+    }
+
+    private fun selectTimePlanRoles(items: List<DailyGoalItemEntity>): List<TimePlanRole> {
+        val ranked = items.sortedBy { it.rank }
+        if (ranked.size <= 1) {
+            return ranked.map { item -> TimePlanRole(item, slotForSingleItem(burdenLevel(item))) }
+        }
+
+        val light = ranked.filter { burdenLevel(it) == "LIGHT" }
+        val medium = ranked.filter { burdenLevel(it) == "MEDIUM" }
+        val heavy = ranked.filter { burdenLevel(it) == "HEAVY" }
+
+        return when {
+            light.isNotEmpty() && heavy.isNotEmpty() -> listOf(
+                TimePlanRole(heavy.first(), TimePlanSlot.HEAVY_LIKE),
+                TimePlanRole(light.first(), TimePlanSlot.LIGHT_LIKE)
+            )
+            medium.size >= 2 -> listOf(
+                TimePlanRole(medium[0], TimePlanSlot.HEAVY_LIKE),
+                TimePlanRole(medium[1], TimePlanSlot.HEAVY_LIKE)
+            )
+            light.isNotEmpty() && medium.isNotEmpty() -> listOf(
+                TimePlanRole(medium.first(), TimePlanSlot.HEAVY_LIKE),
+                TimePlanRole(light.first(), TimePlanSlot.LIGHT_LIKE)
+            )
+            light.size >= 2 -> listOf(
+                TimePlanRole(light[0], TimePlanSlot.LIGHT_LIKE),
+                TimePlanRole(light[1], TimePlanSlot.LIGHT_LIKE)
+            )
+            else -> ranked.take(2).map { item ->
+                TimePlanRole(item, slotForSingleItem(burdenLevel(item)))
+            }
+        }
+    }
+
+    private fun slotForSingleItem(level: String): TimePlanSlot {
+        return if (level == "LIGHT") TimePlanSlot.LIGHT_LIKE else TimePlanSlot.HEAVY_LIKE
+    }
+
+    private fun buildPlannedComputation(
+        role: TimePlanRole,
+        dayStart: Long,
+        workplaceMaskedHours: Set<Int>,
+        pastWorkdayActivities: List<ActivitySession>,
+        historicalActivities: List<ActivitySession>,
+        workplaceBlocks: List<TimeBlockSnapshot>,
+        heavyMode: String,
+        recommendationModeOverride: String?,
+        excludedHours: Set<Int>
+    ): PlannedComputation {
+        val level = burdenLevel(role.item)
+        return when (role.slot) {
+            TimePlanSlot.HEAVY_LIKE -> {
+                val base = if (heavyMode == MODE_COLD_START_RANDOM) {
+                    coldStartHeavyDistribution(workplaceMaskedHours)
+                } else {
+                    heavyDistribution(pastWorkdayActivities, workplaceMaskedHours)
+                }
+                val probabilities = probabilitiesWithExclusion(
+                    scores = base.workplaceMaskedScoreByHour,
+                    excludedHours = excludedHours,
+                    maskedHours = workplaceMaskedHours,
+                    preferredRange = 9..20
+                )
+                val hour = sampleHour(probabilities)
+                val startMillis = dayStart + TimeUnit.HOURS.toMillis(hour.toLong())
+                PlannedComputation(
+                    item = role.item,
+                    burdenLevel = level,
+                    startMillis = startMillis,
+                    durationMinutes = durationMinutesForBurden(level),
+                    distribution = base.copy(
+                        restExcludedHours = excludedHours.sorted(),
+                        normalizedProbabilityByHour = probabilities,
+                        sampledHour = hour,
+                        mode = heavyMode
+                    ),
+                    mode = heavyMode,
+                    notificationScheduledAtMillis = randomNotificationTime(startMillis, workplaceBlocks)
+                )
+            }
+            TimePlanSlot.LIGHT_LIKE -> {
+                val base = lightDistribution(historicalActivities.filter { it.startTime < dayStart }, workplaceMaskedHours)
+                val probabilities = probabilitiesWithExclusion(
+                    scores = base.workplaceMaskedScoreByHour,
+                    excludedHours = excludedHours,
+                    maskedHours = workplaceMaskedHours,
+                    preferredRange = 0..23
+                )
+                val hour = sampleHour(probabilities)
+                val startMillis = dayStart + TimeUnit.HOURS.toMillis(hour.toLong())
+                PlannedComputation(
+                    item = role.item,
+                    burdenLevel = level,
+                    startMillis = startMillis,
+                    durationMinutes = durationMinutesForBurden(level),
+                    distribution = base.copy(
+                        restExcludedHours = excludedHours.sorted(),
+                        normalizedProbabilityByHour = probabilities,
+                        sampledHour = hour,
+                        mode = recommendationModeOverride ?: MODE_PERSONALIZED_DISTRIBUTION
+                    ),
+                    mode = recommendationModeOverride ?: MODE_PERSONALIZED_DISTRIBUTION,
+                    notificationScheduledAtMillis = randomNotificationTime(startMillis, workplaceBlocks)
+                )
+            }
+        }
+    }
+
+    private fun PlannedComputation.toSnapshot(): PlannedItemSnapshot {
+        return PlannedItemSnapshot(
+            itemId = item.itemId,
+            todoId = item.todoId,
+            title = item.displayTitle(),
+            burdenLevel = burdenLevel,
+            plannedStartMillis = startMillis,
+            plannedEndMillis = endMillis,
+            recommendedDurationMinutes = durationMinutes,
+            notificationScheduledAtMillis = notificationScheduledAtMillis,
+            reason = item.reason
+        )
+    }
+
+    private fun DailyGoalItemEntity.toRecommendedBlock(): RecommendedTodoBlock? {
+        val start = plannedStartMillis ?: return null
+        val end = plannedEndMillis ?: return null
+        val legacyId = todoId.removePrefix("legacy_todo_").toLongOrNull() ?: return null
+        return RecommendedTodoBlock(
+            itemId = itemId,
+            recommendationId = recommendationId,
+            todoId = legacyId,
+            title = displayTitle(),
+            burdenLevel = burdenLevel ?: burdenLevel(this),
+            reason = reason,
+            plannedStartMillis = start,
+            plannedEndMillis = end,
+            recommendedDurationMinutes = recommendedDurationMinutes ?: ((end - start) / 60_000L).toInt().coerceAtLeast(1),
+            userActionStatus = userActionStatus
+        )
+    }
+
+    private fun DailyGoalItemEntity.displayTitle(): String {
+        return runCatching {
+            todoSnapshotJson?.let { json.decodeFromString<TodoItem>(it).title }
+        }.getOrNull() ?: todoId.removePrefix("legacy_todo_")
+    }
+
+    private suspend fun todayWorkplaceBlocks(dayStart: Long): List<TimeBlockSnapshot> {
+        val dayOfWeek = Calendar.getInstance().apply { timeInMillis = dayStart }.get(Calendar.DAY_OF_WEEK)
+        val blocks = mutableListOf<TimeBlockSnapshot>()
+        autoButtonDao.getActiveSchedules(userId).forEach { schedule ->
+            val isWorkplaceToday = schedule.category in WORKPLACE_CATEGORIES &&
+                dayOfWeek in repeatDays(schedule.repeatDaysMask) &&
+                autoButtonDao.getSkipDate(schedule.scheduleId, dayStart) == null
+            if (isWorkplaceToday) {
+                blocks += TimeBlockSnapshot(
+                    category = schedule.category,
+                    title = schedule.title,
+                    startMillis = dayStart + schedule.startMinuteOfDay * 60_000L,
+                    endMillis = dayStart + schedule.endMinuteOfDay * 60_000L
+                )
+            }
+        }
+        return blocks
+    }
+
+    private fun repeatDays(mask: Int): Set<Int> {
+        return (1..7).filter { day -> mask and (1 shl day) != 0 }.toSet()
+    }
+
+    private fun maskedHours(dayStart: Long, blocks: List<TimeBlockSnapshot>): Set<Int> {
+        return (0..23).filter { hour ->
+            val hourStart = dayStart + hour * HOUR_MILLIS
+            val hourEnd = hourStart + HOUR_MILLIS
+            blocks.any { block -> hourStart < block.endMillis && hourEnd > block.startMillis }
+        }.toSet()
+    }
+
+    private fun activitiesBeforeTodayOnWorkdays(
+        activities: List<ActivitySession>,
+        todayStart: Long
+    ): Map<Long, List<ActivitySession>> {
+        return activities
+            .filter { it.startTime < todayStart && it.durationMillis > 0L }
+            .groupBy { startOfDay(it.startTime) }
+            .filterValues { dayActivities ->
+                dayActivities.any { it.category in WORKPLACE_CATEGORIES }
+            }
+    }
+
+    private fun coldStartHeavyDistribution(maskedHours: Set<Int>): DistributionSnapshot {
+        val raw = (0..23).map { if (it in 9..20) 1.0 else 0.0 }
+        val masked = raw.mapIndexed { hour, score -> if (hour in maskedHours) 0.0 else score }
+        return DistributionSnapshot(
+            rawScoreByHour = raw,
+            smoothedScoreByHour = raw,
+            workplaceMaskedScoreByHour = masked,
+            normalizedProbabilityByHour = normalizeOrFallback(masked, maskedHours, preferredRange = 9..20),
+            sampledHour = 9,
+            mode = MODE_COLD_START_RANDOM
+        )
+    }
+
+    private fun heavyDistribution(
+        activities: List<ActivitySession>,
+        maskedHours: Set<Int>
+    ): DistributionSnapshot {
+        val productive = hourlyCategoryMillis(activities, HEAVY_PRODUCTIVE_CATEGORIES)
+        val denominator = hourlyCategoryMillis(activities, HEAVY_DENOMINATOR_CATEGORIES)
+        val raw = (0..23).map { hour ->
+            val total = denominator[hour]
+            if (total <= 0L) 0.0 else productive[hour].toDouble() / total.toDouble()
+        }
+        val smoothed = smooth(raw)
+        val masked = smoothed.mapIndexed { hour, score -> if (hour in maskedHours) 0.0 else score }
+        return DistributionSnapshot(
+            rawScoreByHour = raw,
+            smoothedScoreByHour = smoothed,
+            workplaceMaskedScoreByHour = masked,
+            normalizedProbabilityByHour = normalizeOrFallback(masked, maskedHours, preferredRange = 9..20),
+            sampledHour = 9,
+            mode = MODE_PERSONALIZED_DISTRIBUTION
+        )
+    }
+
+    private fun lightDistribution(
+        activities: List<ActivitySession>,
+        maskedHours: Set<Int>
+    ): DistributionSnapshot {
+        val rest = hourlyCategoryMillis(activities, setOf("REST"))
+        val denominator = hourlyCategoryMillis(activities, LIGHT_DENOMINATOR_CATEGORIES)
+        val raw = (0..23).map { hour ->
+            val total = denominator[hour]
+            if (total <= 0L) 0.0 else rest[hour].toDouble() / total.toDouble()
+        }
+        val masked = raw.mapIndexed { hour, score -> if (hour in maskedHours) 0.0 else score }
+        return DistributionSnapshot(
+            rawScoreByHour = raw,
+            workplaceMaskedScoreByHour = masked,
+            normalizedProbabilityByHour = normalizeOrFallback(masked, maskedHours, preferredRange = 0..23),
+            sampledHour = 12,
+            mode = MODE_PERSONALIZED_DISTRIBUTION
+        )
+    }
+
+    private fun hourlyCategoryMillis(activities: List<ActivitySession>, categories: Set<String>): LongArray {
+        val result = LongArray(24)
+        activities.filter { it.category in categories && it.durationMillis > 0L }.forEach { activity ->
+            var cursor = activity.startTime
+            val end = max(activity.endTime, activity.startTime + activity.durationMillis)
+            while (cursor < end) {
+                val hourStart = startOfHour(cursor)
+                val hourEnd = hourStart + HOUR_MILLIS
+                val overlapEnd = minOf(end, hourEnd)
+                val hour = Calendar.getInstance().apply { timeInMillis = cursor }.get(Calendar.HOUR_OF_DAY)
+                result[hour] += (overlapEnd - cursor).coerceAtLeast(0L)
+                cursor = overlapEnd
+            }
+        }
+        return result
+    }
+
+    private fun smooth(values: List<Double>): List<Double> {
+        return values.mapIndexed { index, value ->
+            val previous = values.getOrElse(index - 1) { value }
+            val next = values.getOrElse(index + 1) { value }
+            previous * 0.25 + value * 0.5 + next * 0.25
+        }
+    }
+
+    private fun applyLightExclusion(scores: List<Double>, excludedHours: Set<Int>): List<Double> {
+        return scores.mapIndexed { hour, score -> if (hour in excludedHours) 0.0 else score }
+    }
+
+    private fun probabilitiesWithExclusion(
+        scores: List<Double>,
+        excludedHours: Set<Int>,
+        maskedHours: Set<Int>,
+        preferredRange: IntRange
+    ): List<Double> {
+        val relaxed = applyLightExclusion(scores, excludedHours)
+        val usableScores = if (relaxed.sum() <= 0.0) scores else relaxed
+        return normalizeOrFallback(usableScores, maskedHours, preferredRange)
+    }
+
+    private fun normalizeOrFallback(
+        scores: List<Double>,
+        maskedHours: Set<Int>,
+        preferredRange: IntRange
+    ): List<Double> {
+        val sum = scores.sum()
+        if (sum > 0.0) return scores.map { it / sum }
+
+        val fallback = (0..23).map { hour ->
+            if (hour in preferredRange && hour !in maskedHours) 1.0 else 0.0
+        }
+        val fallbackSum = fallback.sum()
+        if (fallbackSum > 0.0) return fallback.map { it / fallbackSum }
+
+        val relaxed = (0..23).map { hour -> if (hour !in maskedHours) 1.0 else 0.0 }
+        val relaxedSum = relaxed.sum().takeIf { it > 0.0 } ?: 1.0
+        return relaxed.map { it / relaxedSum }
+    }
+
+    private fun sampleHour(probabilities: List<Double>): Int {
+        val target = Random(System.currentTimeMillis()).nextDouble()
+        var cursor = 0.0
+        probabilities.forEachIndexed { hour, probability ->
+            cursor += probability
+            if (target <= cursor) return hour
+        }
+        return probabilities.indexOfLast { it > 0.0 }.takeIf { it >= 0 } ?: 9
+    }
+
+    private fun burdenLevel(item: DailyGoalItemEntity): String {
+        item.burdenLevel?.let { return it }
+        val todo = runCatching {
+            item.todoSnapshotJson?.let { json.decodeFromString<TodoItem>(it) }
+        }.getOrNull()
+        val ageDays = todo?.let {
+            ((startOfDay(System.currentTimeMillis()) - startOfDay(it.createdAt)) / DAY_MILLIS).coerceAtLeast(0L)
+        } ?: 0L
+        val workHours = todo?.accumulatedSeconds?.div(3600L) ?: 0L
+        return when {
+            ageDays >= 7L || workHours >= 3L -> "HEAVY"
+            ageDays <= 1L && workHours == 0L -> "LIGHT"
+            else -> "MEDIUM"
+        }
+    }
+
+    private fun burdenWeight(level: String): Int {
+        return when (level) {
+            "HEAVY" -> 2
+            "MEDIUM" -> 1
+            else -> 0
+        }
+    }
+
+    private fun durationMinutesForBurden(level: String): Int {
+        return when (level) {
+            "HEAVY" -> HEAVY_DURATION_MINUTES
+            "MEDIUM" -> MEDIUM_DURATION_MINUTES
+            else -> LIGHT_DURATION_MINUTES
+        }
+    }
+
+    private fun startOfDay(timestamp: Long): Long {
+        return Calendar.getInstance().apply {
+            timeInMillis = timestamp
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+
+    private fun startOfHour(timestamp: Long): Long {
+        return Calendar.getInstance().apply {
+            timeInMillis = timestamp
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+
     companion object {
         private const val TAG = "DailyGoalRepository"
         private const val DAY_MILLIS = 24L * 60 * 60 * 1000
+        private const val HOUR_MILLIS = 60L * 60L * 1000L
+        private const val HEAVY_DURATION_MINUTES = 90
+        private const val MEDIUM_DURATION_MINUTES = 60
+        private const val LIGHT_DURATION_MINUTES = 45
+        private const val MODE_COLD_START_RANDOM = "COLD_START_RANDOM"
+        private const val MODE_PERSONALIZED_DISTRIBUTION = "PERSONALIZED_DISTRIBUTION"
+        const val MODE_MANUAL_REFRESH = "MANUAL_REFRESH"
+        private val WORKPLACE_CATEGORIES = setOf("SCHOOL", "WORK", "COMPANY")
+        private val HEAVY_PRODUCTIVE_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK", "COMPANY")
+        private val HEAVY_DENOMINATOR_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK", "COMPANY", "REST", "SLEEP", "SCHOOL")
+        private val LIGHT_DENOMINATOR_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK", "COMPANY", "REST", "SCHOOL")
+        private val REPLANNABLE_ACTION_STATUSES = setOf("PLANNED", "RESCHEDULED")
+
+        private fun randomNotificationTime(
+            plannedStartMillis: Long,
+            workplaceBlocks: List<TimeBlockSnapshot>
+        ): Long? {
+            // TODO: when wiring the actual alarm, skip firing if this Todo is already the active TODO timer.
+            val windowEndExclusive = plannedStartMillis + HOUR_MILLIS
+            val candidates = (0 until 60).map { minute ->
+                plannedStartMillis + TimeUnit.MINUTES.toMillis(minute.toLong())
+            }.filter { candidate ->
+                candidate < windowEndExclusive &&
+                    workplaceBlocks.none { block -> candidate >= block.startMillis && candidate < block.endMillis }
+            }
+            if (candidates.isEmpty()) return null
+            return candidates[Random(System.currentTimeMillis() xor plannedStartMillis).nextInt(candidates.size)]
+        }
     }
 }

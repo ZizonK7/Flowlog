@@ -113,6 +113,160 @@ interface DailyGoalDao {
     suspend fun getGoalItems(recommendationId: String): List<DailyGoalItemEntity>
 
     @Query("""
+        SELECT item.* FROM daily_goal_items AS item
+        INNER JOIN daily_goal_recommendations AS recommendation
+            ON item.recommendationId = recommendation.recommendationId
+        WHERE recommendation.userId = :userId
+            AND recommendation.dateKey = :dateKey
+            AND item.plannedStartMillis IS NOT NULL
+            AND item.plannedEndMillis IS NOT NULL
+            AND item.userActionStatus != 'DISMISSED'
+        ORDER BY item.plannedStartMillis ASC, item.rank ASC
+    """)
+    fun observePlannedItemsForDate(userId: String, dateKey: String): Flow<List<DailyGoalItemEntity>>
+
+    @Query("""
+        SELECT item.* FROM daily_goal_items AS item
+        INNER JOIN daily_goal_recommendations AS recommendation
+            ON item.recommendationId = recommendation.recommendationId
+        WHERE recommendation.userId = :userId
+            AND recommendation.dateKey = :dateKey
+        ORDER BY item.rank ASC
+    """)
+    suspend fun getItemsForDate(userId: String, dateKey: String): List<DailyGoalItemEntity>
+
+    @Query("""
+        UPDATE daily_goal_recommendations
+        SET updatedAt = :updatedAt,
+            recommendationMode = :recommendationMode,
+            workplaceDetected = :workplaceDetected,
+            workplaceBlocksJson = :workplaceBlocksJson,
+            selectedTodoIdsJson = :selectedTodoIdsJson,
+            heavyTodoId = :heavyTodoId,
+            heavyBurdenLevel = :heavyBurdenLevel,
+            heavyReason = :heavyReason,
+            heavyDistributionSnapshotJson = :heavyDistributionSnapshotJson,
+            lightTodoId = :lightTodoId,
+            lightBurdenLevel = :lightBurdenLevel,
+            lightReason = :lightReason,
+            lightDistributionSnapshotJson = :lightDistributionSnapshotJson,
+            plannedItemsJson = :plannedItemsJson,
+            syncStatus = '${SyncStatus.PENDING}'
+        WHERE recommendationId = :recommendationId
+            AND userId = :userId
+    """)
+    suspend fun updateRecommendationTimePlan(
+        userId: String,
+        recommendationId: String,
+        updatedAt: Long,
+        recommendationMode: String,
+        workplaceDetected: Boolean,
+        workplaceBlocksJson: String?,
+        selectedTodoIdsJson: String?,
+        heavyTodoId: String?,
+        heavyBurdenLevel: String?,
+        heavyReason: String?,
+        heavyDistributionSnapshotJson: String?,
+        lightTodoId: String?,
+        lightBurdenLevel: String?,
+        lightReason: String?,
+        lightDistributionSnapshotJson: String?,
+        plannedItemsJson: String?
+    )
+
+    @Query("""
+        UPDATE daily_goal_items
+        SET burdenLevel = :burdenLevel,
+            plannedStartMillis = :plannedStartMillis,
+            plannedEndMillis = :plannedEndMillis,
+            recommendedDurationMinutes = :recommendedDurationMinutes,
+            notificationScheduledAtMillis = :notificationScheduledAtMillis,
+            userActionStatus = 'PLANNED',
+            actualStartedAt = NULL,
+            actualCompletedAt = NULL,
+            linkedActivityId = NULL,
+            completedTodoId = NULL,
+            updatedAt = :updatedAt,
+            syncStatus = '${SyncStatus.PENDING}'
+        WHERE itemId = :itemId
+            AND userId = :userId
+    """)
+    suspend fun updateItemTimePlan(
+        userId: String,
+        itemId: String,
+        burdenLevel: String,
+        plannedStartMillis: Long,
+        plannedEndMillis: Long,
+        recommendedDurationMinutes: Int,
+        notificationScheduledAtMillis: Long?,
+        updatedAt: Long
+    )
+
+    @Query("""
+        UPDATE daily_goal_items
+        SET userActionStatus = :status,
+            updatedAt = :updatedAt,
+            syncStatus = '${SyncStatus.PENDING}'
+        WHERE itemId = :itemId
+            AND userId = :userId
+    """)
+    suspend fun updateItemActionStatus(userId: String, itemId: String, status: String, updatedAt: Long)
+
+    @Query("""
+        UPDATE daily_goal_items
+        SET userActionStatus = 'STARTED',
+            wasClicked = 1,
+            actualStartedAt = :actualStartedAt,
+            updatedAt = :actualStartedAt,
+            syncStatus = '${SyncStatus.PENDING}'
+        WHERE itemId = :itemId
+            AND userId = :userId
+    """)
+    suspend fun markPlannedItemStarted(userId: String, itemId: String, actualStartedAt: Long)
+
+    @Query("""
+        UPDATE daily_goal_items
+        SET userActionStatus = 'COMPLETED',
+            wasCompleted = 1,
+            actualCompletedAt = :actualCompletedAt,
+            linkedActivityId = :linkedActivityId,
+            completedTodoId = :completedTodoId,
+            updatedAt = :actualCompletedAt,
+            syncStatus = '${SyncStatus.PENDING}'
+        WHERE userId = :userId
+            AND todoId = :todoId
+            AND actualStartedAt IS NOT NULL
+            AND actualCompletedAt IS NULL
+    """)
+    suspend fun markOpenPlannedItemCompleted(
+        userId: String,
+        todoId: String,
+        actualCompletedAt: Long,
+        linkedActivityId: String?,
+        completedTodoId: String?
+    )
+
+    @Query("""
+        UPDATE daily_goal_items
+        SET userActionStatus = 'COMPLETED',
+            wasCompleted = 1,
+            actualCompletedAt = :actualCompletedAt,
+            linkedActivityId = :linkedActivityId,
+            completedTodoId = :completedTodoId,
+            updatedAt = :actualCompletedAt,
+            syncStatus = '${SyncStatus.PENDING}'
+        WHERE userId = :userId
+            AND itemId = :itemId
+    """)
+    suspend fun markPlannedItemCompleted(
+        userId: String,
+        itemId: String,
+        actualCompletedAt: Long,
+        linkedActivityId: String?,
+        completedTodoId: String?
+    )
+
+    @Query("""
         UPDATE daily_goal_items
         SET wasCompleted = 1, updatedAt = :updatedAt, syncStatus = '${SyncStatus.PENDING}'
         WHERE recommendationId = :recommendationId AND todoId = :todoId

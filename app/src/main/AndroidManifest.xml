@@ -48,6 +48,19 @@
             android:name=".notification.TodoReminderReceiver"
             android:exported="false" />
         <receiver
+            android:name=".notification.AutoButtonAlarmReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".notification.AutoButtonUndoReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".notification.AutoButtonBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <receiver
             android:name=".notification.TodoReminderBootReceiver"
             android:exported="false">
             <intent-filter>

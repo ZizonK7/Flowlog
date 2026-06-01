@@ -1,5 +1,6 @@
 package com.example.flowlog.notification
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -89,7 +90,7 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
             EXTRA_ACTIVITY_ID,
             System.currentTimeMillis()
         ).toInt()
-        NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+        notifySafely(context, notificationId, builder.build())
     }
 
     private fun canPostNotifications(context: Context): Boolean {
@@ -99,6 +100,13 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
             context,
             Manifest.permission.POST_NOTIFICATIONS
         ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun notifySafely(context: Context, notificationId: Int, notification: android.app.Notification) {
+        runCatching {
+            NotificationManagerCompat.from(context).notify(notificationId, notification)
+        }
     }
 
     companion object {
