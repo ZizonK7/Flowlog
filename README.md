@@ -23,6 +23,21 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Renamed all user-facing "고정 시간" labels to "반복 루틴" across the routine
+  management sheet, add/edit sheet titles, delete dialog, info panel, and the
+  auto-end notification text in `ActivityTimerNotifier`.
+
+- Fixed BottomSheet scroll UX for routine sheets:
+  - The add/edit routine sheet (`AutoButtonEditSheet`) and the time-picker sheet
+    now set `sheetGesturesEnabled = false` and remove the drag handle so the form
+    can be scrolled freely without the sheet jittering or closing accidentally.
+    `imePadding()` is applied so the keyboard never obscures form fields.
+  - The routine manager sheet (`AutoButtonManagerSheet`) keeps the default drag
+    handle and swipe-down-to-dismiss, but adds a `NestedScrollConnection` on the
+    routine list that absorbs excess upward-scroll events before they reach the
+    BottomSheet, preventing the sheet from sliding down while the user scrolls
+    the list upward.
+
 - Redesigned fixed-time routine management:
   - The profile menu no longer includes the older `고정 시간 버튼 관리` entry;
     fixed routines are managed from the timetable card's `반복 루틴` button.

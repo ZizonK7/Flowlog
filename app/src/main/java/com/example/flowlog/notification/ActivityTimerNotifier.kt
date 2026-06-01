@@ -173,7 +173,7 @@ class ActivityTimerNotifier(private val context: Context) {
         showAutoButtonNotification(
             notificationId = AUTO_BUTTON_END_NOTIFICATION_ID,
             title = "${title} 기록이 자동으로 종료됐어요.",
-            text = "고정 시간 버튼 일정에 맞춰 기록을 마쳤어요.",
+            text = "반복 루틴 일정에 맞춰 기록을 마쳤어요.",
             category = category,
             playSound = true
         )

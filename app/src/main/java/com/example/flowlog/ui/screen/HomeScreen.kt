@@ -1,5 +1,6 @@
 package com.example.flowlog.ui.screen
 
+import android.util.Log
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.RepeatMode
@@ -28,12 +29,20 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -105,6 +114,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.flowlog.data.constants.ActivitySourceType
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.AutoButtonSchedule
 import com.example.flowlog.data.model.RecommendedTodoBlock
@@ -135,6 +145,19 @@ private val FlowPurpleSoft = Color(0xFFEDE9FF)
 private val FlowInk = Color(0xFF10182C)
 private val FlowMuted = Color(0xFF697386)
 private val FlowDivider = Color(0xFFE8E8EE)
+private const val TIMETABLE_TAG = "FlowlogTimetable"
+private const val MERGE_THRESHOLD_MILLIS = 10 * 60 * 1000L
+private val MERGEABLE_TIMETABLE_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK")
+private val HIDEABLE_TIMETABLE_BRIDGE_CATEGORIES = setOf("REST", "ETC", "MOVE")
+private val PRECISE_TIMETABLE_CATEGORIES = setOf(
+    "SLEEP",
+    "SCHOOL",
+    "COMPANY",
+    "WORKPLACE",
+    "MEAL",
+    "EXERCISE"
+)
+private val PRODUCTIVE_TIMETABLE_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK")
 
 @Composable
 fun HomeScreen(
@@ -1994,9 +2017,20 @@ private fun CategoryLegend(categories: List<String>) {
 }
 
 private sealed class TimelineBlock {
-    data class ActualActivity(val activity: ActivitySession) : TimelineBlock()
+    data class ActualActivity(val segment: DisplayActivitySegment) : TimelineBlock()
     data class ScheduledAutoButton(val block: ScheduledAutoButtonBlock) : TimelineBlock()
     data class RecommendedTodo(val block: RecommendedTodoBlock) : TimelineBlock()
+}
+
+private data class DisplayActivitySegment(
+    val category: String,
+    val title: String,
+    val startTime: Long,
+    val endTime: Long,
+    val mergedSegments: List<ActivitySession>,
+    val hiddenSegments: List<ActivitySession>
+) {
+    val durationMillis: Long = (endTime - startTime).coerceAtLeast(1L)
 }
 
 @Composable
@@ -2012,13 +2046,21 @@ private fun TimetableCard(
 ) {
     var selectedBlock by remember { mutableStateOf<ScheduledAutoButtonBlock?>(null) }
     var selectedRecommendedBlock by remember { mutableStateOf<RecommendedTodoBlock?>(null) }
-    val timelineItems = remember(activities, scheduledBlocks, recommendedBlocks) {
-        activities.map { TimelineBlock.ActualActivity(it) } +
+    val displayActivitySegments = remember(activities) {
+        buildDisplayActivitySegments(activities).also { segments ->
+            Log.d(
+                TIMETABLE_TAG,
+                "displaySegments original=${activities.size}, display=${segments.size}, hidden=${segments.sumOf { it.hiddenSegments.size }}"
+            )
+        }
+    }
+    val timelineItems = remember(displayActivitySegments, scheduledBlocks, recommendedBlocks) {
+        displayActivitySegments.map { TimelineBlock.ActualActivity(it) } +
             scheduledBlocks.map { TimelineBlock.ScheduledAutoButton(it) } +
             recommendedBlocks.map { TimelineBlock.RecommendedTodo(it) }
     }.sortedBy { block ->
         when (block) {
-            is TimelineBlock.ActualActivity -> block.activity.startTime
+            is TimelineBlock.ActualActivity -> block.segment.startTime
             is TimelineBlock.ScheduledAutoButton -> block.block.startTime
             is TimelineBlock.RecommendedTodo -> block.block.plannedStartMillis
         }
@@ -2118,6 +2160,236 @@ private fun TimetableCard(
     }
 }
 
+private fun buildDisplayActivitySegments(
+    activities: List<ActivitySession>
+): List<DisplayActivitySegment> {
+    val sortedActivities = activities.sortedBy { it.startTime }
+    val segments = mutableListOf<DisplayActivitySegment>()
+    var index = 0
+
+    while (index < sortedActivities.size) {
+        val first = sortedActivities[index]
+        if (!canMergeAsTimelineAnchor(first)) {
+            segments += first.toDisplaySegment()
+            index += 1
+            continue
+        }
+
+        val merged = mutableListOf(first)
+        val hidden = mutableListOf<ActivitySession>()
+        var endTime = first.endTime.coerceAtLeast(first.startTime + 1L)
+        var cursor = index
+
+        while (cursor + 2 < sortedActivities.size) {
+            val bridge = sortedActivities[cursor + 1]
+            val next = sortedActivities[cursor + 2]
+            val bridgeDuration = (bridge.endTime - bridge.startTime).coerceAtLeast(0L)
+            val canBridge = bridgeDuration < MERGE_THRESHOLD_MILLIS &&
+                canHideBridgeSegment(bridge) &&
+                canMergeAsTimelineAnchor(next) &&
+                next.category == first.category
+
+            if (!canBridge) break
+
+            hidden += bridge
+            merged += next
+            endTime = next.endTime.coerceAtLeast(next.startTime + 1L)
+            cursor += 2
+        }
+
+        segments += DisplayActivitySegment(
+            category = first.category,
+            title = displayTitleForMergedSegment(first.category, merged),
+            startTime = first.startTime,
+            endTime = endTime,
+            mergedSegments = merged,
+            hiddenSegments = hidden
+        )
+        index = cursor + 1
+    }
+
+    return smoothMicroDisplaySegments(segments)
+}
+
+private fun ActivitySession.toDisplaySegment(): DisplayActivitySegment {
+    return DisplayActivitySegment(
+        category = category,
+        title = title,
+        startTime = startTime,
+        endTime = endTime.coerceAtLeast(startTime + 1L),
+        mergedSegments = listOf(this),
+        hiddenSegments = emptyList()
+    )
+}
+
+private fun canMergeAsTimelineAnchor(activity: ActivitySession): Boolean {
+    return activity.sourceType != ActivitySourceType.AUTO_BUTTON &&
+        activity.category in MERGEABLE_TIMETABLE_CATEGORIES &&
+        activity.category !in PRECISE_TIMETABLE_CATEGORIES
+}
+
+private fun canHideBridgeSegment(activity: ActivitySession): Boolean {
+    return activity.sourceType != ActivitySourceType.AUTO_BUTTON &&
+        activity.category in HIDEABLE_TIMETABLE_BRIDGE_CATEGORIES &&
+        activity.category !in PRECISE_TIMETABLE_CATEGORIES
+}
+
+private fun smoothMicroDisplaySegments(
+    initialSegments: List<DisplayActivitySegment>
+): List<DisplayActivitySegment> {
+    val segments = initialSegments.toMutableList()
+    var changed: Boolean
+
+    do {
+        changed = false
+        var index = 0
+        while (index < segments.size) {
+            val micro = segments[index]
+            if (!micro.isMicroSegment() || micro.isProtectedSegment()) {
+                index += 1
+                continue
+            }
+
+            val previous = segments.getOrNull(index - 1)
+            val next = segments.getOrNull(index + 1)
+            val previousCanAbsorb = previous?.canAbsorbMicroSegment() == true
+            val nextCanAbsorb = next?.canAbsorbMicroSegment() == true
+
+            when {
+                previous != null &&
+                    next != null &&
+                    previousCanAbsorb &&
+                    nextCanAbsorb &&
+                    previous.isProductiveSegment() &&
+                    next.isProductiveSegment() -> {
+                    val category = chooseProductiveFlowCategory(previous, next)
+                    segments[index - 1] = combineDisplaySegments(
+                        visibleSegments = listOf(previous, next),
+                        hiddenSegments = listOf(micro),
+                        category = category
+                    )
+                    segments.removeAt(index + 1)
+                    segments.removeAt(index)
+                    changed = true
+                    index = (index - 1).coerceAtLeast(0)
+                }
+                previousCanAbsorb && nextCanAbsorb -> {
+                    val previousSegment = requireNotNull(previous)
+                    val nextSegment = requireNotNull(next)
+                    val attachToPrevious = when {
+                        previousSegment.category == micro.category && nextSegment.category != micro.category -> true
+                        nextSegment.category == micro.category && previousSegment.category != micro.category -> false
+                        previousSegment.durationMillis != nextSegment.durationMillis ->
+                            previousSegment.durationMillis > nextSegment.durationMillis
+                        else -> true
+                    }
+                    if (attachToPrevious) {
+                        segments[index - 1] = combineDisplaySegments(
+                            visibleSegments = listOf(previousSegment),
+                            hiddenSegments = listOf(micro),
+                            category = previousSegment.category
+                        )
+                        segments.removeAt(index)
+                        changed = true
+                        index = (index - 1).coerceAtLeast(0)
+                    } else {
+                        segments[index] = combineDisplaySegments(
+                            visibleSegments = listOf(nextSegment),
+                            hiddenSegments = listOf(micro),
+                            category = nextSegment.category
+                        )
+                        segments.removeAt(index + 1)
+                        changed = true
+                    }
+                }
+                previousCanAbsorb -> {
+                    val previousSegment = requireNotNull(previous)
+                    segments[index - 1] = combineDisplaySegments(
+                        visibleSegments = listOf(previousSegment),
+                        hiddenSegments = listOf(micro),
+                        category = previousSegment.category
+                    )
+                    segments.removeAt(index)
+                    changed = true
+                    index = (index - 1).coerceAtLeast(0)
+                }
+                nextCanAbsorb -> {
+                    val nextSegment = requireNotNull(next)
+                    segments[index] = combineDisplaySegments(
+                        visibleSegments = listOf(nextSegment),
+                        hiddenSegments = listOf(micro),
+                        category = nextSegment.category
+                    )
+                    segments.removeAt(index + 1)
+                    changed = true
+                }
+                else -> index += 1
+            }
+        }
+    } while (changed)
+
+    return segments
+}
+
+private fun DisplayActivitySegment.isMicroSegment(): Boolean {
+    return durationMillis < MERGE_THRESHOLD_MILLIS
+}
+
+private fun DisplayActivitySegment.isProtectedSegment(): Boolean {
+    return category in PRECISE_TIMETABLE_CATEGORIES ||
+        allOriginalSegments().any { it.sourceType == ActivitySourceType.AUTO_BUTTON }
+}
+
+private fun DisplayActivitySegment.canAbsorbMicroSegment(): Boolean {
+    return !isProtectedSegment()
+}
+
+private fun DisplayActivitySegment.isProductiveSegment(): Boolean {
+    return category in PRODUCTIVE_TIMETABLE_CATEGORIES && !isProtectedSegment()
+}
+
+private fun DisplayActivitySegment.allOriginalSegments(): List<ActivitySession> {
+    return mergedSegments + hiddenSegments
+}
+
+private fun chooseProductiveFlowCategory(
+    previous: DisplayActivitySegment,
+    next: DisplayActivitySegment
+): String {
+    if (previous.category == next.category) return previous.category
+    return if (previous.durationMillis >= next.durationMillis) previous.category else next.category
+}
+
+private fun combineDisplaySegments(
+    visibleSegments: List<DisplayActivitySegment>,
+    hiddenSegments: List<DisplayActivitySegment>,
+    category: String
+): DisplayActivitySegment {
+    val allSegments = (visibleSegments + hiddenSegments).sortedBy { it.startTime }
+    val visibleOriginals = visibleSegments.flatMap { it.mergedSegments }.sortedBy { it.startTime }
+    val hiddenOriginals = (
+        visibleSegments.flatMap { it.hiddenSegments } +
+            hiddenSegments.flatMap { it.allOriginalSegments() }
+        ).sortedBy { it.startTime }
+
+    return DisplayActivitySegment(
+        category = category,
+        title = displayTitleForMergedSegment(category, visibleOriginals),
+        startTime = allSegments.minOf { it.startTime },
+        endTime = allSegments.maxOf { it.endTime.coerceAtLeast(it.startTime + 1L) },
+        mergedSegments = visibleOriginals,
+        hiddenSegments = hiddenOriginals
+    )
+}
+
+private fun displayTitleForMergedSegment(
+    category: String,
+    mergedSegments: List<ActivitySession>
+): String {
+    val titles = mergedSegments.map { it.title.trim() }.filter { it.isNotBlank() }.distinct()
+    return if (titles.size == 1) titles.first() else displayCategory(category)
+}
+
 @Composable
 private fun TimetableBar(
     blocks: List<TimelineBlock>,
@@ -2128,14 +2400,14 @@ private fun TimetableBar(
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val firstStart = blocks.minOf {
         when (it) {
-            is TimelineBlock.ActualActivity -> it.activity.startTime
+            is TimelineBlock.ActualActivity -> it.segment.startTime
             is TimelineBlock.ScheduledAutoButton -> it.block.startTime
             is TimelineBlock.RecommendedTodo -> it.block.plannedStartMillis
         }
     }
     val lastEnd = blocks.maxOf {
         when (it) {
-            is TimelineBlock.ActualActivity -> it.activity.endTime.coerceAtLeast(it.activity.startTime + 1L)
+            is TimelineBlock.ActualActivity -> it.segment.endTime.coerceAtLeast(it.segment.startTime + 1L)
             is TimelineBlock.ScheduledAutoButton -> it.block.endTime.coerceAtLeast(it.block.startTime + 1L)
             is TimelineBlock.RecommendedTodo -> it.block.plannedEndMillis.coerceAtLeast(it.block.plannedStartMillis + 1L)
         }
@@ -2149,7 +2421,7 @@ private fun TimetableBar(
     val categories = remember(blocks) {
         blocks.map {
             when (it) {
-                is TimelineBlock.ActualActivity -> it.activity.category
+                is TimelineBlock.ActualActivity -> it.segment.category
                 is TimelineBlock.ScheduledAutoButton -> it.block.category
                 is TimelineBlock.RecommendedTodo -> "TODO"
             }
@@ -2212,37 +2484,20 @@ private fun TimetableBar(
             cornerRadius = radius
         )
 
-        val visualGapTolerance = if (blocks.size >= 6) 14.dp.toPx() else 8.dp.toPx()
-        var previousVisualEnd: Float? = null
-        fun visualBounds(startFraction: Float, endFraction: Float, minWidth: Float): Pair<Float, Float> {
-            var x = size.width * startFraction
-            var endX = size.width * endFraction
-            previousVisualEnd?.let { previousEnd ->
-                val gap = x - previousEnd
-                if (gap in 0f..visualGapTolerance) {
-                    x = previousEnd
-                }
-            }
-            if (endX - x < minWidth) {
-                endX = (x + minWidth).coerceAtMost(size.width)
-            }
-            previousVisualEnd = maxOf(previousVisualEnd ?: 0f, endX)
-            return x to endX
-        }
-
         blocks.forEach { block ->
             when (block) {
                 is TimelineBlock.ActualActivity -> {
-                    val activity = block.activity
-                    val startFraction = ((activity.startTime - windowStart).toFloat() / windowDuration.toFloat())
+                    val segment = block.segment
+                    val startFraction = ((segment.startTime - windowStart).toFloat() / windowDuration.toFloat())
                         .coerceIn(0f, 1f)
-                    val endFraction = ((activity.endTime.coerceAtLeast(activity.startTime + 1L) - windowStart).toFloat() / windowDuration.toFloat())
+                    val endFraction = ((segment.endTime.coerceAtLeast(segment.startTime + 1L) - windowStart).toFloat() / windowDuration.toFloat())
                         .coerceIn(startFraction, 1f)
-                    val (x, endX) = visualBounds(startFraction, endFraction, 3.dp.toPx())
+                    val x = size.width * startFraction
+                    val width = (size.width * (endFraction - startFraction)).coerceAtLeast(3.dp.toPx())
                     drawRoundRect(
-                        color = categoryColor(activity.category),
+                        color = categoryColor(segment.category),
                         topLeft = Offset(x, top),
-                        size = Size(endX - x, barHeight),
+                        size = Size(width, barHeight),
                         cornerRadius = radius
                     )
                 }
@@ -2252,18 +2507,19 @@ private fun TimetableBar(
                         .coerceIn(0f, 1f)
                     val endFraction = ((item.endTime.coerceAtLeast(item.startTime + 1L) - windowStart).toFloat() / windowDuration.toFloat())
                         .coerceIn(startFraction, 1f)
-                    val (x, endX) = visualBounds(startFraction, endFraction, 3.dp.toPx())
+                    val x = size.width * startFraction
+                    val width = (size.width * (endFraction - startFraction)).coerceAtLeast(3.dp.toPx())
                     val strokeColor = categoryColor(item.category).copy(alpha = if (item.isSkippedToday) 0.28f else 0.58f)
                     drawRoundRect(
                         color = strokeColor.copy(alpha = if (item.isSkippedToday) 0.08f else 0.16f),
                         topLeft = Offset(x, top),
-                        size = Size(endX - x, barHeight),
+                        size = Size(width, barHeight),
                         cornerRadius = radius
                     )
                     drawRoundRect(
                         color = strokeColor,
                         topLeft = Offset(x, top),
-                        size = Size(endX - x, barHeight),
+                        size = Size(width, barHeight),
                         cornerRadius = radius,
                         style = Stroke(width = 2.dp.toPx())
                     )
@@ -2274,18 +2530,19 @@ private fun TimetableBar(
                         .coerceIn(0f, 1f)
                     val endFraction = ((item.plannedEndMillis.coerceAtLeast(item.plannedStartMillis + 1L) - windowStart).toFloat() / windowDuration.toFloat())
                         .coerceIn(startFraction, 1f)
-                    val (x, endX) = visualBounds(startFraction, endFraction, 4.dp.toPx())
+                    val x = size.width * startFraction
+                    val width = (size.width * (endFraction - startFraction)).coerceAtLeast(4.dp.toPx())
                     val color = FlowPurple.copy(alpha = 0.7f)
                     drawRoundRect(
                         color = FlowPurpleSoft.copy(alpha = 0.45f),
                         topLeft = Offset(x, top + 4.dp.toPx()),
-                        size = Size(endX - x, barHeight - 8.dp.toPx()),
+                        size = Size(width, barHeight - 8.dp.toPx()),
                         cornerRadius = radius
                     )
                     drawRoundRect(
                         color = color,
                         topLeft = Offset(x, top + 4.dp.toPx()),
-                        size = Size(endX - x, barHeight - 8.dp.toPx()),
+                        size = Size(width, barHeight - 8.dp.toPx()),
                         cornerRadius = radius,
                         style = Stroke(
                             width = 1.5.dp.toPx(),
@@ -2620,6 +2877,18 @@ private fun AutoButtonManagerSheet(
     var editing by remember { mutableStateOf<AutoButtonSchedule?>(null) }
     var confirmDeleteId by remember { mutableStateOf<String?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val blockUpwardOverscroll = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset = if (available.y < 0) available else Offset.Zero
+
+            override suspend fun onPreFling(available: Velocity): Velocity =
+                if (available.y < 0) available else Velocity.Zero
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -2632,6 +2901,7 @@ private fun AutoButtonManagerSheet(
                 .fillMaxWidth()
                 .fillMaxHeight(0.9f)
                 .padding(horizontal = 20.dp)
+                .navigationBarsPadding()
                 .padding(bottom = 22.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -2641,7 +2911,7 @@ private fun AutoButtonManagerSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        "고정 시간 버튼 관리",
+                        "반복 루틴 관리",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = FlowInk
@@ -2666,6 +2936,7 @@ private fun AutoButtonManagerSheet(
             Column(
                 modifier = Modifier
                     .weight(1f)
+                    .nestedScroll(blockUpwardOverscroll)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -2702,7 +2973,7 @@ private fun AutoButtonManagerSheet(
                     modifier = Modifier.size(21.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("고정 시간 추가", fontWeight = FontWeight.ExtraBold)
+                Text("반복 루틴 추가", fontWeight = FontWeight.ExtraBold)
             }
         }
     }
@@ -2724,8 +2995,8 @@ private fun AutoButtonManagerSheet(
             containerColor = Color.White,
             titleContentColor = FlowInk,
             textContentColor = FlowMuted,
-            title = { Text("고정 시간 삭제", fontWeight = FontWeight.ExtraBold) },
-            text = { Text("이 고정 시간 설정을 삭제할까요? 되돌릴 수 없습니다.") },
+            title = { Text("반복 루틴 삭제", fontWeight = FontWeight.ExtraBold) },
+            text = { Text("이 반복 루틴을 삭제할까요? 되돌릴 수 없습니다.") },
             confirmButton = {
                 Button(
                     onClick = {
@@ -2978,6 +3249,8 @@ private fun AutoButtonEditSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        sheetGesturesEnabled = false,
+        dragHandle = null,
         containerColor = Color(0xFFFCFCFF),
         contentColor = FlowInk
     ) {
@@ -2986,8 +3259,8 @@ private fun AutoButtonEditSheet(
                 .fillMaxWidth()
                 .fillMaxHeight(0.92f)
                 .verticalScroll(scrollState)
-                .padding(horizontal = 22.dp)
-                .padding(bottom = 24.dp),
+                .imePadding()
+                .padding(top = 16.dp, start = 22.dp, end = 22.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
@@ -3007,7 +3280,7 @@ private fun AutoButtonEditSheet(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        if (initial.scheduleId.isBlank()) "고정 시간 추가" else "고정 시간 수정",
+                        if (initial.scheduleId.isBlank()) "반복 루틴 추가" else "반복 루틴 수정",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = FlowInk
@@ -3267,7 +3540,7 @@ private fun RoutineInfoPanel() {
         Spacer(modifier = Modifier.width(10.dp))
         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(
-                "선택한 요일에 고정 시간이 타임라인에 표시됩니다.",
+                "선택한 요일에 반복 루틴이 타임라인에 표시됩니다.",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 color = FlowMuted
@@ -3348,6 +3621,8 @@ private fun TimePickerSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        sheetGesturesEnabled = false,
+        dragHandle = null,
         containerColor = Color.White,
         contentColor = FlowInk
     ) {
