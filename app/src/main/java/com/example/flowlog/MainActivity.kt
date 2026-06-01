@@ -143,7 +143,6 @@ class MainActivity : ComponentActivity() {
                 val auth = remember { FirebaseAuth.getInstance() }
                 var signedInUser by remember { mutableStateOf(auth.currentUser) }
                 var syncStatus by remember { mutableStateOf<String?>(null) }
-                var showAutoButtonManager by remember { mutableStateOf(false) }
                 val scope = rememberCoroutineScope()
 
                 val userRoleStore = remember { UserRoleStore(this@MainActivity) }
@@ -313,7 +312,6 @@ class MainActivity : ComponentActivity() {
                                             onStatsClick = openStatsSite,
                                             onBlogClick = openDeveloperBlog,
                                             onAccountClick = runAccountSync,
-                                            onAutoButtonManageClick = { showAutoButtonManager = true },
                                             isDeveloper = isDeveloper,
                                             isDeveloperMode = isDeveloperMode,
                                             onFirebaseUploadClick = runFirebaseUpload,
@@ -328,9 +326,7 @@ class MainActivity : ComponentActivity() {
                                             }
                                         )
                                     },
-                                    modifier = Modifier.fillMaxSize(),
-                                    autoButtonManagerOpen = showAutoButtonManager,
-                                    onAutoButtonManagerDismiss = { showAutoButtonManager = false }
+                                    modifier = Modifier.fillMaxSize()
                                 )
                             }
                         }
@@ -480,7 +476,6 @@ private fun HeaderActions(
     onStatsClick: () -> Unit,
     onBlogClick: () -> Unit,
     onAccountClick: () -> Unit,
-    onAutoButtonManageClick: () -> Unit,
     isDeveloper: Boolean = false,
     isDeveloperMode: Boolean = false,
     onFirebaseUploadClick: () -> Unit = {},
@@ -539,25 +534,6 @@ private fun HeaderActions(
                     onClick = {
                         menuExpanded = false
                         onAccountClick()
-                    }
-                )
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            "고정 시간 버튼 관리",
-                            color = Color(0xFF10182C)
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Filled.Schedule,
-                            contentDescription = null,
-                            tint = Color(0xFF5140D8)
-                        )
-                    },
-                    onClick = {
-                        menuExpanded = false
-                        onAutoButtonManageClick()
                     }
                 )
                 DropdownMenuItem(

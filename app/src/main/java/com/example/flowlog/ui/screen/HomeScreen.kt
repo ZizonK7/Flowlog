@@ -1,6 +1,5 @@
 package com.example.flowlog.ui.screen
 
-import android.app.TimePickerDialog
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.RepeatMode
@@ -25,6 +24,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -40,8 +41,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Pause
@@ -64,14 +69,18 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,6 +88,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
@@ -86,6 +96,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
@@ -250,8 +261,7 @@ fun HomeScreen(
                     localAutoButtonManagerOpen = true
                 },
                 onManageSchedules = { localAutoButtonManagerOpen = true },
-                onStartRecommended = { viewModel.startRecommendedTodoActivity(it) },
-                onDismissRecommended = { viewModel.dismissRecommendedTodoBlock(it) }
+                onStartRecommended = { viewModel.startRecommendedTodoActivity(it) }
             )
         }
 
@@ -1998,8 +2008,7 @@ private fun TimetableCard(
     onUnskipToday: (String) -> Unit,
     onEditSchedule: (String) -> Unit,
     onManageSchedules: () -> Unit,
-    onStartRecommended: (RecommendedTodoBlock) -> Unit,
-    onDismissRecommended: (String) -> Unit
+    onStartRecommended: (RecommendedTodoBlock) -> Unit
 ) {
     var selectedBlock by remember { mutableStateOf<ScheduledAutoButtonBlock?>(null) }
     var selectedRecommendedBlock by remember { mutableStateOf<RecommendedTodoBlock?>(null) }
@@ -2032,11 +2041,26 @@ private fun TimetableCard(
                     color = FlowInk,
                     modifier = Modifier.weight(1f)
                 )
-                TextButton(
+                Button(
                     onClick = onManageSchedules,
-                    colors = ButtonDefaults.textButtonColors(contentColor = FlowInk)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = FlowPurpleSoft.copy(alpha = 0.72f),
+                        contentColor = FlowPurpleDeep
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("고정 시간", fontWeight = FontWeight.Bold)
+                    Icon(
+                        imageVector = Icons.Filled.CalendarToday,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "반복 루틴",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
                 }
             }
             Text(
@@ -2088,10 +2112,6 @@ private fun TimetableCard(
             onDismiss = { selectedRecommendedBlock = null },
             onStart = {
                 onStartRecommended(block)
-                selectedRecommendedBlock = null
-            },
-            onHideToday = {
-                onDismissRecommended(block.itemId)
                 selectedRecommendedBlock = null
             }
         )
@@ -2192,6 +2212,24 @@ private fun TimetableBar(
             cornerRadius = radius
         )
 
+        val visualGapTolerance = if (blocks.size >= 6) 14.dp.toPx() else 8.dp.toPx()
+        var previousVisualEnd: Float? = null
+        fun visualBounds(startFraction: Float, endFraction: Float, minWidth: Float): Pair<Float, Float> {
+            var x = size.width * startFraction
+            var endX = size.width * endFraction
+            previousVisualEnd?.let { previousEnd ->
+                val gap = x - previousEnd
+                if (gap in 0f..visualGapTolerance) {
+                    x = previousEnd
+                }
+            }
+            if (endX - x < minWidth) {
+                endX = (x + minWidth).coerceAtMost(size.width)
+            }
+            previousVisualEnd = maxOf(previousVisualEnd ?: 0f, endX)
+            return x to endX
+        }
+
         blocks.forEach { block ->
             when (block) {
                 is TimelineBlock.ActualActivity -> {
@@ -2200,12 +2238,11 @@ private fun TimetableBar(
                         .coerceIn(0f, 1f)
                     val endFraction = ((activity.endTime.coerceAtLeast(activity.startTime + 1L) - windowStart).toFloat() / windowDuration.toFloat())
                         .coerceIn(startFraction, 1f)
-                    val x = size.width * startFraction
-                    val width = (size.width * (endFraction - startFraction)).coerceAtLeast(3.dp.toPx())
+                    val (x, endX) = visualBounds(startFraction, endFraction, 3.dp.toPx())
                     drawRoundRect(
                         color = categoryColor(activity.category),
                         topLeft = Offset(x, top),
-                        size = Size(width, barHeight),
+                        size = Size(endX - x, barHeight),
                         cornerRadius = radius
                     )
                 }
@@ -2215,19 +2252,18 @@ private fun TimetableBar(
                         .coerceIn(0f, 1f)
                     val endFraction = ((item.endTime.coerceAtLeast(item.startTime + 1L) - windowStart).toFloat() / windowDuration.toFloat())
                         .coerceIn(startFraction, 1f)
-                    val x = size.width * startFraction
-                    val width = (size.width * (endFraction - startFraction)).coerceAtLeast(3.dp.toPx())
+                    val (x, endX) = visualBounds(startFraction, endFraction, 3.dp.toPx())
                     val strokeColor = categoryColor(item.category).copy(alpha = if (item.isSkippedToday) 0.28f else 0.58f)
                     drawRoundRect(
                         color = strokeColor.copy(alpha = if (item.isSkippedToday) 0.08f else 0.16f),
                         topLeft = Offset(x, top),
-                        size = Size(width, barHeight),
+                        size = Size(endX - x, barHeight),
                         cornerRadius = radius
                     )
                     drawRoundRect(
                         color = strokeColor,
                         topLeft = Offset(x, top),
-                        size = Size(width, barHeight),
+                        size = Size(endX - x, barHeight),
                         cornerRadius = radius,
                         style = Stroke(width = 2.dp.toPx())
                     )
@@ -2238,19 +2274,18 @@ private fun TimetableBar(
                         .coerceIn(0f, 1f)
                     val endFraction = ((item.plannedEndMillis.coerceAtLeast(item.plannedStartMillis + 1L) - windowStart).toFloat() / windowDuration.toFloat())
                         .coerceIn(startFraction, 1f)
-                    val x = size.width * startFraction
-                    val width = (size.width * (endFraction - startFraction)).coerceAtLeast(4.dp.toPx())
+                    val (x, endX) = visualBounds(startFraction, endFraction, 4.dp.toPx())
                     val color = FlowPurple.copy(alpha = 0.7f)
                     drawRoundRect(
                         color = FlowPurpleSoft.copy(alpha = 0.45f),
                         topLeft = Offset(x, top + 4.dp.toPx()),
-                        size = Size(width, barHeight - 8.dp.toPx()),
+                        size = Size(endX - x, barHeight - 8.dp.toPx()),
                         cornerRadius = radius
                     )
                     drawRoundRect(
                         color = color,
                         topLeft = Offset(x, top + 4.dp.toPx()),
-                        size = Size(width, barHeight - 8.dp.toPx()),
+                        size = Size(endX - x, barHeight - 8.dp.toPx()),
                         cornerRadius = radius,
                         style = Stroke(
                             width = 1.5.dp.toPx(),
@@ -2382,14 +2417,14 @@ private fun RecommendedTodoBlockList(
     if (blocks.isEmpty()) return
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
-    LazyRow(
+    Column(
         modifier = Modifier.padding(top = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(blocks.size) { index ->
-            val block = blocks[index]
+        blocks.forEach { block ->
             Row(
                 modifier = Modifier
+                    .fillMaxWidth()
                     .border(
                         width = 1.dp,
                         color = FlowPurple.copy(alpha = 0.35f),
@@ -2411,21 +2446,13 @@ private fun RecommendedTodoBlockList(
                     color = FlowMuted
                 )
                 Text(
-                    text = "${block.title} - ${burdenLabel(block.burdenLevel)} 추천",
+                    text = block.title,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = FlowInk,
+                    modifier = Modifier.weight(1f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "추천",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    modifier = Modifier
-                        .background(FlowPurple.copy(alpha = 0.78f), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 4.dp, vertical = 1.dp)
                 )
             }
         }
@@ -2504,8 +2531,7 @@ private fun ScheduledAutoButtonActionSheet(
 private fun RecommendedTodoActionSheet(
     block: RecommendedTodoBlock,
     onDismiss: () -> Unit,
-    onStart: () -> Unit,
-    onHideToday: () -> Unit
+    onStart: () -> Unit
 ) {
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     var showReason by remember(block.itemId) { mutableStateOf(false) }
@@ -2520,7 +2546,7 @@ private fun RecommendedTodoActionSheet(
                 .padding(horizontal = 20.dp, vertical = 10.dp)
         ) {
             Text(
-                "${block.title} - ${burdenLabel(block.burdenLevel)} 추천",
+                block.title,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = FlowInk
@@ -2540,13 +2566,6 @@ private fun RecommendedTodoActionSheet(
                 )
             ) {
                 Text("시작하기", fontWeight = FontWeight.Bold)
-            }
-            TextButton(
-                onClick = onHideToday,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.textButtonColors(contentColor = FlowInk)
-            ) {
-                Text("오늘 숨기기", fontWeight = FontWeight.Bold)
             }
             TextButton(
                 onClick = { showReason = !showReason },
@@ -2600,32 +2619,57 @@ private fun AutoButtonManagerSheet(
 ) {
     var editing by remember { mutableStateOf<AutoButtonSchedule?>(null) }
     var confirmDeleteId by remember { mutableStateOf<String?>(null) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color.White,
+        sheetState = sheetState,
+        containerColor = Color(0xFFFCFCFF),
         contentColor = FlowInk
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight(0.9f)
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(bottom = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text(
-                "고정 시간 버튼 관리",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = FlowInk
-            )
-            Text(
-                "반복되는 학교/회사 시간을 추가하면 타임테이블에 예정으로 표시됩니다.",
-                fontSize = 13.sp,
-                color = FlowMuted
-            )
-            if (schedules.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "고정 시간 버튼 관리",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = FlowInk
+                    )
+                    Text(
+                        "반복되는 학교/회사 시간을 추가하면\n타임테이블에 예정으로 표시됩니다.",
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                        color = FlowMuted,
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "닫기",
+                        tint = FlowMuted,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (schedules.isNotEmpty()) {
                     schedules.forEach { schedule ->
                         AutoButtonScheduleRow(
                             schedule = schedule,
@@ -2640,17 +2684,25 @@ private fun AutoButtonManagerSheet(
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(4.dp))
             Button(
                 onClick = { editing = defaultAutoButtonSchedule() },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = FlowPurpleDeep,
+                    containerColor = FlowPurple,
                     contentColor = Color.White
                 ),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(18.dp),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp)
             ) {
-                Text("+ 고정 시간 추가", fontWeight = FontWeight.ExtraBold)
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(21.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("고정 시간 추가", fontWeight = FontWeight.ExtraBold)
             }
         }
     }
@@ -2708,23 +2760,38 @@ private fun AutoButtonScheduleRow(
     onSkipToday: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val categoryAccent = categoryColor(schedule.category)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, FlowDivider, RoundedCornerShape(12.dp))
-            .padding(12.dp)
+            .background(Color.White, RoundedCornerShape(16.dp))
+            .border(1.dp, FlowDivider, RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.Top) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .background(categoryAccent.copy(alpha = 0.13f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CategoryGlyph(
+                            category = schedule.category,
+                            tint = categoryAccent,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
                     Text(
-                        schedule.title,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = FlowInk
+                        displayCategory(schedule.category),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = FlowMuted
                     )
                     if (schedule.isSkippedToday) {
                         Text(
@@ -2739,12 +2806,20 @@ private fun AutoButtonScheduleRow(
                     }
                 }
                 Text(
-                    "${displayCategory(schedule.category)} · ${formatMinuteOfDay(schedule.startMinuteOfDay)}-${formatMinuteOfDay(schedule.endMinuteOfDay)} · ${formatRepeatDays(schedule.repeatDays)}",
-                    fontSize = 12.sp,
-                    color = FlowMuted,
-                    modifier = Modifier.padding(top = 2.dp),
-                    maxLines = 2,
+                    schedule.title,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = FlowInk,
+                    modifier = Modifier.padding(top = 8.dp),
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "${formatMinuteOfDay(schedule.startMinuteOfDay)} - ${formatMinuteOfDay(schedule.endMinuteOfDay)}  ·  ${formatRepeatDays(schedule.repeatDays)}",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = FlowMuted,
+                    modifier = Modifier.padding(top = 10.dp)
                 )
             }
             IconButton(onClick = onEdit) {
@@ -2752,7 +2827,7 @@ private fun AutoButtonScheduleRow(
                     Icons.Filled.Edit,
                     contentDescription = "수정",
                     tint = FlowMuted,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
             IconButton(onClick = onDelete) {
@@ -2760,38 +2835,120 @@ private fun AutoButtonScheduleRow(
                     Icons.Filled.Delete,
                     contentDescription = "삭제",
                     tint = FlowMuted,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
+
+        RoutineTimelinePreview(
+            startMinute = schedule.startMinuteOfDay,
+            endMinute = schedule.endMinuteOfDay,
+            accent = categoryAccent
+        )
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 6.dp),
+                .background(Color(0xFFF7F6FD), RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Switch(
-                checked = schedule.isEnabled,
-                onCheckedChange = onToggleEnabled
-            )
             Text(
                 "활성화",
-                fontSize = 12.sp,
-                color = FlowMuted,
-                modifier = Modifier.padding(start = 6.dp)
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = FlowMuted
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Switch(
+                checked = schedule.isEnabled,
+                onCheckedChange = onToggleEnabled,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = FlowPurple,
+                    uncheckedThumbColor = Color.White,
+                    uncheckedTrackColor = Color(0xFFC8CBD4),
+                    uncheckedBorderColor = Color.Transparent
+                )
             )
             Spacer(modifier = Modifier.weight(1f))
             TextButton(
                 onClick = onSkipToday,
-                colors = ButtonDefaults.textButtonColors(contentColor = FlowInk),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                colors = ButtonDefaults.textButtonColors(contentColor = FlowPurple),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
             ) {
                 Text(
                     if (schedule.isSkippedToday) "오늘 다시 켜기" else "오늘만 끄기",
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun RoutineTimelinePreview(
+    startMinute: Int,
+    endMinute: Int,
+    accent: Color
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(modifier = Modifier.fillMaxWidth()) {
+            listOf("00:00", "06:00", "12:00", "18:00", "24:00").forEach { label ->
+                Text(
+                    text = label,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = FlowMuted.copy(alpha = 0.64f),
+                    modifier = Modifier.weight(1f),
+                    textAlign = when (label) {
+                        "00:00" -> TextAlign.Start
+                        "24:00" -> TextAlign.End
+                        else -> TextAlign.Center
+                    }
+                )
+            }
+        }
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(28.dp)
+        ) {
+            val trackTop = 2.dp.toPx()
+            val trackHeight = 24.dp.toPx()
+            val segmentGap = 2.dp.toPx()
+            val radius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+            repeat(4) { index ->
+                val left = size.width * index / 4f + if (index == 0) 0f else segmentGap / 2f
+                val right = size.width * (index + 1) / 4f - if (index == 3) 0f else segmentGap / 2f
+                drawRoundRect(
+                    color = Color(0xFFF0F1F5),
+                    topLeft = Offset(left, trackTop),
+                    size = Size(right - left, trackHeight),
+                    cornerRadius = radius
+                )
+                if (index > 0) {
+                    val x = size.width * index / 4f
+                    drawLine(
+                        color = Color(0xFFD7D9E2),
+                        start = Offset(x, trackTop),
+                        end = Offset(x, trackTop + trackHeight),
+                        strokeWidth = 1.dp.toPx()
+                    )
+                }
+            }
+
+            val startFraction = (startMinute.coerceIn(0, 1439) / 1440f).coerceIn(0f, 1f)
+            val endFraction = (endMinute.coerceIn(0, 1439) / 1440f).coerceIn(startFraction, 1f)
+            val startX = size.width * startFraction
+            val endX = (size.width * endFraction).coerceAtLeast(startX + 4.dp.toPx())
+            drawRoundRect(
+                color = accent.copy(alpha = 0.86f),
+                topLeft = Offset(startX, trackTop),
+                size = Size((endX - startX).coerceAtMost(size.width - startX), trackHeight),
+                cornerRadius = radius
+            )
         }
     }
 }
@@ -2816,90 +2973,104 @@ private fun AutoButtonEditSheet(
     var isEnabled by remember(initial.scheduleId) { mutableStateOf(initial.isEnabled) }
     var errorMessage by remember(initial.scheduleId) { mutableStateOf<String?>(null) }
     val scrollState = rememberScrollState()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color.White,
+        sheetState = sheetState,
+        containerColor = Color(0xFFFCFCFF),
         contentColor = FlowInk
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight(0.92f)
                 .verticalScroll(scrollState)
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = 22.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            Column {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.CenterStart)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "뒤로",
+                        tint = FlowInk,
+                        modifier = Modifier.size(23.dp)
+                    )
+                }
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        if (initial.scheduleId.isBlank()) "고정 시간 추가" else "고정 시간 수정",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = FlowInk
+                    )
+                    Text(
+                        "반복되는 학교/회사 시간을 입력하세요.",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = FlowMuted,
+                        modifier = Modifier.padding(top = 7.dp)
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    if (initial.scheduleId.isBlank()) "고정 시간 추가" else "고정 시간 수정",
-                    fontSize = 20.sp,
+                    "카테고리",
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = FlowInk
                 )
-                Text(
-                    "반복되는 회사/학교 시간을 입력하세요.",
-                    fontSize = 12.sp,
-                    color = FlowMuted,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-            FormPanel {
-                Text("이름", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    placeholder = { Text("예: 회사, 학교", color = FlowMuted) },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 6.dp)
-                )
-            }
-            FormPanel {
-                Text("카테고리", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        .background(Color(0xFFF4F4F8), RoundedCornerShape(18.dp))
+                        .border(1.dp, FlowDivider, RoundedCornerShape(18.dp))
+                        .padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     fixedCategories.forEach { item ->
-                        FilterChip(
+                        AutoButtonCategorySegment(
+                            category = item,
                             selected = category == item,
                             onClick = {
+                                val previousCategoryTitle = displayCategory(category)
                                 category = item
-                                if (title.isBlank()) title = displayCategory(item)
+                                if (title.isBlank() || title == previousCategoryTitle) {
+                                    title = displayCategory(item)
+                                }
                             },
-                            label = {
-                                Text(
-                                    displayCategory(item),
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (category == item) Color.White else FlowInk
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = FlowPurpleDeep,
-                                selectedLabelColor = Color.White,
-                                containerColor = Color(0xFFF7F7FA),
-                                labelColor = FlowInk
-                            )
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
             }
-            FormPanel {
-                Text("시간", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("시간", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(top = 6.dp)
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     TimePickerCard(
                         label = "시작",
                         minuteOfDay = startMinute,
                         onChange = { startMinute = it },
                         modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "~",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = FlowMuted
                     )
                     TimePickerCard(
                         label = "종료",
@@ -2909,40 +3080,51 @@ private fun AutoButtonEditSheet(
                     )
                 }
             }
-            FormPanel {
-                Text("반복 요일", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(top = 8.dp)
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("반복 요일", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(dayOptions.size) { index ->
-                        val (day, label) = dayOptions[index]
-                        FilterChip(
+                    dayOptions.forEach { (day, label) ->
+                        RepeatDayButton(
+                            label = label,
                             selected = day in repeatDays,
                             onClick = {
                                 repeatDays = if (day in repeatDays) repeatDays - day else repeatDays + day
                             },
-                            label = {
-                                Text(
-                                    label,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (day in repeatDays) Color.White else FlowInk
-                                )
-                            },
-                            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = FlowPurpleDeep,
-                                selectedLabelColor = Color.White,
-                                containerColor = Color(0xFFF7F7FA),
-                                labelColor = FlowInk
-                            )
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
             }
-            FormPanel {
-                ToggleRow("활성화", isEnabled) { isEnabled = it }
-                ToggleRow("시작 알림", notifyOnStart) { notifyOnStart = it }
-                ToggleRow("종료 알림", notifyOnEnd) { notifyOnEnd = it }
+
+            RoutineInfoPanel()
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "알림 설정",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = FlowInk,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text("선택", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = FlowMuted)
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.White, RoundedCornerShape(16.dp))
+                        .border(1.dp, FlowDivider, RoundedCornerShape(16.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    ToggleRow("활성화", isEnabled) { isEnabled = it }
+                    ToggleRow("시작 알림", notifyOnStart) { notifyOnStart = it }
+                    ToggleRow("종료 알림", notifyOnEnd) { notifyOnEnd = it }
+                }
             }
             errorMessage?.let { message ->
                 Text(
@@ -2954,7 +3136,7 @@ private fun AutoButtonEditSheet(
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 TextButton(
                     onClick = onDismiss,
@@ -2965,9 +3147,8 @@ private fun AutoButtonEditSheet(
                 }
                 Button(
                     onClick = {
-                        val cleanTitle = title.trim()
+                        val cleanTitle = title.trim().ifBlank { displayCategory(category) }
                         errorMessage = when {
-                            cleanTitle.isBlank() -> "이름을 입력해주세요."
                             endMinute <= startMinute -> "종료 시간은 시작 시간보다 늦어야 합니다."
                             repeatDays.isEmpty() -> "반복 요일을 하나 이상 선택해주세요."
                             else -> null
@@ -2989,14 +3170,114 @@ private fun AutoButtonEditSheet(
                     },
                     modifier = Modifier.weight(2f),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = FlowPurpleDeep,
+                        containerColor = FlowPurple,
                         contentColor = Color.White
                     ),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(16.dp)
                 ) {
                     Text("저장", fontWeight = FontWeight.ExtraBold)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AutoButtonCategorySegment(
+    category: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val accent = categoryColor(category)
+    Row(
+        modifier = modifier
+            .height(42.dp)
+            .background(
+                if (selected) FlowPurple else Color.Transparent,
+                RoundedCornerShape(16.dp)
+            )
+            .combinedClickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        CategoryGlyph(
+            category = category,
+            tint = if (selected) Color.White else accent.copy(alpha = 0.52f),
+            modifier = Modifier.size(19.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = displayCategory(category),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = if (selected) Color.White else FlowMuted
+        )
+    }
+}
+
+@Composable
+private fun RepeatDayButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(47.dp)
+            .background(
+                if (selected) FlowPurple else Color.White,
+                RoundedCornerShape(12.dp)
+            )
+            .border(
+                1.dp,
+                if (selected) FlowPurple.copy(alpha = 0.28f) else FlowDivider,
+                RoundedCornerShape(12.dp)
+            )
+            .combinedClickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = if (selected) Color.White else FlowMuted
+        )
+    }
+}
+
+@Composable
+private fun RoutineInfoPanel() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(FlowPurpleSoft.copy(alpha = 0.56f), RoundedCornerShape(14.dp))
+            .border(1.dp, FlowPurple.copy(alpha = 0.14f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Info,
+            contentDescription = null,
+            tint = FlowMuted.copy(alpha = 0.72f),
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(
+                "선택한 요일에 고정 시간이 타임라인에 표시됩니다.",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = FlowMuted
+            )
+            Text(
+                "오늘 하루만 비활성화하려면 목록에서 ‘오늘만 끄기’를 사용하세요.",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = FlowMuted.copy(alpha = 0.82f)
+            )
         }
     }
 }
@@ -3008,26 +3289,20 @@ private fun TimePickerCard(
     onChange: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
+    var isPickerOpen by remember { mutableStateOf(false) }
     Column(
         modifier = modifier
+            .height(124.dp)
             .background(Color(0xFFF9F9FC), RoundedCornerShape(12.dp))
             .border(1.dp, FlowDivider, RoundedCornerShape(12.dp))
             .combinedClickable(
-                onClick = {
-                    TimePickerDialog(
-                        context,
-                        { _, hourOfDay, minute -> onChange(hourOfDay * 60 + minute) },
-                        minuteOfDay / 60,
-                        minuteOfDay % 60,
-                        true
-                    ).show()
-                }
+                onClick = { isPickerOpen = true }
             )
             .padding(vertical = 14.dp, horizontal = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
-        Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = FlowMuted)
+        Text(label, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = FlowPurple)
         Text(
             text = formatMinuteOfDay(minuteOfDay),
             fontSize = 26.sp,
@@ -3037,8 +3312,246 @@ private fun TimePickerCard(
         )
         Text(
             "탭하여 변경",
-            fontSize = 10.sp,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
             color = FlowMuted.copy(alpha = 0.6f)
+        )
+    }
+
+    if (isPickerOpen) {
+        TimePickerSheet(
+            title = "$label 시간 설정",
+            subtitle = "$label 시간을 선택하세요.",
+            minuteOfDay = minuteOfDay,
+            onDismiss = { isPickerOpen = false },
+            onConfirm = {
+                onChange(it)
+                isPickerOpen = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimePickerSheet(
+    title: String,
+    subtitle: String,
+    minuteOfDay: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var hour by remember(minuteOfDay) { mutableStateOf(minuteOfDay.coerceIn(0, 1439) / 60) }
+    var minute by remember(minuteOfDay) { mutableStateOf(minuteOfDay.coerceIn(0, 1439) % 60) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color.White,
+        contentColor = FlowInk
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(560.dp)
+        ) {
+            TimePickerWaveBackground(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(118.dp)
+                    .align(Alignment.BottomCenter)
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 28.dp)
+                    .padding(bottom = 22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = title,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = FlowInk,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+                Text(
+                    text = subtitle,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = FlowMuted,
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+                Text(
+                    text = "%02d:%02d".format(hour, minute),
+                    fontSize = 48.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = Color(0xFF27324D),
+                    modifier = Modifier.padding(top = 28.dp)
+                )
+                Row(
+                    modifier = Modifier.padding(top = 26.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(22.dp)
+                ) {
+                    TimeWheelColumn(
+                        values = (0..23).toList(),
+                        selectedValue = hour,
+                        formatter = { "%02d".format(it) },
+                        onSelect = { hour = it }
+                    )
+                    Text(
+                        ":",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFF27324D)
+                    )
+                    TimeWheelColumn(
+                        values = (0..55 step 5).toList(),
+                        selectedValue = minute,
+                        formatter = { "%02d".format(it) },
+                        onSelect = { minute = it }
+                    )
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColors(contentColor = FlowInk)
+                    ) {
+                        Text("취소", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                    }
+                    Button(
+                        onClick = { onConfirm(hour * 60 + minute) },
+                        modifier = Modifier
+                            .weight(2.2f)
+                            .height(56.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = FlowPurple,
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text("확인", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimeWheelColumn(
+    values: List<Int>,
+    selectedValue: Int,
+    formatter: (Int) -> String,
+    onSelect: (Int) -> Unit
+) {
+    val itemHeight = 42.dp
+    val cycleCount = 101
+    val middleCycle = cycleCount / 2
+    val totalItems = values.size * cycleCount
+    val selectedIndex = values.indexOf(selectedValue).coerceAtLeast(0)
+    val initialIndex = (middleCycle * values.size + selectedIndex - 2).coerceAtLeast(0)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
+    val itemHeightPx = with(LocalDensity.current) { itemHeight.toPx() }
+
+    LaunchedEffect(listState, values, selectedValue, itemHeightPx) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collect { (firstIndex, scrollOffset) ->
+                val centeredOffset = if (scrollOffset > itemHeightPx / 2f) 3 else 2
+                val centeredIndex = (firstIndex + centeredOffset).coerceIn(0, totalItems - 1)
+                val centeredValue = values[centeredIndex.floorMod(values.size)]
+                if (centeredValue != selectedValue) {
+                    onSelect(centeredValue)
+                }
+            }
+    }
+
+    Box(
+        modifier = Modifier
+            .width(132.dp)
+            .height(246.dp)
+            .background(Color(0xFFFAFAFD), RoundedCornerShape(18.dp))
+            .padding(vertical = 18.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .height(itemHeight)
+                .padding(horizontal = 5.dp)
+                .background(FlowPurple.copy(alpha = 0.44f), RoundedCornerShape(13.dp))
+        )
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            contentPadding = PaddingValues(vertical = itemHeight * 2)
+        ) {
+            items(totalItems) { index ->
+                val value = values[index.floorMod(values.size)]
+                val selected = value == selectedValue
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(itemHeight)
+                        .combinedClickable(onClick = { onSelect(value) }),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = formatter(value),
+                        fontSize = if (selected) 23.sp else 22.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (selected) Color(0xFF27324D) else FlowMuted.copy(alpha = 0.45f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun Int.floorMod(other: Int): Int = ((this % other) + other) % other
+
+@Composable
+private fun TimePickerWaveBackground(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val first = Path().apply {
+            moveTo(0f, size.height * 0.35f)
+            cubicTo(
+                size.width * 0.28f,
+                size.height * 0.18f,
+                size.width * 0.52f,
+                size.height * 0.74f,
+                size.width,
+                size.height * 0.34f
+            )
+            lineTo(size.width, size.height)
+            lineTo(0f, size.height)
+            close()
+        }
+        drawPath(first, FlowPurpleSoft.copy(alpha = 0.54f))
+        val second = Path().apply {
+            moveTo(0f, size.height * 0.5f)
+            cubicTo(
+                size.width * 0.3f,
+                size.height * 0.3f,
+                size.width * 0.52f,
+                size.height * 0.9f,
+                size.width,
+                size.height * 0.48f
+            )
+        }
+        drawPath(
+            second,
+            FlowPurple.copy(alpha = 0.26f),
+            style = Stroke(width = 2.dp.toPx())
         )
     }
 }

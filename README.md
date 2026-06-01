@@ -23,6 +23,15 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Redesigned fixed-time routine management:
+  - The profile menu no longer includes the older `고정 시간 버튼 관리` entry;
+    fixed routines are managed from the timetable card's `반복 루틴` button.
+  - The routine manager now uses compact routine cards with category icons,
+    mini day timelines, persistent add action, and cleaner enable/skip controls.
+  - The add/edit routine flow now has segmented school/company selection,
+    card-style start/end time fields, day buttons, guidance copy, and a custom
+    scrollable circular time picker.
+
 - Added local Todo burden scoring for Today's Focus and recommended time plans:
   - The app now calculates `LIGHT`, `MEDIUM`, and `HEAVY` Todo burden locally
     using category/topic grouping, completed Todo baselines, accumulated work
