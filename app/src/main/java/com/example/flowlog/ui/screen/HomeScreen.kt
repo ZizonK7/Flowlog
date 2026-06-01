@@ -89,6 +89,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -105,7 +106,6 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
@@ -3728,7 +3728,9 @@ private fun TimePickerSheet(
                 ) {
                     TextButton(
                         onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
                         colors = ButtonDefaults.textButtonColors(contentColor = FlowInk)
                     ) {
                         Text("취소", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
@@ -3736,7 +3738,7 @@ private fun TimePickerSheet(
                     Button(
                         onClick = { onConfirm(hour * 60 + minute) },
                         modifier = Modifier
-                            .weight(2.2f)
+                            .weight(1f)
                             .height(56.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = FlowPurple,
@@ -3764,19 +3766,30 @@ private fun TimeWheelColumn(
     val middleCycle = cycleCount / 2
     val totalItems = values.size * cycleCount
     val selectedIndex = values.indexOf(selectedValue).coerceAtLeast(0)
-    val initialIndex = (middleCycle * values.size + selectedIndex - 2).coerceAtLeast(0)
+    val initialIndex = (middleCycle * values.size + selectedIndex).coerceAtLeast(0)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
-    val itemHeightPx = with(LocalDensity.current) { itemHeight.toPx() }
+    var centeredItemIndex by remember { mutableStateOf(initialIndex) }
 
-    LaunchedEffect(listState, values, selectedValue, itemHeightPx) {
-        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-            .collect { (firstIndex, scrollOffset) ->
-                val centeredOffset = if (scrollOffset > itemHeightPx / 2f) 3 else 2
-                val centeredIndex = (firstIndex + centeredOffset).coerceIn(0, totalItems - 1)
+    val latestOnSelect by rememberUpdatedState(onSelect)
+    val latestSelectedValue by rememberUpdatedState(selectedValue)
+
+    LaunchedEffect(listState, values) {
+        var prevScrolling = false
+        snapshotFlow { listState.centeredVisibleItemIndex(totalItems) to listState.isScrollInProgress }
+            .collect { (centeredIndex, isScrollInProgress) ->
+                if (centeredIndex == null) return@collect
+                centeredItemIndex = centeredIndex
                 val centeredValue = values[centeredIndex.floorMod(values.size)]
-                if (centeredValue != selectedValue) {
-                    onSelect(centeredValue)
+                if (centeredValue != latestSelectedValue) {
+                    latestOnSelect(centeredValue)
                 }
+                if (prevScrolling && !isScrollInProgress) {
+                    val targetIndex = centeredIndex.coerceIn(0, totalItems - 1)
+                    if (listState.firstVisibleItemIndex != targetIndex || listState.firstVisibleItemScrollOffset != 0) {
+                        listState.animateScrollToItem(index = targetIndex)
+                    }
+                }
+                prevScrolling = isScrollInProgress
             }
     }
 
@@ -3803,7 +3816,7 @@ private fun TimeWheelColumn(
         ) {
             items(totalItems) { index ->
                 val value = values[index.floorMod(values.size)]
-                val selected = value == selectedValue
+                val selected = index == centeredItemIndex
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -3825,6 +3838,16 @@ private fun TimeWheelColumn(
 
 private fun Int.floorMod(other: Int): Int = ((this % other) + other) % other
 
+private fun androidx.compose.foundation.lazy.LazyListState.centeredVisibleItemIndex(totalItems: Int): Int? {
+    val visibleItems = layoutInfo.visibleItemsInfo
+    if (visibleItems.isEmpty()) return null
+    val viewportCenter = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+    return visibleItems
+        .minByOrNull { item -> abs((item.offset + item.size / 2) - viewportCenter) }
+        ?.index
+        ?.coerceIn(0, totalItems - 1)
+}
+
 @Composable
 private fun TimePickerWaveBackground(modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
@@ -3843,22 +3866,6 @@ private fun TimePickerWaveBackground(modifier: Modifier = Modifier) {
             close()
         }
         drawPath(first, FlowPurpleSoft.copy(alpha = 0.54f))
-        val second = Path().apply {
-            moveTo(0f, size.height * 0.5f)
-            cubicTo(
-                size.width * 0.3f,
-                size.height * 0.3f,
-                size.width * 0.52f,
-                size.height * 0.9f,
-                size.width,
-                size.height * 0.48f
-            )
-        }
-        drawPath(
-            second,
-            FlowPurple.copy(alpha = 0.26f),
-            style = Stroke(width = 2.dp.toPx())
-        )
     }
 }
 

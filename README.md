@@ -23,6 +23,8 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Fixed the auto-scroll offset bug in the repetitive routine (반복 루틴) time picker where selecting a time would incorrectly snap to the position 2 slots (10 minutes) above the center.
+
 - Improved the home timetable display compression:
   - The timetable now builds `DisplayActivitySegment` objects only for UI
     rendering, preserving the original Activity records for Room, Firebase sync,
