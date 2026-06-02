@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.local.entity.DailyGoalItemEntity
 import com.google.firebase.auth.FirebaseAuth
@@ -38,8 +39,15 @@ class PlannedTodoReminderScheduler(private val context: Context) {
     }
 
     fun cancel(itemId: String) {
-        val pendingIntent = buildPendingIntent(itemId, scheduledAt = 0L, flags = PendingIntent.FLAG_NO_CREATE)
-            ?: return
+        val rc = requestCode(itemId)
+        // FLAG_UPDATE_CURRENT: scheduleItem과 동일한 PendingIntent identity를 보장.
+        // FLAG_NO_CREATE는 앱 재시작 후 메모리 캐시가 없으면 null을 반환해 cancel이 no-op이 되는 문제가 있다.
+        val pendingIntent = buildPendingIntent(itemId, scheduledAt = 0L, flags = PendingIntent.FLAG_UPDATE_CURRENT)
+        if (pendingIntent == null) {
+            Log.w(TAG, "cancel: itemId=$itemId requestCode=$rc pendingIntent=null (no-op)")
+            return
+        }
+        Log.d(TAG, "cancel: itemId=$itemId requestCode=$rc")
         alarmManager.cancel(pendingIntent)
         pendingIntent.cancel()
     }
@@ -61,6 +69,7 @@ class PlannedTodoReminderScheduler(private val context: Context) {
             flags = PendingIntent.FLAG_UPDATE_CURRENT
         ) ?: return
 
+        Log.d(TAG, "schedule: itemId=${item.itemId} todoId=${item.todoId} plannedStartMillis=${item.plannedStartMillis} notificationScheduledAtMillis=$triggerAt requestCode=${requestCode(item.itemId)}")
         runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
                 throw SecurityException("Exact alarms are not allowed")
@@ -99,6 +108,7 @@ class PlannedTodoReminderScheduler(private val context: Context) {
     }
 
     companion object {
+        private const val TAG = "PlannedTodoScheduler"
         private const val REQUEST_PLANNED_TODO_REMINDER = 42_000
         private val ACTIVE_STATUSES = setOf("PLANNED", "RESCHEDULED")
     }

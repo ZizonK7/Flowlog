@@ -32,24 +32,53 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
                 val db = FlowlogDatabase.getInstance(context)
-                val item = db.dailyGoalDao().getGoalItem(itemId) ?: return@launch
-                if (item.userActionStatus !in ACTIVE_STATUSES ||
-                    item.wasCompleted ||
-                    item.wasSkipped ||
-                    item.wasDeleted ||
-                    item.actualStartedAt != null ||
-                    item.actualCompletedAt != null
-                ) {
+                val item = db.dailyGoalDao().getGoalItem(itemId) ?: run {
+                    Log.w(TAG, "receive blocked: itemId=$itemId intentScheduledAt=$scheduledAt reason=item_not_found")
                     return@launch
                 }
 
-                val expectedAt = item.notificationScheduledAtMillis ?: return@launch
-                if (scheduledAt > 0L && scheduledAt != expectedAt) return@launch
-                if (System.currentTimeMillis() - expectedAt > MAX_STALE_ALARM_MILLIS) return@launch
+                val snapshotTitle = item.titleFromSnapshot() ?: item.todoId
+
+                if (item.userActionStatus !in ACTIVE_STATUSES) {
+                    Log.w(TAG, "receive blocked: itemId=$itemId title=$snapshotTitle intentScheduledAt=$scheduledAt dbScheduledAt=${item.notificationScheduledAtMillis} actionStatus=${item.userActionStatus} reason=status_not_active")
+                    return@launch
+                }
+                if (item.wasCompleted || item.actualCompletedAt != null) {
+                    Log.w(TAG, "receive blocked: itemId=$itemId title=$snapshotTitle intentScheduledAt=$scheduledAt reason=completed")
+                    return@launch
+                }
+                if (item.wasSkipped) {
+                    Log.w(TAG, "receive blocked: itemId=$itemId title=$snapshotTitle intentScheduledAt=$scheduledAt reason=skipped")
+                    return@launch
+                }
+                if (item.wasDeleted) {
+                    Log.w(TAG, "receive blocked: itemId=$itemId title=$snapshotTitle intentScheduledAt=$scheduledAt reason=deleted")
+                    return@launch
+                }
+                if (item.actualStartedAt != null) {
+                    Log.w(TAG, "receive blocked: itemId=$itemId title=$snapshotTitle intentScheduledAt=$scheduledAt reason=already_started")
+                    return@launch
+                }
+
+                val expectedAt = item.notificationScheduledAtMillis ?: run {
+                    Log.w(TAG, "receive blocked: itemId=$itemId title=$snapshotTitle intentScheduledAt=$scheduledAt reason=no_scheduled_at_in_db")
+                    return@launch
+                }
+                if (scheduledAt != expectedAt) {
+                    Log.w(TAG, "receive blocked: itemId=$itemId title=$snapshotTitle intentScheduledAt=$scheduledAt dbScheduledAt=$expectedAt actionStatus=${item.userActionStatus} reason=scheduled_at_mismatch")
+                    return@launch
+                }
+                if (System.currentTimeMillis() - expectedAt > MAX_STALE_ALARM_MILLIS) {
+                    Log.w(TAG, "receive blocked: itemId=$itemId title=$snapshotTitle intentScheduledAt=$scheduledAt age=${System.currentTimeMillis() - expectedAt}ms reason=stale_alarm")
+                    return@launch
+                }
 
                 val todoId = item.todoId.removePrefix("legacy_todo_").toLongOrNull()
                 val todo = todoId?.let { db.todoDao().getTodoByLegacyId(it) }
-                if (todo != null && (todo.isCompleted || todo.isDeleted)) return@launch
+                if (todo != null && (todo.isCompleted || todo.isDeleted)) {
+                    Log.w(TAG, "receive blocked: itemId=$itemId title=$snapshotTitle intentScheduledAt=$scheduledAt reason=todo_completed_or_deleted")
+                    return@launch
+                }
 
                 if (!canPostNotifications(context)) return@launch
                 val shouldSilence = SleepAlarmGuard.shouldSilenceAlerts(context)
@@ -58,6 +87,7 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                 }
 
                 val title = todo?.title ?: item.titleFromSnapshot() ?: "\uD560 \uC77C"
+                Log.d(TAG, "receive allowed: itemId=$itemId title=$title intentScheduledAt=$scheduledAt dbScheduledAt=$expectedAt actionStatus=${item.userActionStatus}")
                 val openPendingIntent = PendingIntent.getActivity(
                     context,
                     REQUEST_OPEN_HOME,
