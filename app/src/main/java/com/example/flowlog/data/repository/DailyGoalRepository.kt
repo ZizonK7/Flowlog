@@ -131,12 +131,12 @@ class DailyGoalRepository(context: Context) {
                     item.wasCompleted ||
                     item.wasSkipped ||
                     item.wasDeleted ||
-                    item.todoId in completedTodoIds ||
-                    block.plannedStartMillis + HOUR_MILLIS <= now
+                    item.todoId in completedTodoIds
                 ) {
                     return@mapNotNull null
                 }
-                block
+                val expired = block.plannedStartMillis + HOUR_MILLIS <= now
+                block.copy(isBubbleOnly = expired)
             }
         }
     }

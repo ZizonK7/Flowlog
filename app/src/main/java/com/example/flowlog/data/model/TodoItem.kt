@@ -34,5 +34,6 @@ data class RecommendedTodoBlock(
     val plannedStartMillis: Long,
     val plannedEndMillis: Long,
     val recommendedDurationMinutes: Int,
-    val userActionStatus: String
+    val userActionStatus: String,
+    val isBubbleOnly: Boolean = false
 )

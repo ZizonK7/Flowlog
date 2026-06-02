@@ -2421,14 +2421,16 @@ private fun TimetableBar(
 ) {
     if (blocks.isEmpty()) return
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-    val firstStart = blocks.minOf {
+    val windowBlocks = blocks.filter { it !is TimelineBlock.RecommendedTodo || !it.block.isBubbleOnly }
+        .ifEmpty { blocks }
+    val firstStart = windowBlocks.minOf {
         when (it) {
             is TimelineBlock.ActualActivity -> it.segment.startTime
             is TimelineBlock.ScheduledAutoButton -> it.block.startTime
             is TimelineBlock.RecommendedTodo -> it.block.plannedStartMillis
         }
     }
-    val lastEnd = blocks.maxOf {
+    val lastEnd = windowBlocks.maxOf {
         when (it) {
             is TimelineBlock.ActualActivity -> it.segment.endTime.coerceAtLeast(it.segment.startTime + 1L)
             is TimelineBlock.ScheduledAutoButton -> it.block.endTime.coerceAtLeast(it.block.startTime + 1L)
@@ -2581,23 +2583,25 @@ private fun TimetableBar(
                         .coerceIn(startFraction, 1f)
                     val x = size.width * startFraction
                     val width = (size.width * (endFraction - startFraction)).coerceAtLeast(4.dp.toPx())
-                    val color = FlowPurple.copy(alpha = 0.7f)
-                    drawRoundRect(
-                        color = FlowPurpleSoft.copy(alpha = 0.45f),
-                        topLeft = Offset(x, top + 4.dp.toPx()),
-                        size = Size(width, barHeight - 8.dp.toPx()),
-                        cornerRadius = radius
-                    )
-                    drawRoundRect(
-                        color = color,
-                        topLeft = Offset(x, top + 4.dp.toPx()),
-                        size = Size(width, barHeight - 8.dp.toPx()),
-                        cornerRadius = radius,
-                        style = Stroke(
-                            width = 1.5.dp.toPx(),
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8.dp.toPx(), 5.dp.toPx()))
+                    if (!item.isBubbleOnly) {
+                        val color = FlowPurple.copy(alpha = 0.7f)
+                        drawRoundRect(
+                            color = FlowPurpleSoft.copy(alpha = 0.45f),
+                            topLeft = Offset(x, top + 4.dp.toPx()),
+                            size = Size(width, barHeight - 8.dp.toPx()),
+                            cornerRadius = radius
                         )
-                    )
+                        drawRoundRect(
+                            color = color,
+                            topLeft = Offset(x, top + 4.dp.toPx()),
+                            size = Size(width, barHeight - 8.dp.toPx()),
+                            cornerRadius = radius,
+                            style = Stroke(
+                                width = 1.5.dp.toPx(),
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(8.dp.toPx(), 5.dp.toPx()))
+                            )
+                        )
+                    }
                     val label = "${timeFormat.format(Date(item.plannedStartMillis))} ${item.title}"
                     drawRecommendedTodoBubble(
                         label = label,
