@@ -22,8 +22,8 @@ android {
         applicationId = "com.example.flowlog"
         minSdk = 24
         targetSdk = 36
-        versionCode = 12
-        versionName = "1.3.1"
+        versionCode = 15
+        versionName = "1.3.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -43,7 +43,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Info
+
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -74,7 +74,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import com.example.flowlog.util.CalendarIntentHelper
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -145,6 +147,7 @@ fun TodoScreen(
     }
 
     // 입력 카드 상태
+    val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     var newTitle          by remember { mutableStateOf("") }
     var isInputExpanded   by remember { mutableStateOf(false) }
@@ -246,6 +249,14 @@ fun TodoScreen(
                 interactionSource = titleSrc,
                 onAdd = {
                     viewModel.addTodo(newTitle, inputCategory ?: TodoCategory.NORMAL, inputDate)
+                    newTitle = ""; isInputExpanded = false; inputCategory = null; inputDate = null
+                    focusManager.clearFocus()
+                },
+                onAddToCalendar = {
+                    val titleToSave = newTitle.trim()
+                    val dateToSave = inputDate
+                    viewModel.addTodo(titleToSave, inputCategory ?: TodoCategory.NORMAL, dateToSave)
+                    CalendarIntentHelper.openInsertEvent(context, titleToSave, dateToSave)
                     newTitle = ""; isInputExpanded = false; inputCategory = null; inputDate = null
                     focusManager.clearFocus()
                 }
@@ -928,7 +939,8 @@ private fun NewTodoCard(
     date: Long?,
     onDateClick: () -> Unit,
     interactionSource: MutableInteractionSource,
-    onAdd: () -> Unit
+    onAdd: () -> Unit,
+    onAddToCalendar: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1002,9 +1014,24 @@ private fun NewTodoCard(
                         DateChipButton(date, onDateClick)
                     }
                     Spacer(Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Icon(Icons.Outlined.Info, null, Modifier.size(13.dp), tint = TextMuted)
-                        Text("선택 사항은 나중에 태그랑 볼 수 있어요", fontSize = 12.sp, color = TextMuted)
+                    OutlinedButton(
+                        onClick = onAddToCalendar,
+                        enabled = title.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            if (title.isNotBlank()) BorderLight else BorderLight.copy(alpha = 0.4f)
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = TextMuted,
+                            disabledContentColor = TextMuted.copy(alpha = 0.4f)
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Icon(Icons.Outlined.CalendarMonth, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("캘린더에 추가", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             }

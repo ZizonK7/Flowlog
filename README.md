@@ -23,6 +23,19 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Added "캘린더에 추가" button to the Todo input card:
+  - Tapping the button saves the todo locally and immediately opens the system
+    calendar app's event-creation screen with the todo title and date pre-filled.
+  - Flowlog does not write to the Calendar Provider directly; the user finalises
+    the event inside the calendar app.
+  - No `READ_CALENDAR` or `WRITE_CALENDAR` permission is requested.
+  - If the todo has a date selected it is used as the all-day event start; if no
+    date is chosen today's date is used instead.
+  - When no calendar app is installed a Toast notifies the user instead of
+    crashing.
+  - The previous "선택 사항은 나중에 태그랑 볼 수 있어요" hint text in the
+    expanded input card is replaced by this button.
+
 - Redesigned the Todo tab around Anchors and Daily Cues:
   - The former "Today's Goal" section is now labeled `Anchors` and shows the
     first two anchor todos in a compact layout so the top of the Todo tab fits
