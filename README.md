@@ -23,6 +23,20 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Redesigned the Todo tab around Anchors and Daily Cues:
+  - The former "Today's Goal" section is now labeled `Anchors` and shows the
+    first two anchor todos in a compact layout so the top of the Todo tab fits
+    both anchors and cue cards.
+  - Removed the separate yesterday-flow suggestion card that appeared below the
+    anchors.
+  - Added a `Daily Cues` section with a 2x2 cue grid, completion toggles, and
+    persistent local cue state.
+  - Daily Cues can be added, edited by long-pressing a cue card, deleted from
+    the edit dialog, and expanded with `More` when there are more than four.
+  - Cue ordering keeps `Routine` items above `Memo` items. Routine cues persist
+    across days with completion reset, while Memo cues are removed on the next
+    day.
+
 - Improved timetable routine and Todo recommendation behavior:
   - Auto-started repetitive routines now keep an undo snapshot of the interrupted
     timer, including its original start time, goal, Todo link, and source, so

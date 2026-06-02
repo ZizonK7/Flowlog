@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -123,6 +124,8 @@ import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.AutoButtonSchedule
 import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.ScheduledAutoButtonBlock
+import com.example.flowlog.data.model.TodoCategory
+import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.ui.component.CategoryButton
 import com.example.flowlog.ui.component.CategoryGlyph
 import com.example.flowlog.ui.component.EditActivityDialog
@@ -283,13 +286,16 @@ fun HomeScreen(
                 activities = uiState.todayActivities,
                 scheduledBlocks = uiState.scheduledAutoButtonBlocks,
                 recommendedBlocks = uiState.recommendedTodoBlocks,
+                incompleteTodos = uiState.incompleteTodos,
                 onSkipToday = { viewModel.skipAutoButtonToday(it) },
                 onUnskipToday = { viewModel.unskipAutoButtonToday(it) },
                 onEditSchedule = { scheduleId ->
                     localAutoButtonManagerOpen = true
                 },
                 onManageSchedules = { localAutoButtonManagerOpen = true },
-                onStartRecommended = { viewModel.startRecommendedTodoActivity(it) }
+                onStartRecommended = { viewModel.startRecommendedTodoActivity(it) },
+                onSetRecommendedTime = { block, hour -> viewModel.setRecommendedTodoTime(block, hour) },
+                onReplaceRecommendedItem = { block, todo -> viewModel.replaceRecommendedTodoItem(block, todo) }
             )
         }
 
@@ -2043,11 +2049,14 @@ private fun TimetableCard(
     activities: List<ActivitySession>,
     scheduledBlocks: List<ScheduledAutoButtonBlock>,
     recommendedBlocks: List<RecommendedTodoBlock>,
+    incompleteTodos: List<TodoItem>,
     onSkipToday: (String) -> Unit,
     onUnskipToday: (String) -> Unit,
     onEditSchedule: (String) -> Unit,
     onManageSchedules: () -> Unit,
-    onStartRecommended: (RecommendedTodoBlock) -> Unit
+    onStartRecommended: (RecommendedTodoBlock) -> Unit,
+    onSetRecommendedTime: (RecommendedTodoBlock, Int) -> Unit,
+    onReplaceRecommendedItem: (RecommendedTodoBlock, TodoItem) -> Unit
 ) {
     var selectedBlock by remember { mutableStateOf<ScheduledAutoButtonBlock?>(null) }
     var selectedRecommendedBlock by remember { mutableStateOf<RecommendedTodoBlock?>(null) }
@@ -2152,9 +2161,18 @@ private fun TimetableCard(
     selectedRecommendedBlock?.let { block ->
         RecommendedTodoActionSheet(
             block = block,
+            incompleteTodos = incompleteTodos,
             onDismiss = { selectedRecommendedBlock = null },
             onStart = {
                 onStartRecommended(block)
+                selectedRecommendedBlock = null
+            },
+            onSetTime = { hour ->
+                onSetRecommendedTime(block, hour)
+                selectedRecommendedBlock = null
+            },
+            onReplaceItem = { todo ->
+                onReplaceRecommendedItem(block, todo)
                 selectedRecommendedBlock = null
             }
         )
@@ -2466,15 +2484,35 @@ private fun TimetableBar(
             .pointerInput(scheduled, recommended, windowStart, windowDuration) {
                 detectTapGestures(
                     onTap = { offset ->
-                        val hit = recommended.firstOrNull { block ->
+                        // 바 위치: top=34dp, height=26dp → barBottom=60dp
+                        // 말풍선: above → 0..20dp, below → ~70..90dp (barBottom+5+5+20)
+                        val barTop = 34.dp.toPx()
+                        val barBottom = 60.dp.toPx()
+                        val bubbleH = 20.dp.toPx()
+                        val bubbleBelowTop = barBottom + 10.dp.toPx()
+                        val maxBubbleHalf = minOf(95.dp.toPx(), (size.width - 8.dp.toPx()) / 2f)
+                            .coerceAtLeast(24.dp.toPx())
+                        val hit = recommended.withIndex().firstOrNull { (index, block) ->
                             val startFraction = ((block.plannedStartMillis - windowStart).toFloat() / windowDuration.toFloat())
                                 .coerceIn(0f, 1f)
                             val endFraction = ((block.displayEndMillis() - windowStart).toFloat() / windowDuration.toFloat())
                                 .coerceIn(startFraction, 1f)
                             val startX = size.width * startFraction
                             val endX = size.width * endFraction
-                            offset.x in startX..endX
-                        }
+                            val centerX = (startX + endX) / 2f
+                            val bubbleLeft = (centerX - maxBubbleHalf).coerceAtLeast(0f)
+                            val bubbleRight = (centerX + maxBubbleHalf).coerceAtMost(size.width.toFloat())
+                            val showAbove = index % 2 == 0
+                            when {
+                                // 바 영역: 해당 블록의 X 범위만
+                                offset.y in barTop..barBottom -> offset.x in startX..endX
+                                // 위 말풍선 영역: 짝수 인덱스 블록만
+                                showAbove && offset.y < barTop -> offset.x in bubbleLeft..bubbleRight
+                                // 아래 말풍선 영역: 홀수 인덱스 블록만
+                                !showAbove && offset.y > barBottom -> offset.x in bubbleLeft..bubbleRight
+                                else -> false
+                            }
+                        }?.value
                         if (hit != null) onRecommendedClick(hit)
                     },
                     onLongPress = { offset ->
@@ -2903,69 +2941,288 @@ private fun ScheduledAutoButtonActionSheet(
 @Composable
 private fun RecommendedTodoActionSheet(
     block: RecommendedTodoBlock,
+    incompleteTodos: List<TodoItem>,
     onDismiss: () -> Unit,
-    onStart: () -> Unit
+    onStart: () -> Unit,
+    onSetTime: (hourOfDay: Int) -> Unit,
+    onReplaceItem: (TodoItem) -> Unit
 ) {
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-    var showReason by remember(block.itemId) { mutableStateOf(false) }
+    val initialHour = remember(block.plannedStartMillis) {
+        val cal = java.util.Calendar.getInstance()
+        cal.timeInMillis = block.plannedStartMillis
+        cal.get(java.util.Calendar.HOUR_OF_DAY)
+    }
+    var mode by remember(block.itemId) { mutableStateOf("MAIN") }
+    var selectedHour by remember(block.itemId) { mutableStateOf(initialHour) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    LaunchedEffect(mode) {
+        if (mode == "CHANGE_TIME" || mode == "CHANGE_ITEM") sheetState.expand()
+    }
+    val blockOverscroll = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset = available
+
+            override suspend fun onPreFling(available: Velocity): Velocity =
+                available
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = Color.White,
         contentColor = FlowInk
     ) {
-        Column(
-            modifier = Modifier
-                .background(Color.White)
-                .padding(horizontal = 20.dp, vertical = 10.dp)
-        ) {
-            Text(
-                block.title,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = FlowInk
-            )
-            Text(
-                "${timeFormat.format(Date(block.plannedStartMillis))} 시작 추천",
-                fontSize = 13.sp,
-                color = FlowMuted,
-                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
-            )
-            Button(
-                onClick = onStart,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = FlowPurple,
-                    contentColor = Color.White
-                )
-            ) {
-                Text("시작하기", fontWeight = FontWeight.Bold)
-            }
-            TextButton(
-                onClick = { showReason = !showReason },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.textButtonColors(contentColor = FlowInk)
-            ) {
-                Text("추천 이유 보기", fontWeight = FontWeight.Bold)
-            }
-            if (showReason) {
-                Text(
-                    text = block.reason ?: "오늘의 목표와 최근 시간대 기록을 바탕으로 추천했어요.",
-                    fontSize = 13.sp,
-                    color = FlowMuted,
+        when (mode) {
+            "CHANGE_TIME" -> {
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFFF7F7FA), RoundedCornerShape(12.dp))
-                        .padding(12.dp)
-                )
+                        .background(Color.White)
+                        .nestedScroll(blockOverscroll)
+                        .padding(horizontal = 20.dp)
+                        .padding(top = 4.dp, bottom = 24.dp)
+                        .navigationBarsPadding(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = { mode = "MAIN" }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "뒤로",
+                                tint = FlowInk,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Text(
+                            "시작 시간 설정",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = FlowInk,
+                            modifier = Modifier.weight(1f),
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.size(48.dp))
+                    }
+                    Text(
+                        "몇 시에 시작할까요?",
+                        fontSize = 13.sp,
+                        color = FlowMuted,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                    Text(
+                        text = "%02d:00".format(selectedHour),
+                        fontSize = 44.sp,
+                        fontWeight = FontWeight.Normal,
+                        color = Color(0xFF27324D),
+                        modifier = Modifier.padding(top = 20.dp, bottom = 20.dp)
+                    )
+                    TimeWheelColumn(
+                        values = (0..23).toList(),
+                        selectedValue = selectedHour,
+                        formatter = { "%02d:00".format(it) },
+                        onSelect = { selectedHour = it }
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        TextButton(
+                            onClick = { mode = "MAIN" },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp),
+                            colors = ButtonDefaults.textButtonColors(contentColor = FlowInk)
+                        ) {
+                            Text("취소", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+                        Button(
+                            onClick = { onSetTime(selectedHour) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = FlowPurple,
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Text("확인", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+                }
             }
-            TextButton(
-                onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.textButtonColors(contentColor = FlowMuted)
-            ) {
-                Text("닫기")
+            "CHANGE_ITEM" -> {
+                val selectableTodos = remember(incompleteTodos, block.todoId) {
+                    incompleteTodos.filter { it.id != block.todoId }
+                }
+                Column(
+                    modifier = Modifier
+                        .background(Color.White)
+                        .fillMaxHeight(0.9f)
+                        .padding(horizontal = 20.dp)
+                        .padding(top = 4.dp, bottom = 24.dp)
+                        .navigationBarsPadding()
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = { mode = "MAIN" }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "뒤로",
+                                tint = FlowInk,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Text(
+                            "다른 할 일 선택",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = FlowInk,
+                            modifier = Modifier.weight(1f),
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.size(48.dp))
+                    }
+                    Text(
+                        "선택하면 시간이 자동으로 배정됩니다.",
+                        fontSize = 13.sp,
+                        color = FlowMuted,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                    )
+                    if (selectableTodos.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "선택할 수 있는 다른 할 일이 없습니다.",
+                                fontSize = 14.sp,
+                                color = FlowMuted,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    } else {
+                        val todoDateFormat = remember { SimpleDateFormat("M월 d일", Locale.KOREAN) }
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .nestedScroll(blockOverscroll),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(selectableTodos.size) { index ->
+                                val todo = selectableTodos[index]
+                                val dateLabel = todo.selectedDate?.let { todoDateFormat.format(Date(it)) }
+                                val categoryLabel = when (todo.category) {
+                                    TodoCategory.REVIEW -> "복습"
+                                    TodoCategory.ASSIGNMENT -> "과제"
+                                    else -> null
+                                }
+                                val metaLabel = listOfNotNull(dateLabel, categoryLabel).joinToString(" · ")
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFFF7F7FA), RoundedCornerShape(14.dp))
+                                        .combinedClickable(onClick = { onReplaceItem(todo) })
+                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .background(FlowPurple.copy(alpha = 0.5f), CircleShape)
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = todo.title,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = FlowInk,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (metaLabel.isNotEmpty()) {
+                                            Text(
+                                                text = metaLabel,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = FlowMuted,
+                                                modifier = Modifier.padding(top = 3.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            Spacer(modifier = Modifier.height(20.dp))
+            else -> {
+                Column(
+                    modifier = Modifier
+                        .background(Color.White)
+                        .padding(horizontal = 20.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        block.title,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = FlowInk
+                    )
+                    Text(
+                        "${timeFormat.format(Date(block.plannedStartMillis))} 시작 추천",
+                        fontSize = 13.sp,
+                        color = FlowMuted,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                    )
+                    Button(
+                        onClick = onStart,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = FlowPurple,
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Text("시작하기", fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(
+                        onClick = { mode = "CHANGE_TIME" },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.textButtonColors(contentColor = FlowInk)
+                    ) {
+                        Text("다른 시간으로 바꾸기", fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(
+                        onClick = { mode = "CHANGE_ITEM" },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.textButtonColors(contentColor = FlowInk)
+                    ) {
+                        Text("다른 할 일로 바꾸기", fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.textButtonColors(contentColor = FlowMuted)
+                    ) {
+                        Text("닫기")
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
+            }
         }
     }
 }

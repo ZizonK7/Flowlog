@@ -198,6 +198,8 @@ class DailyGoalRepository(context: Context) {
         val dayStart = dateFormat.parse(dateKey)?.time ?: startOfDay(System.currentTimeMillis())
         val workplaceBlocks = todayWorkplaceBlocks(dayStart)
         val workplaceMaskedHours = maskedHours(dayStart, workplaceBlocks)
+        val currentHour = ((System.currentTimeMillis() - dayStart) / HOUR_MILLIS).toInt().coerceIn(0, 23)
+        val effectiveMaskedHours = workplaceMaskedHours + (0..currentHour).toSet()
         val pastWorkdayActivities = activitiesBeforeTodayOnWorkdays(activities, dayStart)
         val workdayCount = pastWorkdayActivities.keys.size
         val heavyMode = recommendationModeOverride ?: if (workdayCount < 5) {
@@ -212,7 +214,7 @@ class DailyGoalRepository(context: Context) {
             buildPlannedComputation(
                 role = role,
                 dayStart = dayStart,
-                workplaceMaskedHours = workplaceMaskedHours,
+                workplaceMaskedHours = effectiveMaskedHours,
                 pastWorkdayActivities = pastWorkdayActivities.values.flatten(),
                 historicalActivities = activities,
                 workplaceBlocks = workplaceBlocks,
@@ -231,7 +233,7 @@ class DailyGoalRepository(context: Context) {
             buildPlannedComputation(
                 role = role,
                 dayStart = dayStart,
-                workplaceMaskedHours = workplaceMaskedHours,
+                workplaceMaskedHours = effectiveMaskedHours,
                 pastWorkdayActivities = pastWorkdayActivities.values.flatten(),
                 historicalActivities = activities,
                 workplaceBlocks = workplaceBlocks,
@@ -283,6 +285,51 @@ class DailyGoalRepository(context: Context) {
 
     suspend fun dismissPlannedItem(itemId: String) {
         dao.updateItemActionStatus(userId, itemId, "DISMISSED", System.currentTimeMillis())
+    }
+
+    suspend fun reschedulePlannedItem(itemId: String) {
+        dao.updateItemActionStatus(userId, itemId, "RESCHEDULED", System.currentTimeMillis())
+    }
+
+    suspend fun setPlannedItemTime(itemId: String, startHourOfDay: Int) {
+        val dayStart = startOfDay(System.currentTimeMillis())
+        val startMillis = dayStart + startHourOfDay * HOUR_MILLIS
+        val endMillis = startMillis + HOUR_MILLIS
+        dao.updateItemTimeManually(
+            userId = userId,
+            itemId = itemId,
+            plannedStartMillis = startMillis,
+            plannedEndMillis = endMillis,
+            durationMinutes = 60,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
+    suspend fun replacePlannedItemTodo(
+        block: RecommendedTodoBlock,
+        newTodo: TodoItem,
+        activities: List<ActivitySession>
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        dao.updateItemActionStatus(userId, block.itemId, "DISMISSED", now)
+        dao.insertGoalItems(
+            listOf(
+                com.example.flowlog.data.local.entity.DailyGoalItemEntity(
+                    itemId = UUID.randomUUID().toString(),
+                    recommendationId = block.recommendationId,
+                    userId = userId,
+                    todoId = "legacy_todo_${newTodo.id}",
+                    rank = 99,
+                    reason = null,
+                    todoSnapshotJson = runCatching { json.encodeToString(newTodo) }.getOrNull(),
+                    burdenLevel = null,
+                    createdAt = now,
+                    updatedAt = now,
+                    syncStatus = com.example.flowlog.data.constants.SyncStatus.PENDING
+                )
+            )
+        )
+        return ensureTodayTimePlan(activities = activities, forceRefresh = true)
     }
 
     suspend fun markPlannedItemStarted(itemId: String) {

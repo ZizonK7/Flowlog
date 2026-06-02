@@ -10,6 +10,7 @@ import com.example.flowlog.data.model.AutoButtonSchedule
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.ScheduledAutoButtonBlock
+import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.data.repository.ActivityRepository
 import com.example.flowlog.data.repository.AutoButtonScheduleRepository
 import com.example.flowlog.data.repository.DailyGoalRepository
@@ -94,7 +95,8 @@ data class ActivityUiState(
     val snackButtonEndsAtMillis: Long = 0L,
     val autoButtonSchedules: List<AutoButtonSchedule> = emptyList(),
     val scheduledAutoButtonBlocks: List<ScheduledAutoButtonBlock> = emptyList(),
-    val recommendedTodoBlocks: List<RecommendedTodoBlock> = emptyList()
+    val recommendedTodoBlocks: List<RecommendedTodoBlock> = emptyList(),
+    val incompleteTodos: List<TodoItem> = emptyList()
 )
 
 class ActivityViewModel(
@@ -133,6 +135,7 @@ class ActivityViewModel(
         observeAutoButtonSchedules()
         observeScheduledAutoButtonBlocks()
         observeRecommendedTodoBlocks()
+        observeIncompleteTodos()
         watchActiveSessionStore()
     }
 
@@ -734,6 +737,30 @@ class ActivityViewModel(
                         "오늘의 목표가 아직 없어 추천 시간 계획을 만들 수 없습니다."
                     }
                 )
+            }
+        }
+    }
+
+    fun setRecommendedTodoTime(block: RecommendedTodoBlock, startHourOfDay: Int) {
+        viewModelScope.launch {
+            dailyGoalRepository.setPlannedItemTime(block.itemId, startHourOfDay)
+        }
+    }
+
+    fun replaceRecommendedTodoItem(block: RecommendedTodoBlock, newTodo: TodoItem) {
+        viewModelScope.launch {
+            dailyGoalRepository.replacePlannedItemTodo(
+                block = block,
+                newTodo = newTodo,
+                activities = _uiState.value.allActivities
+            )
+        }
+    }
+
+    private fun observeIncompleteTodos() {
+        viewModelScope.launch {
+            todoRepository.getIncompleteTodos().collect { todos ->
+                _uiState.update { it.copy(incompleteTodos = todos) }
             }
         }
     }

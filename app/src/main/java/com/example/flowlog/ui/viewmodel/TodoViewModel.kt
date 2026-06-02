@@ -20,6 +20,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
+
+data class DailyCueItem(
+    val id: Long,
+    val label: String,
+    val title: String,
+    val isCompleted: Boolean = false
+)
 
 data class YesterdayFlowSuggestion(
     val message: String,
@@ -33,6 +42,7 @@ class TodoViewModel(
 ) : ViewModel() {
 
     private val focusPrefs = context.getSharedPreferences("todo_focus", Context.MODE_PRIVATE)
+    private val cuePrefs = context.getSharedPreferences("daily_cues", Context.MODE_PRIVATE)
     private val dailyGoalRepository = DailyGoalRepository(context.applicationContext)
     private val activityRepository = ActivityRepository(context.applicationContext)
 
@@ -40,6 +50,8 @@ class TodoViewModel(
     val todos: StateFlow<List<TodoItem>> = _todos.asStateFlow()
 
     private val _focusIds = MutableStateFlow<List<Long>>(emptyList())
+    private val _dailyCues = MutableStateFlow<List<DailyCueItem>>(loadDailyCues())
+    val dailyCues: StateFlow<List<DailyCueItem>> = _dailyCues.asStateFlow()
     private val _yesterdaySuggestion = MutableStateFlow<YesterdayFlowSuggestion?>(null)
     val yesterdaySuggestion: StateFlow<YesterdayFlowSuggestion?> = _yesterdaySuggestion.asStateFlow()
     private var latestActivities: List<ActivitySession> = emptyList()
@@ -256,6 +268,100 @@ class TodoViewModel(
                 isRefreshing = false
             }
         }
+    }
+
+    fun addDailyCue(title: String, label: String) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isEmpty()) return
+        val cleanLabel = if (label == "Memo") "Memo" else "Routine"
+        val updated = sortDailyCues(_dailyCues.value + DailyCueItem(
+            id = System.currentTimeMillis(),
+            label = cleanLabel,
+            title = cleanTitle
+        ))
+        _dailyCues.value = updated
+        saveDailyCues(updated)
+    }
+
+    fun toggleDailyCue(cueId: Long) {
+        val updated = sortDailyCues(_dailyCues.value.map { cue ->
+            if (cue.id == cueId) cue.copy(isCompleted = !cue.isCompleted) else cue
+        })
+        _dailyCues.value = updated
+        saveDailyCues(updated)
+    }
+
+    fun updateDailyCue(cueId: Long, title: String, label: String) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isEmpty()) return
+        val cleanLabel = if (label == "Memo") "Memo" else "Routine"
+        val updated = sortDailyCues(_dailyCues.value.map { cue ->
+            if (cue.id == cueId) cue.copy(title = cleanTitle, label = cleanLabel) else cue
+        })
+        _dailyCues.value = updated
+        saveDailyCues(updated)
+    }
+
+    fun deleteDailyCue(cueId: Long) {
+        val updated = _dailyCues.value.filter { it.id != cueId }
+        _dailyCues.value = updated
+        saveDailyCues(updated)
+    }
+
+    private fun loadDailyCues(): List<DailyCueItem> {
+        val todayKey = startOfDay(System.currentTimeMillis())
+        val storedDay = cuePrefs.getLong("date_key", 0L)
+        val storedJson = cuePrefs.getString("items_json", null)
+        val parsed = runCatching {
+            val array = JSONArray(storedJson ?: return@runCatching defaultDailyCues())
+            List(array.length()) { index ->
+                val item = array.getJSONObject(index)
+                DailyCueItem(
+                    id = item.optLong("id", index.toLong()),
+                    label = item.optString("label", "Routine"),
+                    title = item.optString("title", ""),
+                    isCompleted = item.optBoolean("isCompleted", false)
+                )
+            }.filter { it.title.isNotBlank() }
+        }.getOrElse { defaultDailyCues() }
+
+        val cues = sortDailyCues(parsed.ifEmpty { defaultDailyCues() })
+        val normalized = if (storedDay == todayKey) {
+            cues
+        } else {
+            sortDailyCues(cues.filter { it.label != "Memo" }.map { it.copy(isCompleted = false) })
+        }
+        if (storedDay != todayKey || storedJson == null) {
+            saveDailyCues(normalized, todayKey)
+        }
+        return normalized
+    }
+
+    private fun saveDailyCues(cues: List<DailyCueItem>, dateKey: Long = startOfDay(System.currentTimeMillis())) {
+        val array = JSONArray()
+        sortDailyCues(cues).forEach { cue ->
+            array.put(JSONObject().apply {
+                put("id", cue.id)
+                put("label", cue.label)
+                put("title", cue.title)
+                put("isCompleted", cue.isCompleted)
+            })
+        }
+        cuePrefs.edit()
+            .putLong("date_key", dateKey)
+            .putString("items_json", array.toString())
+            .apply()
+    }
+
+    private fun defaultDailyCues(): List<DailyCueItem> = listOf(
+        DailyCueItem(1L, "Routine", "물 마시기"),
+        DailyCueItem(2L, "Routine", "스트레칭"),
+        DailyCueItem(3L, "Memo", "신청서 확인"),
+        DailyCueItem(4L, "Memo", "우산 챙기기")
+    )
+
+    private fun sortDailyCues(cues: List<DailyCueItem>): List<DailyCueItem> {
+        return cues.sortedWith(compareBy<DailyCueItem> { if (it.label == "Routine") 0 else 1 }.thenBy { it.id })
     }
 
     fun addWorkTime(todoId: Long, durationMillis: Long) {

@@ -218,6 +218,30 @@ interface DailyGoalDao {
 
     @Query("""
         UPDATE daily_goal_items
+        SET plannedStartMillis = :plannedStartMillis,
+            plannedEndMillis = :plannedEndMillis,
+            recommendedDurationMinutes = :durationMinutes,
+            userActionStatus = 'RESCHEDULED',
+            actualStartedAt = NULL,
+            actualCompletedAt = NULL,
+            linkedActivityId = NULL,
+            completedTodoId = NULL,
+            updatedAt = :updatedAt,
+            syncStatus = '${SyncStatus.PENDING}'
+        WHERE itemId = :itemId
+            AND userId = :userId
+    """)
+    suspend fun updateItemTimeManually(
+        userId: String,
+        itemId: String,
+        plannedStartMillis: Long,
+        plannedEndMillis: Long,
+        durationMinutes: Int,
+        updatedAt: Long
+    )
+
+    @Query("""
+        UPDATE daily_goal_items
         SET userActionStatus = 'STARTED',
             wasClicked = 1,
             actualStartedAt = :actualStartedAt,

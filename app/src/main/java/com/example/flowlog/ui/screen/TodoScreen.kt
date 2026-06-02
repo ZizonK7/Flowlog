@@ -8,8 +8,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -40,6 +44,7 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -71,13 +76,14 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.ui.component.formatDuration
+import com.example.flowlog.ui.viewmodel.DailyCueItem
 import com.example.flowlog.ui.viewmodel.TodoViewModel
-import com.example.flowlog.ui.viewmodel.YesterdayFlowSuggestion
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -99,13 +105,13 @@ private val ChipShape    = RoundedCornerShape(20.dp)
 fun TodoScreen(
     viewModel: TodoViewModel,
     onStartTodo: (TodoItem) -> Unit,
-    onStartSuggestion: (String) -> Unit,
     isDeveloperMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val todos         by viewModel.todos.collectAsState()
     val focusTodos    by viewModel.todayFocusItems.collectAsState()
-    val yesterdaySuggestion by viewModel.yesterdaySuggestion.collectAsState()
+    val dailyCues     by viewModel.dailyCues.collectAsState()
+    val visibleFocusTodos = remember(focusTodos) { focusTodos.take(2) }
     val focusIds      = remember(focusTodos) { focusTodos.map { it.id }.toSet() }
     // 완료 여부 무관하게 오늘의 목표에 있는 항목은 전체 할 일에서 제외
     val activeTodos   = remember(todos, focusIds) { todos.filter { !it.isCompleted && it.id !in focusIds } }
@@ -182,20 +188,20 @@ fun TodoScreen(
 
     LazyColumn(
         modifier = modifier.fillMaxSize().background(BgPage),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         // ── 제목 ──────────────────────────────────────────────────────────────
         item(key = "header") {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 4.dp, bottom = 6.dp),
+                    .padding(start = 4.dp, bottom = 0.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     "Todo",
-                    fontSize = 31.sp,
+                    fontSize = 26.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = TextPrimary,
                     modifier = Modifier.weight(1f)
@@ -234,9 +240,9 @@ fun TodoScreen(
         // ── 오늘의 목표 ───────────────────────────────────────────────────────
         if (focusTodos.isNotEmpty()) {
             item(key = "focus_header") {
-                SectionHeader(title = "오늘의 목표", badge = "✦", color = Purple)
+                SectionHeader(title = "Anchors", badge = "✦", color = Purple)
             }
-            items(focusTodos, key = { "focus_${it.id}" }) { todo ->
+            items(visibleFocusTodos, key = { "focus_${it.id}" }) { todo ->
                 TodoCard(
                     todo         = todo,
                     isEditing    = editingId == todo.id,
@@ -255,13 +261,14 @@ fun TodoScreen(
             }
         }
 
-        yesterdaySuggestion?.let { suggestion ->
-            item(key = "yesterday_suggestion") {
-                YesterdayFlowSuggestionCard(
-                    suggestion = suggestion,
-                    onStart = { onStartSuggestion(suggestion.actionCategory) }
-                )
-            }
+        item(key = "daily_cues") {
+            DailyCuesSection(
+                cues = dailyCues,
+                onToggleCue = viewModel::toggleDailyCue,
+                onAddCue = viewModel::addDailyCue,
+                onUpdateCue = viewModel::updateDailyCue,
+                onDeleteCue = viewModel::deleteDailyCue
+            )
         }
 
         // ── 전체 할 일 ────────────────────────────────────────────────────────
@@ -315,52 +322,323 @@ fun TodoScreen(
 }
 
 @Composable
-private fun YesterdayFlowSuggestionCard(
-    suggestion: YesterdayFlowSuggestion,
-    onStart: () -> Unit
+private fun DailyCuesSection(
+    cues: List<DailyCueItem>,
+    onToggleCue: (Long) -> Unit,
+    onAddCue: (String, String) -> Unit,
+    onUpdateCue: (Long, String, String) -> Unit,
+    onDeleteCue: (Long) -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = CardShape,
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFF7F8FB)),
-        border = BorderStroke(1.dp, Color(0xFFE5E7EF))
+    var isShowingAll by remember { mutableStateOf(false) }
+    var showAddDialog by remember { mutableStateOf(false) }
+    var editingCue by remember { mutableStateOf<DailyCueItem?>(null) }
+    val visibleCues = remember(cues, isShowingAll) {
+        if (isShowingAll) cues else cues.take(4)
+    }
+
+    if (showAddDialog) {
+        DailyCueEditorDialog(
+            cue = null,
+            onDismiss = { showAddDialog = false },
+            onDelete = null,
+            onSave = { title, label ->
+                onAddCue(title, label)
+                showAddDialog = false
+                isShowingAll = true
+            }
+        )
+    }
+    editingCue?.let { cue ->
+        DailyCueEditorDialog(
+            cue = cue,
+            onDismiss = { editingCue = null },
+            onDelete = {
+                onDeleteCue(cue.id)
+                editingCue = null
+            },
+            onSave = { title, label ->
+                onUpdateCue(cue.id, title, label)
+                editingCue = null
+            }
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.Top
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Daily Cues",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Purple
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text("✧", fontSize = 14.sp, color = Purple.copy(alpha = 0.7f))
+                }
+            }
+            TextButton(
+                onClick = { isShowingAll = !isShowingAll },
+                enabled = cues.size > 4,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                modifier = Modifier.height(32.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Info,
-                    contentDescription = null,
-                    tint = TextMuted,
-                    modifier = Modifier.size(20.dp)
-                )
                 Text(
-                    text = suggestion.message,
-                    color = TextPrimary,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                    modifier = Modifier.weight(1f)
+                    if (isShowingAll) "접기" else "더보기",
+                    fontSize = 13.sp,
+                    color = if (cues.size > 4) Purple else TextMuted.copy(alpha = 0.45f),
+                    fontWeight = FontWeight.SemiBold
                 )
             }
             OutlinedButton(
-                onClick = onStart,
+                onClick = { showAddDialog = true },
                 shape = ChipShape,
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Purple)
+                border = BorderStroke(1.dp, BorderLight),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Purple),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                modifier = Modifier.height(32.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
+                Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("추가", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        visibleCues.chunked(2).forEach { rowCues ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                rowCues.forEach { cue ->
+                    DailyCueCard(
+                        cue = cue,
+                        onToggle = { onToggleCue(cue.id) },
+                        onEdit = { editingCue = cue },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                repeat(2 - rowCues.size) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DailyCueEditorDialog(
+    cue: DailyCueItem?,
+    onDismiss: () -> Unit,
+    onDelete: (() -> Unit)?,
+    onSave: (String, String) -> Unit
+) {
+    var title by remember(cue?.id) { mutableStateOf(cue?.title ?: "") }
+    var label by remember(cue?.id) { mutableStateOf(cue?.label ?: "Routine") }
+    val isEditing = cue != null
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color.White,
+        shape = RoundedCornerShape(18.dp),
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    if (isEditing) "Daily Cue 수정" else "Daily Cue 추가",
+                    color = TextPrimary,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
                 )
-                Spacer(Modifier.width(6.dp))
-                Text(suggestion.actionLabel, fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (isEditing) "작은 신호의 이름과 종류를 바꿀 수 있어요." else "오늘 붙잡아둘 작은 신호를 적어주세요.",
+                    color = TextMuted,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    placeholder = { Text("예: 물 마시기", color = TextMuted) },
+                    textStyle = TextStyle(
+                        color = TextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Purple,
+                        unfocusedBorderColor = BorderLight,
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedPlaceholderColor = TextMuted,
+                        unfocusedPlaceholderColor = TextMuted,
+                        cursorColor = Purple
+                    )
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    DailyCueTypeButton(
+                        label = "Routine",
+                        helper = "매일 유지",
+                        isSelected = label == "Routine",
+                        modifier = Modifier.weight(1f)
+                    ) { label = "Routine" }
+                    DailyCueTypeButton(
+                        label = "Memo",
+                        helper = "오늘만",
+                        isSelected = label == "Memo",
+                        modifier = Modifier.weight(1f)
+                    ) { label = "Memo" }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(title, label) },
+                enabled = title.isNotBlank(),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Purple,
+                    contentColor = Color.White,
+                    disabledContainerColor = PurpleSoft,
+                    disabledContentColor = TextMuted
+                ),
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
+            ) {
+                Text(if (isEditing) "저장" else "추가", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (isEditing && onDelete != null) {
+                    TextButton(onClick = onDelete) {
+                        Text("삭제", color = Color(0xFFE35B5B), fontWeight = FontWeight.Bold)
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("취소", color = TextMuted)
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun DailyCueTypeButton(
+    label: String,
+    helper: String,
+    isSelected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val bg = if (isSelected) PurpleSoft else Color.White
+    val fg = if (isSelected) Purple else TextPrimary
+    val bdr = if (isSelected) Purple.copy(alpha = 0.5f) else BorderLight
+    Column(
+        modifier = modifier
+            .height(66.dp)
+            .background(bg, RoundedCornerShape(12.dp))
+            .border(BorderStroke(1.dp, bdr), RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(label, color = fg, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(4.dp))
+        Text(helper, color = TextMuted, fontSize = 11.sp, lineHeight = 15.sp)
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DailyCueCard(
+    cue: DailyCueItem,
+    onToggle: () -> Unit,
+    onEdit: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isMemo = cue.label == "Memo"
+    val labelColor = if (isMemo) Color(0xFFE85C7A) else Purple
+    val labelBg = if (isMemo) Color(0xFFFFEEF3) else PurpleSoft
+    val borderColor = if (cue.isCompleted) GreenTint.copy(alpha = 0.35f) else PurpleSoft
+    val cardBg = if (cue.isCompleted) GreenSoft.copy(alpha = 0.45f) else Color.White
+
+    Card(
+        modifier = modifier
+            .height(70.dp)
+            .combinedClickable(
+                onClick = {},
+                onLongClick = onEdit
+            ),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = cardBg),
+        border = BorderStroke(1.dp, borderColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    cue.label,
+                    color = labelColor,
+                    fontSize = 10.sp,
+                    lineHeight = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .background(labelBg, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                )
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    cue.title,
+                    color = if (cue.isCompleted) TextMuted else TextPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 17.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .background(if (cue.isCompleted) GreenTint else Color.Transparent, CircleShape)
+                    .border(
+                        BorderStroke(2.dp, if (cue.isCompleted) GreenTint else BorderLight),
+                        CircleShape
+                    )
+                    .clickable(onClick = onToggle),
+                contentAlignment = Alignment.Center
+            ) {
+                if (cue.isCompleted) {
+                    Icon(
+                        Icons.Filled.Check,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
             }
         }
     }
@@ -383,23 +661,23 @@ private fun NewTodoCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = CardShape
     ) {
         Column(Modifier.fillMaxWidth()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = onTitleChange,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).height(56.dp),
                     interactionSource = interactionSource,
                     singleLine = true,
                     placeholder = { Text("새 할 일") },
-                    textStyle = TextStyle(color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
+                    textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
                     shape = RoundedCornerShape(10.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Purple,
@@ -419,9 +697,9 @@ private fun NewTodoCard(
                         containerColor = PurpleSoft, contentColor = Purple,
                         disabledContainerColor = Color(0xFFF4F2FA), disabledContentColor = Color(0xFFB8B2C9)
                     ),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    Icon(Icons.Filled.Add, null, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Filled.Add, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("추가", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
@@ -510,7 +788,7 @@ private fun TodoCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = cardBg),
-        elevation = if (isFocus) CardDefaults.cardElevation(4.dp) else CardDefaults.cardElevation(0.dp),
+        elevation = if (isFocus) CardDefaults.cardElevation(2.dp) else CardDefaults.cardElevation(0.dp),
         border = if (isFocus) null else BorderStroke(1.dp, Color(0xFFF0EFF5)),
         shape = CardShape
     ) {
@@ -520,7 +798,7 @@ private fun TodoCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                        .padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -556,21 +834,26 @@ private fun TodoCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 14.dp),
+                        .padding(
+                            start = 14.dp,
+                            end = 6.dp,
+                            top = if (isFocus) 9.dp else 14.dp,
+                            bottom = if (isFocus) 9.dp else 14.dp
+                        ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // 태그 + 제목
                     Column(Modifier.weight(1f)) {
                         if (todo.category != TodoCategory.NORMAL) {
                             CategoryTag(todo.category)
-                            Spacer(Modifier.height(5.dp))
+                            Spacer(Modifier.height(if (isFocus) 3.dp else 5.dp))
                         }
                         Text(
                             text = todo.title,
-                            fontSize = if (isFocus) 16.sp else 15.sp,
+                            fontSize = 15.sp,
                             fontWeight = if (isFocus) FontWeight.Bold else FontWeight.SemiBold,
                             color = TextPrimary,
-                            lineHeight = 20.sp
+                            lineHeight = if (isFocus) 18.sp else 20.sp
                         )
                         if (todo.accumulatedSeconds > 0 || todo.selectedDate != null) {
                             Spacer(Modifier.height(3.dp))
@@ -594,13 +877,13 @@ private fun TodoCard(
                     // 액션 버튼 3개
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.padding(end = 4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(if (isFocus) 4.dp else 6.dp),
+                        modifier = Modifier.padding(end = 2.dp)
                     ) {
                         // 수정 / 닫기 (배경 없음)
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(if (isFocus) 28.dp else 32.dp)
                                 .clip(CircleShape)
                                 .clickable(onClick = onEditToggle),
                             contentAlignment = Alignment.Center
@@ -609,13 +892,13 @@ private fun TodoCard(
                                 if (isEditing) Icons.Filled.Close else Icons.Filled.Edit,
                                 if (isEditing) "닫기" else "수정",
                                 tint = TextMuted,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(if (isFocus) 15.dp else 16.dp)
                             )
                         }
                         // 완료 (연초록 원)
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(if (isFocus) 30.dp else 34.dp)
                                 .clip(CircleShape)
                                 .background(GreenSoft)
                                 .clickable(onClick = onComplete),
@@ -626,7 +909,7 @@ private fun TodoCard(
                         // 시작 (연보라 원, 주요 액션)
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(if (isFocus) 32.dp else 36.dp)
                                 .clip(CircleShape)
                                 .background(PurpleSoft)
                                 .clickable(onClick = onStartTodo),
@@ -787,12 +1070,12 @@ private fun SectionHeader(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp)
+        modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 0.dp)
     ) {
-        Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = color)
+        Text(title, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = color)
         if (badge != null) {
             Spacer(Modifier.width(5.dp))
-            Text(badge, fontSize = 11.sp, color = color.copy(alpha = 0.7f))
+            Text(badge, fontSize = 10.sp, color = color.copy(alpha = 0.7f))
         }
     }
 }

@@ -308,10 +308,6 @@ class MainActivity : ComponentActivity() {
                                         activityViewModel.startTodoActivity(todo.id, todo.title)
                                         currentScreen = "home"
                                     },
-                                    onStartSuggestion = { category ->
-                                        activityViewModel.startActivity(category)
-                                        currentScreen = "home"
-                                    },
                                     modifier = Modifier.fillMaxSize()
                                 )
                             } else {
