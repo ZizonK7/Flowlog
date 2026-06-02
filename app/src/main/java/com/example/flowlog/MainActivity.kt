@@ -353,6 +353,10 @@ class MainActivity : ComponentActivity() {
                                         activityViewModel.startDailyCueRoutineActivity(cueId, title, goalMillis, category)
                                         currentScreen = "home"
                                     },
+                                    onStartExamStudy = { todoId, subjectTitle ->
+                                        activityViewModel.startExamStudyActivity(todoId, subjectTitle)
+                                        currentScreen = "home"
+                                    },
                                     routineTimerCategories = routineTimerCategories,
                                     modifier = Modifier.fillMaxSize()
                                 )

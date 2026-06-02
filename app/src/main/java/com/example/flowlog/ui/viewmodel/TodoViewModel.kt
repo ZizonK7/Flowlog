@@ -4,24 +4,41 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.flowlog.data.constants.RecommendationReason
+import com.example.flowlog.data.local.entity.ExamStrategyCheckEntity
 import com.example.flowlog.data.model.ActivitySession
+import com.example.flowlog.data.model.ExamStrategyCard
 import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.data.recommendation.TodoBurdenAnalysis
 import com.example.flowlog.data.recommendation.TodoBurdenCalculator
+import com.example.flowlog.data.constants.EntityType
+import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.repository.ActivityRepository
 import com.example.flowlog.data.repository.DailyGoalRepository
+import com.example.flowlog.data.repository.EventLogRepository
+import com.example.flowlog.data.repository.ExamRepository
 import com.example.flowlog.data.repository.GoalItem
 import com.example.flowlog.data.repository.TodoRepository
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
+
+data class ExamCheckEvent(
+    val checkId: String,
+    val examTodoId: Long,
+    val examTitle: String,
+    val dValue: Int
+)
 
 data class DailyCueItem(
     val id: Long,
@@ -47,9 +64,14 @@ class TodoViewModel(
     private val cuePrefs = context.getSharedPreferences("daily_cues", Context.MODE_PRIVATE)
     private val dailyGoalRepository = DailyGoalRepository(context.applicationContext)
     private val activityRepository = ActivityRepository(context.applicationContext)
+    private val examRepository = ExamRepository(context.applicationContext)
+    private val eventLogRepository = EventLogRepository(context.applicationContext)
 
     private val _todos = MutableStateFlow<List<TodoItem>>(emptyList())
     val todos: StateFlow<List<TodoItem>> = _todos.asStateFlow()
+
+    private val _examCheckEvents = MutableSharedFlow<ExamCheckEvent>(extraBufferCapacity = 4)
+    val examCheckEvents: SharedFlow<ExamCheckEvent> = _examCheckEvents.asSharedFlow()
 
     private val _focusIds = MutableStateFlow<List<Long>>(emptyList())
     private val _dailyCues = MutableStateFlow<List<DailyCueItem>>(loadDailyCues())
@@ -70,6 +92,13 @@ class TodoViewModel(
                 { if (it.isCompleted) 1 else 0 },
                 { idToIndex[it.id] ?: Int.MAX_VALUE }
             ))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val examCards: StateFlow<List<ExamStrategyCard>> = combine(
+        _todos,
+        examRepository.observeAllChecks()
+    ) { todos, checks ->
+        buildExamCards(todos, checks)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
@@ -167,6 +196,7 @@ class TodoViewModel(
     }
 
     fun completeTodo(todo: TodoItem) {
+        if (todo.category == TodoCategory.UNIVERSITY_EXAM) return
         viewModelScope.launch {
             if (todo.category == TodoCategory.REVIEW && todo.reviewStage < 2) {
                 repository.completeReviewTodo(todo)
@@ -177,6 +207,7 @@ class TodoViewModel(
     }
 
     fun completeFocusTodo(todo: TodoItem) {
+        if (todo.category == TodoCategory.UNIVERSITY_EXAM) return
         viewModelScope.launch {
             if (todo.category == TodoCategory.REVIEW && todo.reviewStage < 2) {
                 repository.completeReviewTodo(todo)
@@ -427,7 +458,8 @@ class TodoViewModel(
     ): List<GoalItem> {
         val todayStart = startOfDay(System.currentTimeMillis())
         val active = allTodos.filter {
-            !it.isCompleted || (it.category == TodoCategory.REVIEW && it.reviewStage == 1)
+            it.category != TodoCategory.UNIVERSITY_EXAM &&
+            (!it.isCompleted || (it.category == TodoCategory.REVIEW && it.reviewStage == 1))
         }
         if (active.isEmpty()) return emptyList()
 
@@ -490,6 +522,7 @@ class TodoViewModel(
                     }
                 }
                 TodoCategory.NORMAL -> return@mapNotNull null
+                TodoCategory.UNIVERSITY_EXAM -> return@mapNotNull null
             }
             Candidate(todo, priority, reason)
         }
@@ -654,7 +687,99 @@ class TodoViewModel(
     private val Int.minutes: Long get() = this * 60L * 1000L
     private val Int.hours: Long get() = this * 60L * 60L * 1000L
 
+    // ── Exam 전략 카드 ──────────────────────────────────────────────────────────
+
+    fun checkExamStrategy(
+        examTodoId: Long,
+        examTitle: String,
+        examDateMillis: Long,
+        dValue: Int,
+        strategyLabel: String,
+        daysUntilExam: Int
+    ) {
+        viewModelScope.launch {
+            val checkId = runCatching {
+                examRepository.insertCheck(
+                    examTodoLegacyId = examTodoId,
+                    subjectTitleSnapshot = examTitle,
+                    examDateMillis = examDateMillis,
+                    strategyDValue = dValue,
+                    strategyLabelSnapshot = strategyLabel,
+                    daysUntilExam = daysUntilExam
+                )
+            }.getOrNull() ?: return@launch
+            _examCheckEvents.emit(ExamCheckEvent(checkId = checkId, examTodoId = examTodoId, examTitle = examTitle, dValue = dValue))
+        }
+    }
+
+    fun undoExamStrategyCheck(event: ExamCheckEvent) {
+        viewModelScope.launch {
+            runCatching { examRepository.undoCheck(event.checkId) }
+            runCatching {
+                eventLogRepository.log(
+                    eventType = EventType.EXAM_STRATEGY_UNDONE,
+                    entityType = EntityType.TODO,
+                    entityId = event.checkId,
+                    metadataJson = """{"checkId":"${event.checkId}","examTodoId":${event.examTodoId},"strategyDValue":${event.dValue}}"""
+                )
+            }
+        }
+    }
+
+    private fun buildExamCards(
+        todos: List<TodoItem>,
+        checks: List<ExamStrategyCheckEntity>
+    ): List<ExamStrategyCard> {
+        val todayStart = startOfDay(System.currentTimeMillis())
+        // undoneAtMillis == null 인 체크만 유효한 체크로 본다
+        val checkedSet = checks
+            .filter { it.undoneAtMillis == null }
+            .map { it.examTodoLegacyId to it.strategyDValue }
+            .toSet()
+
+        return todos
+            .filter { it.category == TodoCategory.UNIVERSITY_EXAM && !it.isCompleted }
+            .mapNotNull { todo ->
+                val examDate = todo.selectedDate ?: return@mapNotNull null
+                val daysUntilExam = daysDiff(todayStart, startOfDay(examDate)).toInt()
+                if (daysUntilExam !in 0..7) return@mapNotNull null
+                Pair(todo, daysUntilExam)
+            }
+            .flatMap { (todo, daysUntilExam) ->
+                (7 downTo daysUntilExam).mapNotNull { dValue ->
+                    if ((todo.id to dValue) in checkedSet) return@mapNotNull null
+                    ExamStrategyCard(
+                        examTodoId = todo.id,
+                        examTitle = todo.title,
+                        examDateMillis = todo.selectedDate!!,
+                        examCreatedAt = todo.createdAt,
+                        dValue = dValue,
+                        daysUntilExam = daysUntilExam,
+                        strategyLabel = examStrategyLabel(dValue),
+                        strategyUrl = "https://flowlog.pfkfks.org/univ_exam/$dValue"
+                    )
+                }
+            }
+            .sortedWith(
+                compareBy<ExamStrategyCard> { it.daysUntilExam }
+                    .thenBy { it.examCreatedAt }
+                    .thenByDescending { it.dValue }
+            )
+    }
+
     companion object {
         private const val DAY_MILLIS = 24L * 60 * 60 * 1000
+
+        fun examStrategyLabel(dValue: Int): String = when (dValue) {
+            7 -> "전체 범위 훑기, 약점 지도 만들기"
+            6 -> "핵심 개념 1차 회상"
+            5 -> "문제 풀이로 빈틈 찾기"
+            4 -> "약점 단원 집중 보완"
+            3 -> "기출/예상 문제로 실전 점검"
+            2 -> "틀린 문제와 개념 압축"
+            1 -> "새 공부 금지, 회상과 압축"
+            0 -> "가볍게 확인, 컨디션 유지"
+            else -> ""
+        }
     }
 }

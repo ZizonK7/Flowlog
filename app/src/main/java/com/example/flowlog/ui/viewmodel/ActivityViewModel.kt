@@ -842,9 +842,43 @@ class ActivityViewModel(
     private fun observeIncompleteTodos() {
         viewModelScope.launch {
             todoRepository.getIncompleteTodos().collect { todos ->
-                _uiState.update { it.copy(incompleteTodos = todos) }
+                _uiState.update {
+                    it.copy(incompleteTodos = todos.filter { t -> t.category != com.example.flowlog.data.model.TodoCategory.UNIVERSITY_EXAM })
+                }
             }
         }
+    }
+
+    fun startExamStudyActivity(todoId: Long, subjectTitle: String) {
+        if (_uiState.value.isRunning) return
+        val title = "$subjectTitle 시험 공부"
+        val startTime = System.currentTimeMillis()
+        val goalMillis = com.example.flowlog.data.local.TimerStateStore.DEFAULT_GOAL_MILLIS
+        _uiState.update {
+            it.copy(
+                isRunning = true,
+                currentCategory = "STUDY",
+                elapsedTime = 0L,
+                timerGoalMillis = goalMillis,
+                startTime = startTime,
+                linkedTodoId = todoId,
+                sourceType = ActivitySourceType.MANUAL,
+                sourceId = null,
+                pendingTitle = title,
+                pendingNote = null,
+                dailyCueId = null,
+                statusMessage = null
+            )
+        }
+        saveActiveSession(
+            category = "STUDY",
+            startTime = startTime,
+            goalMillis = goalMillis,
+            linkedTodoId = todoId,
+            linkedTodoTitle = title
+        )
+        activityTimerNotifier.showRunningTimer("STUDY", startTime)
+        startTimer()
     }
 
     private fun restoreBrushTimerState() {

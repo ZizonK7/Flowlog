@@ -10,6 +10,7 @@ import com.example.flowlog.data.local.dao.ActivityDao
 import com.example.flowlog.data.local.dao.AutoButtonScheduleDao
 import com.example.flowlog.data.local.dao.DailyGoalDao
 import com.example.flowlog.data.local.dao.EventLogDao
+import com.example.flowlog.data.local.dao.ExamStrategyCheckDao
 import com.example.flowlog.data.local.dao.MigrationErrorDao
 import com.example.flowlog.data.local.dao.SyncBatchDao
 import com.example.flowlog.data.local.dao.TodoDao
@@ -21,6 +22,7 @@ import com.example.flowlog.data.local.entity.DailyGoalItemEntity
 import com.example.flowlog.data.local.entity.DailyGoalRecommendationEntity
 import com.example.flowlog.data.local.entity.DailySummaryEntity
 import com.example.flowlog.data.local.entity.EventLogEntity
+import com.example.flowlog.data.local.entity.ExamStrategyCheckEntity
 import com.example.flowlog.data.local.entity.InstallationEntity
 import com.example.flowlog.data.local.entity.MigrationErrorEntity
 import com.example.flowlog.data.local.entity.NotificationLogEntity
@@ -51,8 +53,11 @@ import com.example.flowlog.data.local.entity.UserEntity
         NotificationLogEntity::class,
         UserEntity::class,
         InstallationEntity::class,
+
+        // Phase 4 — Exam
+        ExamStrategyCheckEntity::class,
     ],
-    version = 6,
+    version = 8,
     // 장기적으로는 schema export + Migration 검증을 붙이는 것이 바람직하지만,
     // 현재 단계에서는 개발 편의상 schema 파일 생성을 보류한다.
     exportSchema = false
@@ -72,6 +77,9 @@ abstract class FlowlogDatabase : RoomDatabase() {
     // Phase 3 DAOs
     abstract fun syncBatchDao(): SyncBatchDao
 
+    // Phase 4 DAOs
+    abstract fun examStrategyCheckDao(): ExamStrategyCheckDao
+
     companion object {
         @Volatile
         private var INSTANCE: FlowlogDatabase? = null
@@ -83,7 +91,7 @@ abstract class FlowlogDatabase : RoomDatabase() {
                     FlowlogDatabase::class.java,
                     "flowlog.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .build().also { INSTANCE = it }
             }
         }
@@ -202,6 +210,37 @@ abstract class FlowlogDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE auto_button_undo_snapshots ADD COLUMN previousLinkedTodoTitle TEXT")
                 db.execSQL("ALTER TABLE auto_button_undo_snapshots ADD COLUMN previousSourceType TEXT")
                 db.execSQL("ALTER TABLE auto_button_undo_snapshots ADD COLUMN previousSourceId TEXT")
+            }
+        }
+
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE exam_strategy_checks ADD COLUMN undoneAtMillis INTEGER")
+            }
+        }
+
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS exam_strategy_checks (
+                        checkId TEXT NOT NULL PRIMARY KEY,
+                        userId TEXT NOT NULL,
+                        examTodoLegacyId INTEGER NOT NULL,
+                        subjectTitleSnapshot TEXT NOT NULL,
+                        examDateMillis INTEGER NOT NULL,
+                        strategyDValue INTEGER NOT NULL,
+                        strategyLabelSnapshot TEXT NOT NULL,
+                        checkedAtMillis INTEGER NOT NULL,
+                        checkedOnDateKey INTEGER NOT NULL,
+                        checkedOnDaysUntilExam INTEGER NOT NULL,
+                        syncStatus TEXT NOT NULL DEFAULT 'PENDING'
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_exam_strategy_checks_userId ON exam_strategy_checks(userId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_exam_strategy_checks_syncStatus ON exam_strategy_checks(syncStatus)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_exam_strategy_checks_examTodoLegacyId_strategyDValue ON exam_strategy_checks(examTodoLegacyId, strategyDValue)")
             }
         }
     }

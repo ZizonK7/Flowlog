@@ -23,6 +23,43 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Added `대학 시험` Todo type and `Exam D-#` section:
+  - A new `UNIVERSITY_EXAM` category sits alongside `복습` and `과제` in the Todo
+    input card. The date button label changes to `시험일 선택` when this type is
+    selected, and to `마감일 선택` for `과제`.
+  - University exam todos cannot be completed; only edit and delete actions are
+    available in the card.
+  - Exam todos are visible in the full todo list up to and including exam day, and
+    are automatically hidden from the UI the day after the exam without being
+    physically deleted so analysis records are preserved.
+  - A new `Exam D-#` section appears in the Todo tab between `Anchors` and
+    `Daily Cues` whenever any university exam is 0–7 days away. The section
+    title reflects the closest exam's remaining days (`Exam D-Day`, `Exam D-5`,
+    and so on).
+  - Each exam shows one strategy card per unchecked D-value from D-7 down to the
+    current day. Cards for the same exam are sorted D-7 first; exams with fewer
+    days remaining appear before later ones.
+  - Every strategy card shows a pill button with the day's study tip and a URL
+    (`https://flowlog.pfkfks.org/univ_exam/{d}`) that opens in the browser.
+  - Strategy labels: D-7 전체 범위 훑기, D-6 핵심 개념 1차 회상, D-5 문제 풀이로
+    빈틈 찾기, D-4 약점 단원 집중 보완, D-3 기출/예상 문제로 실전 점검,
+    D-2 틀린 문제와 개념 압축, D-1 새 공부 금지 회상과 압축,
+    D-Day 가볍게 확인 컨디션 유지.
+  - The play button starts a `STUDY` activity timer titled `{subject} 시험 공부`
+    and switches to the Home tab automatically.
+  - Checking a strategy card removes it from the section and shows a Snackbar
+    with a `되돌리기` action that re-displays the card within the Snackbar
+    lifetime. Undo marks the check record's `undoneAtMillis` field rather than
+    deleting the row so the full check/undo history is preserved.
+  - University exam todos are excluded from the Anchors recommendation engine
+    and from the replacement picker in the timetable.
+  - Check and undo events (`EXAM_STRATEGY_CHECKED`, `EXAM_STRATEGY_UNDONE`) are
+    logged with `metadataJson` carrying `checkId`, `examTodoId`, and
+    `strategyDValue`.
+  - Exam strategy check records are stored in a new Room table
+    `exam_strategy_checks` (DB version 8) and synced to Firestore under
+    `users/{uid}/exam_strategy_checks/{checkId}`.
+
 - Added "캘린더에 추가" button to the Todo input card:
   - Tapping the button saves the todo locally and immediately opens the system
     calendar app's event-creation screen with the todo title and date pre-filled.

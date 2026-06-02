@@ -59,6 +59,12 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -83,6 +89,9 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Intent
+import android.net.Uri
+import com.example.flowlog.data.model.ExamStrategyCard
 import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.ui.component.PickerWaveBackground
@@ -91,7 +100,11 @@ import com.example.flowlog.ui.component.CategoryPicker
 import com.example.flowlog.ui.component.displayCategory
 import com.example.flowlog.ui.component.formatDuration
 import com.example.flowlog.ui.viewmodel.DailyCueItem
+import com.example.flowlog.ui.viewmodel.ExamCheckEvent
 import com.example.flowlog.ui.viewmodel.TodoViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -121,6 +134,7 @@ fun TodoScreen(
     viewModel: TodoViewModel,
     onStartTodo: (TodoItem) -> Unit,
     onStartDailyCueRoutine: (Long, String, Long, String) -> Unit,
+    onStartExamStudy: (todoId: Long, subjectTitle: String) -> Unit = { _, _ -> },
     routineTimerCategories: List<String> = DefaultDailyCueTimerCategories,
     isDeveloperMode: Boolean = false,
     modifier: Modifier = Modifier
@@ -128,12 +142,21 @@ fun TodoScreen(
     val todos         by viewModel.todos.collectAsState()
     val focusTodos    by viewModel.todayFocusItems.collectAsState()
     val dailyCues     by viewModel.dailyCues.collectAsState()
+    val examCards     by viewModel.examCards.collectAsState()
     val visibleFocusTodos = remember(focusTodos) { focusTodos.take(2) }
     val focusIds      = remember(focusTodos) { focusTodos.map { it.id }.toSet() }
-    // 완료 여부 무관하게 오늘의 목표에 있는 항목은 전체 할 일에서 제외
-    val activeTodos   = remember(todos, focusIds) { todos.filter { !it.isCompleted && it.id !in focusIds } }
-    // 전체 할 일에서 완료된 항목: 최대 1개만 존재 (completeTodo가 이전 항목 삭제)
     val todayStart = startOfDay(System.currentTimeMillis())
+    // UNIVERSITY_EXAM은 시험 당일까지만 표시. 완료 항목, 목표 항목 제외
+    val activeTodos   = remember(todos, focusIds, todayStart) {
+        todos.filter { todo ->
+            !todo.isCompleted &&
+            todo.id !in focusIds &&
+            !(todo.category == TodoCategory.UNIVERSITY_EXAM &&
+              todo.selectedDate != null &&
+              startOfDay(todo.selectedDate) < todayStart)
+        }
+    }
+    // 전체 할 일에서 완료된 항목: 최대 1개만 존재 (completeTodo가 이전 항목 삭제)
     val tomorrowStart = todayStart + DAY_MILLIS
     val completedRegular = remember(todos, focusIds, todayStart) {
         todos.filter {
@@ -163,6 +186,21 @@ fun TodoScreen(
     var completingId     by remember { mutableStateOf<Long?>(null) }
     var isActiveExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    // Exam 체크 Snackbar
+    val examSnackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(viewModel) {
+        viewModel.examCheckEvents.collect { event ->
+            val result = examSnackbarHostState.showSnackbar(
+                message = "${event.examTitle} 시험 공부 체크됨",
+                actionLabel = "되돌리기",
+                duration = SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.undoExamStrategyCheck(event)
+            }
+        }
+    }
 
     val visibleActive = if (isActiveExpanded) activeTodos else activeTodos.take(2)
     val hiddenCount   = (activeTodos.size - 2).coerceAtLeast(0)
@@ -204,8 +242,9 @@ fun TodoScreen(
         ) { DatePicker(state = state) }
     }
 
+    Box(modifier = modifier.fillMaxSize()) {
     LazyColumn(
-        modifier = modifier.fillMaxSize().background(BgPage),
+        modifier = Modifier.fillMaxSize().background(BgPage),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
@@ -287,6 +326,26 @@ fun TodoScreen(
             }
         }
 
+        // ── Exam D-# ─────────────────────────────────────────────────────────
+        if (examCards.isNotEmpty()) {
+            item(key = "exam_section") {
+                ExamSection(
+                    examCards = examCards,
+                    onStartStudy = { card -> onStartExamStudy(card.examTodoId, card.examTitle) },
+                    onCheck = { card ->
+                        viewModel.checkExamStrategy(
+                            examTodoId = card.examTodoId,
+                            examTitle = card.examTitle,
+                            examDateMillis = card.examDateMillis,
+                            dValue = card.dValue,
+                            strategyLabel = card.strategyLabel,
+                            daysUntilExam = card.daysUntilExam
+                        )
+                    }
+                )
+            }
+        }
+
         item(key = "daily_cues") {
             DailyCuesSection(
                 cues = dailyCues,
@@ -347,6 +406,24 @@ fun TodoScreen(
             }
         }
     }
+
+    // Exam 체크 되돌리기 Snackbar
+    SnackbarHost(
+        hostState = examSnackbarHostState,
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .padding(bottom = 16.dp),
+        snackbar = { data ->
+            Snackbar(
+                snackbarData = data,
+                containerColor = Color(0xFF1565C0),
+                contentColor = Color.White,
+                actionColor = Color(0xFFBBDEFB),
+                shape = RoundedCornerShape(12.dp)
+            )
+        }
+    )
+    } // Box 닫기
 }
 
 @Composable
@@ -999,6 +1076,7 @@ private fun NewTodoCard(
                 ) {
                     HorizontalDivider(color = BorderLight.copy(alpha = 0.45f))
                     Spacer(Modifier.height(12.dp))
+                    // 1행: 타입 칩
                     Row(
                         Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1010,28 +1088,42 @@ private fun NewTodoCard(
                         TypeChip("과제", category == TodoCategory.ASSIGNMENT) {
                             onCategoryChange(if (category == TodoCategory.ASSIGNMENT) null else TodoCategory.ASSIGNMENT)
                         }
-                        Spacer(Modifier.weight(1f))
-                        DateChipButton(date, onDateClick)
+                        TypeChip("대학 시험", category == TodoCategory.UNIVERSITY_EXAM) {
+                            onCategoryChange(if (category == TodoCategory.UNIVERSITY_EXAM) null else TodoCategory.UNIVERSITY_EXAM)
+                        }
                     }
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedButton(
-                        onClick = onAddToCalendar,
-                        enabled = title.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(
-                            1.dp,
-                            if (title.isNotBlank()) BorderLight else BorderLight.copy(alpha = 0.4f)
-                        ),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = TextMuted,
-                            disabledContentColor = TextMuted.copy(alpha = 0.4f)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    Spacer(Modifier.height(8.dp))
+                    // 2행: 날짜 선택 + 캘린더 추가
+                    val datePlaceholder = when (category) {
+                        TodoCategory.ASSIGNMENT -> "마감일 선택"
+                        TodoCategory.UNIVERSITY_EXAM -> "시험일 선택"
+                        else -> "날짜 선택"
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Outlined.CalendarMonth, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("캘린더에 추가", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        DateChipButton(date, datePlaceholder, onDateClick)
+                        OutlinedButton(
+                            onClick = onAddToCalendar,
+                            enabled = title.isNotBlank(),
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(
+                                1.dp,
+                                if (title.isNotBlank()) BorderLight else BorderLight.copy(alpha = 0.4f)
+                            ),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = TextMuted,
+                                disabledContentColor = TextMuted.copy(alpha = 0.4f)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Icon(Icons.Outlined.CalendarMonth, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("캘린더에 추가", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        }
                     }
                 }
             }
@@ -1164,8 +1256,9 @@ private fun TodoCard(
                                     )
                                 }
                                 if (todo.selectedDate != null) {
+                                    val datePrefix = if (todo.category == TodoCategory.UNIVERSITY_EXAM) "시험일 " else "~"
                                     Text(
-                                        "~${fmtDate(todo.selectedDate)}",
+                                        "$datePrefix${fmtDate(todo.selectedDate)}",
                                         fontSize = 12.sp, color = TextMuted
                                     )
                                 }
@@ -1194,16 +1287,18 @@ private fun TodoCard(
                                 modifier = Modifier.size(if (isFocus) 15.dp else 16.dp)
                             )
                         }
-                        // 완료 (연초록 원)
-                        Box(
-                            modifier = Modifier
-                                .size(if (isFocus) 30.dp else 34.dp)
-                                .clip(CircleShape)
-                                .background(GreenSoft)
-                                .clickable(onClick = onComplete),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Outlined.CheckCircle, "완료", tint = GreenTint, modifier = Modifier.size(18.dp))
+                        // 완료 (연초록 원) — UNIVERSITY_EXAM은 완료 불가
+                        if (todo.category != TodoCategory.UNIVERSITY_EXAM) {
+                            Box(
+                                modifier = Modifier
+                                    .size(if (isFocus) 30.dp else 34.dp)
+                                    .clip(CircleShape)
+                                    .background(GreenSoft)
+                                    .clickable(onClick = onComplete),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Outlined.CheckCircle, "완료", tint = GreenTint, modifier = Modifier.size(18.dp))
+                            }
                         }
                         // 시작 (연보라 원, 주요 액션)
                         Box(
@@ -1257,8 +1352,16 @@ private fun TodoCard(
                         TypeChip("과제", editCategory == TodoCategory.ASSIGNMENT) {
                             editCategory = if (editCategory == TodoCategory.ASSIGNMENT) TodoCategory.NORMAL else TodoCategory.ASSIGNMENT
                         }
+                        TypeChip("대학 시험", editCategory == TodoCategory.UNIVERSITY_EXAM) {
+                            editCategory = if (editCategory == TodoCategory.UNIVERSITY_EXAM) TodoCategory.NORMAL else TodoCategory.UNIVERSITY_EXAM
+                        }
                         Spacer(Modifier.weight(1f))
-                        DateChipButton(editDate) { showEditDatePick = true }
+                        val editDatePlaceholder = when (editCategory) {
+                            TodoCategory.ASSIGNMENT -> "마감일 선택"
+                            TodoCategory.UNIVERSITY_EXAM -> "시험일 선택"
+                            else -> "날짜 선택"
+                        }
+                        DateChipButton(editDate, editDatePlaceholder) { showEditDatePick = true }
                     }
                     Spacer(Modifier.height(12.dp))
 
@@ -1398,9 +1501,10 @@ private fun MoreButton(hiddenCount: Int, onClick: () -> Unit) {
 @Composable
 private fun CategoryTag(category: TodoCategory, muted: Boolean = false) {
     val (bg, fg, label) = when (category) {
-        TodoCategory.REVIEW     -> Triple(if (muted) Color(0xFFF0EEFF) else PurpleSoft, if (muted) Purple.copy(.5f) else Purple, "복습")
-        TodoCategory.ASSIGNMENT -> Triple(if (muted) Color(0xFFFFF0F0) else Color(0xFFFFEFF0), if (muted) Color(0xFFE35B5B).copy(.5f) else Color(0xFFE35B5B), "과제")
-        TodoCategory.NORMAL     -> return
+        TodoCategory.REVIEW          -> Triple(if (muted) Color(0xFFF0EEFF) else PurpleSoft, if (muted) Purple.copy(.5f) else Purple, "복습")
+        TodoCategory.ASSIGNMENT      -> Triple(if (muted) Color(0xFFFFF0F0) else Color(0xFFFFEFF0), if (muted) Color(0xFFE35B5B).copy(.5f) else Color(0xFFE35B5B), "과제")
+        TodoCategory.UNIVERSITY_EXAM -> Triple(if (muted) Color(0xFFE3F2FD) else Color(0xFFE8F4FF), if (muted) Color(0xFF1565C0).copy(.5f) else Color(0xFF1565C0), "대학 시험")
+        TodoCategory.NORMAL          -> return
     }
     Text(
         text = label,
@@ -1431,7 +1535,7 @@ private fun TypeChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun DateChipButton(date: Long?, onClick: () -> Unit) {
+private fun DateChipButton(date: Long?, placeholder: String = "날짜 선택", onClick: () -> Unit) {
     val hasDate = date != null
     OutlinedButton(
         onClick = onClick,
@@ -1443,7 +1547,150 @@ private fun DateChipButton(date: Long?, onClick: () -> Unit) {
     ) {
         Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(15.dp))
         Spacer(Modifier.width(5.dp))
-        Text(date?.let { fmtDate(it) } ?: "날짜 선택", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Text(date?.let { fmtDate(it) } ?: placeholder, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+// ── Exam D-# 섹션 ─────────────────────────────────────────────────────────────
+@Composable
+private fun ExamSection(
+    examCards: List<ExamStrategyCard>,
+    onStartStudy: (ExamStrategyCard) -> Unit,
+    onCheck: (ExamStrategyCard) -> Unit
+) {
+    if (examCards.isEmpty()) return
+
+    val sectionTitle = examCards.minByOrNull { it.daysUntilExam }?.let { card ->
+        if (card.daysUntilExam == 0) "Exam D-Day" else "Exam D-${card.daysUntilExam}"
+    } ?: "Exam"
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                sectionTitle,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1565C0)
+            )
+            Spacer(Modifier.width(5.dp))
+            Text("◈", fontSize = 13.sp, color = Color(0xFF1565C0).copy(alpha = 0.7f))
+        }
+
+        examCards.forEach { card ->
+            ExamStrategyCard(
+                card = card,
+                onStartStudy = { onStartStudy(card) },
+                onCheck = { onCheck(card) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ExamStrategyCard(
+    card: ExamStrategyCard,
+    onStartStudy: () -> Unit,
+    onCheck: () -> Unit
+) {
+    val context = LocalContext.current
+    val dLabel = if (card.dValue == 0) "D-Day" else "D-${card.dValue}"
+    val examDateStr = fmtDate(card.examDateMillis)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F6FF)),
+        elevation = CardDefaults.cardElevation(0.dp),
+        border = BorderStroke(1.dp, Color(0xFFBBD6F5)),
+        shape = CardShape
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "${card.examTitle} 시험 공부",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF11182F)
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "~$examDateStr · $dLabel",
+                        fontSize = 12.sp,
+                        color = Color(0xFF7D8190)
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                // 체크 버튼
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE8F5E9))
+                        .clickable(onClick = onCheck),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Outlined.CheckCircle,
+                        "체크",
+                        tint = Color(0xFF4CAF50),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(Modifier.width(6.dp))
+                // 공부 시작 버튼
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE8F4FF))
+                        .clickable(onClick = onStartStudy),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.PlayArrow,
+                        "시작",
+                        tint = Color(0xFF1565C0),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // 전략 pill 버튼
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFFDDEEFF))
+                    .clickable {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(card.strategyUrl))
+                        context.startActivity(intent)
+                    }
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    card.strategyLabel,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF1565C0)
+                )
+            }
+        }
     }
 }
 
