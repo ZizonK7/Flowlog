@@ -72,8 +72,10 @@ private data class PlannedItemSnapshot(
 
 class DailyGoalRepository(context: Context) {
 
-    private val dao = FlowlogDatabase.getInstance(context).dailyGoalDao()
-    private val autoButtonDao = FlowlogDatabase.getInstance(context).autoButtonScheduleDao()
+    private val db = FlowlogDatabase.getInstance(context)
+    private val dao = db.dailyGoalDao()
+    private val autoButtonDao = db.autoButtonScheduleDao()
+    private val todoDao = db.todoDao()
     private val eventLogRepository = EventLogRepository(context)
     private val json = Json { ignoreUnknownKeys = true }
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
@@ -86,11 +88,20 @@ class DailyGoalRepository(context: Context) {
     fun observeTodayRecommendedBlocks(dateKey: String = todayDateKey()): Flow<List<RecommendedTodoBlock>> {
         return combine(
             dao.observePlannedItemsForDate(userId, dateKey),
+            todoDao.observeAllTodos(userId),
             minuteTicker()
-        ) { items, now ->
+        ) { items, todos, now ->
+            val completedTodoIds = todos
+                .filter { it.isCompleted }
+                .map { it.todoId }
+                .toSet()
             items.mapNotNull { item ->
                 val block = item.toRecommendedBlock() ?: return@mapNotNull null
                 if (block.userActionStatus !in VISIBLE_RECOMMENDED_BLOCK_STATUSES ||
+                    item.wasCompleted ||
+                    item.wasSkipped ||
+                    item.wasDeleted ||
+                    item.todoId in completedTodoIds ||
                     block.plannedStartMillis + HOUR_MILLIS <= now
                 ) {
                     return@mapNotNull null
