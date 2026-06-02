@@ -513,7 +513,8 @@ private fun DailyCueEditorDialog(
                     value = title,
                     onValueChange = { title = it },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
+                    minLines = 2,
+                    maxLines = 4,
                     placeholder = { Text("예: 물 마시기", color = TextMuted) },
                     textStyle = TextStyle(
                         color = TextPrimary,
@@ -732,7 +733,7 @@ private fun DailyCueCard(
                     maxLines = if (isMemo) 2 else 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (!isMemo && cue.timerDurationMillis != null) {
+                if (!isMemo) {
                     Spacer(Modifier.height(2.dp))
                     Text(
                         displayCategory(cue.timerCategory),
@@ -748,17 +749,14 @@ private fun DailyCueCard(
             if (!isMemo) {
                 IconButton(
                     onClick = {
-                        cue.timerDurationMillis?.let { durationMillis ->
-                            onStartRoutine(cue.id, cue.title, durationMillis, cue.timerCategory)
-                        }
+                        onStartRoutine(cue.id, cue.title, cue.timerDurationMillis ?: 0L, cue.timerCategory)
                     },
-                    enabled = cue.timerDurationMillis != null,
                     modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
                         Icons.Filled.PlayArrow,
                         contentDescription = null,
-                        tint = if (cue.timerDurationMillis != null) Purple else TextMuted.copy(alpha = 0.35f),
+                        tint = Purple,
                         modifier = Modifier.size(20.dp)
                     )
                 }

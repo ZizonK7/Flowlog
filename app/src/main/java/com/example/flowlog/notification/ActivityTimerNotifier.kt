@@ -148,6 +148,48 @@ class ActivityTimerNotifier(private val context: Context) {
         NotificationManagerCompat.from(context).cancel(BRUSH_START_NOTIFICATION_ID)
     }
 
+    fun showRoutineGoalAlert(title: String, category: String) {
+        if (!canPostNotifications()) return
+        ensureDingNotificationChannel()
+
+        // SLEEP 카테고리 루틴은 수면 타이머 본인의 알람이므로 SleepAlarmGuard를 우회
+        val shouldSilence = if (category == "SLEEP") false
+                            else SleepAlarmGuard.shouldSilenceAlerts(context)
+        if (shouldSilence) SleepAlarmGuard.ensureSilentNotificationChannel(context)
+
+        val openPendingIntent = PendingIntent.getActivity(
+            context,
+            ROUTINE_GOAL_NOTIFICATION_ID,
+            Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val channelId = if (shouldSilence) SleepAlarmGuard.SILENT_CHANNEL_ID
+                        else ToothbrushReminderReceiver.DING_CHANNEL_ID
+        val builder = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(notificationIcon(category))
+            .setColor(NOTIFICATION_ICON_COLOR)
+            .setContentTitle(if (title.isNotBlank()) "$title 루틴 완료" else "루틴 완료")
+            .setContentText("목표 시간에 도달했어요.")
+            .setContentIntent(openPendingIntent)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setTimeoutAfter(ALERT_NOTIFICATION_TIMEOUT_MILLIS)
+
+        if (shouldSilence) {
+            builder.setSilent(true).setDefaults(0).setVibrate(null).setSound(null)
+        } else {
+            builder
+                .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
+                .setSound(KakaoStyleAlertPlayer.soundUri(context))
+                .setVibrate(longArrayOf(0L, 500L, 250L, 500L))
+        }
+
+        notifySafely(ROUTINE_GOAL_NOTIFICATION_ID, builder.build())
+    }
+
     fun showAutoButtonStarted(
         title: String,
         category: String,
@@ -376,6 +418,8 @@ class ActivityTimerNotifier(private val context: Context) {
         private const val AUTO_BUTTON_END_NOTIFICATION_ID = 2008
         private const val AUTO_BUTTON_UNDO_REQUEST_CODE = 2009
         private const val AUTO_BUTTON_UNDO_NOTIFICATION_ID = 2010
+        private const val ROUTINE_GOAL_NOTIFICATION_ID = 2011
+        private const val ALERT_NOTIFICATION_TIMEOUT_MILLIS = 3_000L
         private const val BRUSH_START_NOTIFICATION_TIMEOUT_MILLIS = 3_000L
         private val NOTIFICATION_ICON_COLOR = 0xFF4F5060.toInt()
     }

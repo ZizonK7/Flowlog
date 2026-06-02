@@ -115,8 +115,9 @@ class ActivityViewModel(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ActivityUiState())
     val uiState: StateFlow<ActivityUiState> = _uiState.asStateFlow()
-    private val _dailyCueGoalReachedEvents = MutableSharedFlow<Long>(extraBufferCapacity = 8)
-    val dailyCueGoalReachedEvents: SharedFlow<Long> = _dailyCueGoalReachedEvents.asSharedFlow()
+    data class DailyCueGoalReachedEvent(val cueId: Long, val category: String, val title: String)
+    private val _dailyCueGoalReachedEvents = MutableSharedFlow<DailyCueGoalReachedEvent>(extraBufferCapacity = 8)
+    val dailyCueGoalReachedEvents: SharedFlow<DailyCueGoalReachedEvent> = _dailyCueGoalReachedEvents.asSharedFlow()
 
     private var timerJob: Job? = null
     private var activeSessionWatcherJob: Job? = null
@@ -235,7 +236,7 @@ class ActivityViewModel(
     fun startDailyCueRoutineActivity(cueId: Long, title: String, goalMillis: Long, category: String) {
         if (_uiState.value.isRunning) return
         val cleanTitle = title.trim()
-        if (cleanTitle.isEmpty() || goalMillis <= 0L) return
+        if (cleanTitle.isEmpty()) return
         val cleanCategory = category.takeIf { isTimedCategory(it) } ?: "TODO"
 
         val startTime = System.currentTimeMillis()
@@ -650,10 +651,13 @@ class ActivityViewModel(
                     val elapsedTime = System.currentTimeMillis() - it.startTime
                     val cueId = it.dailyCueId
                     val shouldMarkCue = cueId != null &&
+                        it.timerGoalMillis > 0L &&
                         elapsedTime >= it.timerGoalMillis &&
                         cueId !in it.completedDailyCueGoalIds
                     if (shouldMarkCue) {
-                        _dailyCueGoalReachedEvents.tryEmit(cueId)
+                        _dailyCueGoalReachedEvents.tryEmit(
+                            DailyCueGoalReachedEvent(cueId!!, it.currentCategory, it.pendingTitle ?: "")
+                        )
                     }
                     it.copy(
                         elapsedTime = elapsedTime,

@@ -89,6 +89,7 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import com.example.flowlog.notification.ActivityTimerNotifier
 import com.example.flowlog.notification.ReminderScheduler
 import com.example.flowlog.notification.AutoButtonScheduler
 import com.example.flowlog.notification.PlannedTodoReminderScheduler
@@ -155,8 +156,10 @@ class MainActivity : ComponentActivity() {
                     }.distinct()
                 }
                 LaunchedEffect(activityViewModel, todoViewModel) {
-                    activityViewModel.dailyCueGoalReachedEvents.collect { cueId ->
-                        todoViewModel.completeDailyCue(cueId)
+                    val notifier = ActivityTimerNotifier(this@MainActivity)
+                    activityViewModel.dailyCueGoalReachedEvents.collect { event ->
+                        todoViewModel.completeDailyCue(event.cueId)
+                        notifier.showRoutineGoalAlert(event.title, event.category)
                     }
                 }
                 val auth = remember { FirebaseAuth.getInstance() }
