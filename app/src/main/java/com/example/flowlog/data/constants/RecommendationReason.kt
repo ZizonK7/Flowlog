@@ -10,4 +10,5 @@ object RecommendationReason {
     const val REVIEW_D_PLUS_7_LATE  = "REVIEW_D_PLUS_7_LATE"
     const val EMPTY_GOAL_FILL       = "EMPTY_GOAL_FILL"
     const val MANUAL_REFRESH        = "MANUAL_REFRESH"
+    const val USER_REPLACED         = "USER_REPLACED"
 }

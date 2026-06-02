@@ -57,8 +57,12 @@ class TodoViewModel(
     private var latestActivities: List<ActivitySession> = emptyList()
     private var isRefreshing = false
 
-    val todayFocusItems: StateFlow<List<TodoItem>> = combine(_todos, _focusIds) { todos, ids ->
-        val idToIndex = ids.mapIndexed { i, id -> id to i }.toMap()
+    val todayFocusItems: StateFlow<List<TodoItem>> = combine(
+        _todos,
+        dailyGoalRepository.observeTodayActiveTodoIds()
+    ) { todos, repoIds ->
+        val effectiveIds = repoIds.ifEmpty { _focusIds.value }
+        val idToIndex = effectiveIds.mapIndexed { i, id -> id to i }.toMap()
         todos.filter { it.id in idToIndex }
             .sortedWith(compareBy(
                 { if (it.isCompleted) 1 else 0 },

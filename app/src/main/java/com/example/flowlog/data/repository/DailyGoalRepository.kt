@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.example.flowlog.data.constants.EntityType
 import com.example.flowlog.data.constants.EventType
+import com.example.flowlog.data.constants.RecommendationReason
 import com.example.flowlog.data.constants.SyncStatus
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.local.entity.DailyGoalItemEntity
@@ -11,11 +12,13 @@ import com.example.flowlog.data.local.entity.DailyGoalRecommendationEntity
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.TodoItem
+import com.example.flowlog.notification.PlannedTodoReminderScheduler
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -70,6 +73,28 @@ private data class PlannedItemSnapshot(
     val reason: String?
 )
 
+@Serializable
+private data class ItemReplacedMetadata(
+    val recommendationId: String,
+    val oldItemId: String,
+    val newItemId: String,
+    val oldTodoId: String,
+    val newTodoId: String,
+    val oldTitle: String,
+    val newTitle: String,
+    val oldRank: Int?,
+    val newRank: Int?,
+    val oldReason: String?,
+    val newReason: String?,
+    val oldBurdenLevel: String?,
+    val newBurdenLevel: String?,
+    val oldPlannedStartMillis: Long,
+    val newPlannedStartMillis: Long?,
+    val oldPlannedEndMillis: Long,
+    val newPlannedEndMillis: Long?,
+    val replacedAtMillis: Long
+)
+
 class DailyGoalRepository(context: Context) {
 
     private val db = FlowlogDatabase.getInstance(context)
@@ -77,6 +102,7 @@ class DailyGoalRepository(context: Context) {
     private val autoButtonDao = db.autoButtonScheduleDao()
     private val todoDao = db.todoDao()
     private val eventLogRepository = EventLogRepository(context)
+    private val plannedTodoReminderScheduler = PlannedTodoReminderScheduler(context)
     private val json = Json { ignoreUnknownKeys = true }
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 
@@ -84,6 +110,10 @@ class DailyGoalRepository(context: Context) {
         get() = FirebaseAuth.getInstance().currentUser?.uid ?: "anonymous"
 
     fun todayDateKey(): String = dateFormat.format(Date())
+
+    fun observeTodayActiveTodoIds(dateKey: String = todayDateKey()): Flow<List<Long>> =
+        dao.observeActiveItemsForDate(userId, dateKey)
+            .map { items -> items.mapNotNull { it.todoId.removePrefix("legacy_todo_").toLongOrNull() } }
 
     fun observeTodayRecommendedBlocks(dateKey: String = todayDateKey()): Flow<List<RecommendedTodoBlock>> {
         return combine(
@@ -257,6 +287,7 @@ class DailyGoalRepository(context: Context) {
                 notificationScheduledAtMillis = plan.notificationScheduledAtMillis,
                 updatedAt = now
             )
+            plannedTodoReminderScheduler.reschedule(plan.item.itemId)
         }
 
         val plannedSnapshots = planned.map { it.toSnapshot() }
@@ -285,24 +316,30 @@ class DailyGoalRepository(context: Context) {
 
     suspend fun dismissPlannedItem(itemId: String) {
         dao.updateItemActionStatus(userId, itemId, "DISMISSED", System.currentTimeMillis())
+        plannedTodoReminderScheduler.cancel(itemId)
     }
 
     suspend fun reschedulePlannedItem(itemId: String) {
         dao.updateItemActionStatus(userId, itemId, "RESCHEDULED", System.currentTimeMillis())
+        plannedTodoReminderScheduler.reschedule(itemId)
     }
 
     suspend fun setPlannedItemTime(itemId: String, startHourOfDay: Int) {
-        val dayStart = startOfDay(System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        val dayStart = startOfDay(now)
         val startMillis = dayStart + startHourOfDay * HOUR_MILLIS
         val endMillis = startMillis + HOUR_MILLIS
+        val notificationScheduledAtMillis = startMillis.takeIf { it > now }
         dao.updateItemTimeManually(
             userId = userId,
             itemId = itemId,
             plannedStartMillis = startMillis,
             plannedEndMillis = endMillis,
             durationMinutes = 60,
-            updatedAt = System.currentTimeMillis()
+            notificationScheduledAtMillis = notificationScheduledAtMillis,
+            updatedAt = now
         )
+        plannedTodoReminderScheduler.reschedule(itemId)
     }
 
     suspend fun replacePlannedItemTodo(
@@ -311,29 +348,77 @@ class DailyGoalRepository(context: Context) {
         activities: List<ActivitySession>
     ): Boolean {
         val now = System.currentTimeMillis()
+
+        // Fetch old item before dismissal to capture rank for inheritance
+        val oldItem = dao.getGoalItem(block.itemId)
+        val inheritedRank = oldItem?.rank ?: 1
+
+        val newItemId = UUID.randomUUID().toString()
+
+        // Dismiss old item — sets syncStatus = PENDING automatically
         dao.updateItemActionStatus(userId, block.itemId, "DISMISSED", now)
+        plannedTodoReminderScheduler.cancel(block.itemId)
+
+        // Insert new item: inherit rank from old, mark reason as USER_REPLACED
         dao.insertGoalItems(
             listOf(
-                com.example.flowlog.data.local.entity.DailyGoalItemEntity(
-                    itemId = UUID.randomUUID().toString(),
+                DailyGoalItemEntity(
+                    itemId = newItemId,
                     recommendationId = block.recommendationId,
                     userId = userId,
                     todoId = "legacy_todo_${newTodo.id}",
-                    rank = 99,
-                    reason = null,
+                    rank = inheritedRank,
+                    reason = RecommendationReason.USER_REPLACED,
                     todoSnapshotJson = runCatching { json.encodeToString(newTodo) }.getOrNull(),
                     burdenLevel = null,
                     createdAt = now,
                     updatedAt = now,
-                    syncStatus = com.example.flowlog.data.constants.SyncStatus.PENDING
+                    syncStatus = SyncStatus.PENDING
                 )
             )
         )
-        return ensureTodayTimePlan(activities = activities, forceRefresh = true)
+
+        // Assign time slots — burdenLevel is computed here
+        val result = ensureTodayTimePlan(activities = activities, forceRefresh = true)
+
+        // Log EventLog after time plan so final plannedStart/EndMillis are captured
+        runCatching {
+            val newItem = dao.getGoalItem(newItemId)
+            eventLogRepository.log(
+                eventType = EventType.DAILY_GOAL_ITEM_REPLACED,
+                entityType = EntityType.DAILY_GOAL_ITEM,
+                entityId = block.itemId,
+                metadataJson = json.encodeToString(
+                    ItemReplacedMetadata(
+                        recommendationId = block.recommendationId,
+                        oldItemId = block.itemId,
+                        newItemId = newItemId,
+                        oldTodoId = "legacy_todo_${block.todoId}",
+                        newTodoId = "legacy_todo_${newTodo.id}",
+                        oldTitle = block.title,
+                        newTitle = newTodo.title,
+                        oldRank = oldItem?.rank,
+                        newRank = newItem?.rank,
+                        oldReason = block.reason,
+                        newReason = newItem?.reason,
+                        oldBurdenLevel = block.burdenLevel,
+                        newBurdenLevel = newItem?.burdenLevel,
+                        oldPlannedStartMillis = block.plannedStartMillis,
+                        newPlannedStartMillis = newItem?.plannedStartMillis,
+                        oldPlannedEndMillis = block.plannedEndMillis,
+                        newPlannedEndMillis = newItem?.plannedEndMillis,
+                        replacedAtMillis = now
+                    )
+                )
+            )
+        }
+
+        return result
     }
 
     suspend fun markPlannedItemStarted(itemId: String) {
         dao.markPlannedItemStarted(userId, itemId, System.currentTimeMillis())
+        plannedTodoReminderScheduler.cancel(itemId)
     }
 
     suspend fun markOpenPlannedItemCompleted(todoLegacyId: Long, activityLegacyId: Long) {
@@ -354,6 +439,7 @@ class DailyGoalRepository(context: Context) {
             linkedActivityId = activityLegacyId.toString(),
             completedTodoId = "legacy_todo_$todoLegacyId"
         )
+        plannedTodoReminderScheduler.cancel(itemId)
     }
 
     /**
@@ -847,12 +933,13 @@ class DailyGoalRepository(context: Context) {
             plannedStartMillis: Long,
             workplaceBlocks: List<TimeBlockSnapshot>
         ): Long? {
-            // TODO: when wiring the actual alarm, skip firing if this Todo is already the active TODO timer.
+            val now = System.currentTimeMillis()
             val windowEndExclusive = plannedStartMillis + HOUR_MILLIS
             val candidates = (0 until 60).map { minute ->
                 plannedStartMillis + TimeUnit.MINUTES.toMillis(minute.toLong())
             }.filter { candidate ->
-                candidate < windowEndExclusive &&
+                candidate > now &&
+                    candidate < windowEndExclusive &&
                     workplaceBlocks.none { block -> candidate >= block.startMillis && candidate < block.endMillis }
             }
             if (candidates.isEmpty()) return null

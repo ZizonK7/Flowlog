@@ -113,6 +113,29 @@ interface DailyGoalDao {
     suspend fun getGoalItems(recommendationId: String): List<DailyGoalItemEntity>
 
     @Query("""
+        SELECT * FROM daily_goal_items
+        WHERE itemId = :itemId
+        LIMIT 1
+    """)
+    suspend fun getGoalItem(itemId: String): DailyGoalItemEntity?
+
+    @Query("""
+        SELECT * FROM daily_goal_items
+        WHERE userId = :userId
+            AND notificationScheduledAtMillis IS NOT NULL
+            AND notificationScheduledAtMillis > :now
+            AND userActionStatus IN ('PLANNED', 'RESCHEDULED')
+            AND wasCompleted = 0
+            AND wasSkipped = 0
+            AND wasDeleted = 0
+        ORDER BY notificationScheduledAtMillis ASC
+    """)
+    suspend fun getUpcomingPlannedItemsForReminder(
+        userId: String,
+        now: Long
+    ): List<DailyGoalItemEntity>
+
+    @Query("""
         SELECT item.* FROM daily_goal_items AS item
         INNER JOIN daily_goal_recommendations AS recommendation
             ON item.recommendationId = recommendation.recommendationId
@@ -128,6 +151,25 @@ interface DailyGoalDao {
         ORDER BY item.plannedStartMillis ASC, item.rank ASC
     """)
     fun observePlannedItemsForDate(userId: String, dateKey: String): Flow<List<DailyGoalItemEntity>>
+
+    @Query("""
+        SELECT item.* FROM daily_goal_items AS item
+        INNER JOIN daily_goal_recommendations AS recommendation
+            ON item.recommendationId = recommendation.recommendationId
+        WHERE recommendation.userId = :userId
+            AND recommendation.dateKey = :dateKey
+            AND item.userActionStatus != 'DISMISSED'
+            AND item.wasCompleted = 0
+            AND item.wasSkipped = 0
+            AND item.wasDeleted = 0
+            AND recommendation.recommendationId = (
+                SELECT recommendationId FROM daily_goal_recommendations
+                WHERE userId = :userId AND dateKey = :dateKey
+                ORDER BY createdAt DESC LIMIT 1
+            )
+        ORDER BY item.rank ASC
+    """)
+    fun observeActiveItemsForDate(userId: String, dateKey: String): Flow<List<DailyGoalItemEntity>>
 
     @Query("""
         SELECT item.* FROM daily_goal_items AS item
@@ -221,6 +263,7 @@ interface DailyGoalDao {
         SET plannedStartMillis = :plannedStartMillis,
             plannedEndMillis = :plannedEndMillis,
             recommendedDurationMinutes = :durationMinutes,
+            notificationScheduledAtMillis = :notificationScheduledAtMillis,
             userActionStatus = 'RESCHEDULED',
             actualStartedAt = NULL,
             actualCompletedAt = NULL,
@@ -237,6 +280,7 @@ interface DailyGoalDao {
         plannedStartMillis: Long,
         plannedEndMillis: Long,
         durationMinutes: Int,
+        notificationScheduledAtMillis: Long?,
         updatedAt: Long
     )
 

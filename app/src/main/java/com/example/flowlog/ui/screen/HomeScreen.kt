@@ -741,7 +741,7 @@ private fun FlowStartPage(
     val displayCategories = remember(promotedButtons) {
         if (promotedButtons.size == 2) {
             DEFAULT_MAIN_BUTTON_CATEGORIES.take(6) +
-                promotedButtons +
+                listOf(promotedButtons[1], promotedButtons[0]) +
                 DEFAULT_MAIN_BUTTON_CATEGORIES.drop(6)
         } else {
             DEFAULT_MAIN_BUTTON_CATEGORIES

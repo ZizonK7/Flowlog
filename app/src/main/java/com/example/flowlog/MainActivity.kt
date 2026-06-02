@@ -90,6 +90,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.example.flowlog.notification.ReminderScheduler
 import com.example.flowlog.notification.AutoButtonScheduler
+import com.example.flowlog.notification.PlannedTodoReminderScheduler
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.flowlog.ui.screen.HomeScreen
@@ -119,6 +120,7 @@ class MainActivity : ComponentActivity() {
         FirebaseSyncAlarmScheduler.scheduleNextMidnightSync(applicationContext)
         lifecycleScope.launch {
             runCatching { AutoButtonScheduler(applicationContext).rescheduleAll() }
+            runCatching { PlannedTodoReminderScheduler(applicationContext).rescheduleAll() }
         }
         requestNotificationPermission()
         requestExactAlarmPermission()
@@ -197,6 +199,9 @@ class MainActivity : ComponentActivity() {
                         }
                         runCatching {
                             AutoButtonScheduler(applicationContext).rescheduleAll()
+                        }
+                        runCatching {
+                            PlannedTodoReminderScheduler(applicationContext).rescheduleAll()
                         }
                     }
                 }
