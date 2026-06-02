@@ -99,7 +99,16 @@ class TodoViewModel(
                 ?.mapNotNull { it.toLongOrNull() }
             ?: emptyList()
 
-        if (storedKey == todayKey && storedOrdered.isNotEmpty()) {
+        val hasUrgentMissed = storedKey == todayKey && storedOrdered.isNotEmpty() && run {
+            allTodos.any { todo ->
+                !storedOrdered.contains(todo.id) &&
+                    !todo.isCompleted &&
+                    todo.category == TodoCategory.ASSIGNMENT &&
+                    todo.selectedDate != null &&
+                    daysDiff(todayKey, startOfDay(todo.selectedDate)) in 0L..1L
+            }
+        }
+        if (storedKey == todayKey && storedOrdered.isNotEmpty() && !hasUrgentMissed) {
             _focusIds.value = storedOrdered
             return
         }
@@ -497,6 +506,20 @@ class TodoViewModel(
     private fun selectBurdenCombination(candidates: List<TodayFocusCandidateLike>): List<TodayFocusCandidateLike> {
         if (candidates.size <= 1) return candidates
 
+        // priority <= 1 (D-0, D-1)은 부담도와 무관하게 무조건 포함
+        val mandatory = candidates.filter { it.priority <= 1 }.sortedBy { it.priority }
+        if (mandatory.size >= 2) return mandatory.take(3)
+
+        val remaining = candidates.filter { it.priority > 1 }
+        val slotsLeft = 2 - mandatory.size
+        val fill = pickByBurdenCombination(remaining, slotsLeft)
+        return mandatory + fill
+    }
+
+    private fun pickByBurdenCombination(candidates: List<TodayFocusCandidateLike>, count: Int): List<TodayFocusCandidateLike> {
+        if (count <= 0 || candidates.isEmpty()) return emptyList()
+        if (candidates.size <= count) return candidates
+
         val byBurden = candidates.groupBy { it.burdenLevel }
         fun lightPool() = byBurden["LIGHT"].orEmpty().sortedWith(lightCandidateComparator())
         fun mediumPool() = byBurden["MEDIUM"].orEmpty().sortedWith(mediumCandidateComparator())
@@ -506,16 +529,15 @@ class TodoViewModel(
         val medium = mediumPool()
         val heavy = heavyPool()
 
-        val combo = when {
+        if (count == 1) return listOf(candidates.sortedWith(fallbackCandidateComparator()).first())
+
+        return when {
             light.isNotEmpty() && heavy.isNotEmpty() -> listOf(light.first(), heavy.first())
             medium.size >= 2 -> medium.take(2)
             light.isNotEmpty() && medium.isNotEmpty() -> listOf(light.first(), medium.first())
             light.size >= 2 -> light.take(2)
-            else -> candidates
-                .sortedWith(fallbackCandidateComparator())
-                .take(2)
+            else -> candidates.sortedWith(fallbackCandidateComparator()).take(count)
         }
-        return combo
     }
 
     private interface TodayFocusCandidateLike {
