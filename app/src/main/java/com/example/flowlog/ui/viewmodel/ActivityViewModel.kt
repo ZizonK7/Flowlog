@@ -26,8 +26,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -86,6 +89,9 @@ data class ActivityUiState(
     val sourceType: String = ActivitySourceType.MANUAL,
     val sourceId: String? = null,
     val pendingTitle: String? = null,
+    val pendingNote: String? = null,
+    val dailyCueId: Long? = null,
+    val completedDailyCueGoalIds: Set<Long> = emptySet(),
     val pendingSavedActivity: ActivitySession? = null,
     val lastAddedActivity: ActivitySession? = null,
     val editingActivity: ActivitySession? = null,
@@ -109,6 +115,8 @@ class ActivityViewModel(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ActivityUiState())
     val uiState: StateFlow<ActivityUiState> = _uiState.asStateFlow()
+    private val _dailyCueGoalReachedEvents = MutableSharedFlow<Long>(extraBufferCapacity = 8)
+    val dailyCueGoalReachedEvents: SharedFlow<Long> = _dailyCueGoalReachedEvents.asSharedFlow()
 
     private var timerJob: Job? = null
     private var activeSessionWatcherJob: Job? = null
@@ -168,6 +176,8 @@ class ActivityViewModel(
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = null,
                 pendingTitle = null,
+                pendingNote = null,
+                dailyCueId = null,
                 statusMessage = null
             )
         }
@@ -184,8 +194,9 @@ class ActivityViewModel(
 
     fun setRunningActivityTitle(title: String) {
         if (!_uiState.value.isRunning) return
+        val cleanTitle = title.trim().takeIf { cleanTitle -> cleanTitle.isNotBlank() }
         _uiState.update {
-            it.copy(pendingTitle = title.trim().takeIf { cleanTitle -> cleanTitle.isNotBlank() })
+            it.copy(pendingTitle = cleanTitle)
         }
     }
 
@@ -205,6 +216,8 @@ class ActivityViewModel(
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = null,
                 pendingTitle = title,
+                pendingNote = null,
+                dailyCueId = null,
                 statusMessage = null
             )
         }
@@ -216,6 +229,42 @@ class ActivityViewModel(
             linkedTodoTitle = title
         )
         activityTimerNotifier.showRunningTimer("TODO", startTime)
+        startTimer()
+    }
+
+    fun startDailyCueRoutineActivity(cueId: Long, title: String, goalMillis: Long, category: String) {
+        if (_uiState.value.isRunning) return
+        val cleanTitle = title.trim()
+        if (cleanTitle.isEmpty() || goalMillis <= 0L) return
+        val cleanCategory = category.takeIf { isTimedCategory(it) } ?: "TODO"
+
+        val startTime = System.currentTimeMillis()
+        val cleanGoalMillis = goalMillis.coerceAtLeast(1L)
+        _uiState.update {
+            it.copy(
+                isRunning = true,
+                currentCategory = cleanCategory,
+                elapsedTime = 0L,
+                timerGoalMillis = cleanGoalMillis,
+                startTime = startTime,
+                linkedTodoId = null,
+                sourceType = ActivitySourceType.MANUAL,
+                sourceId = null,
+                pendingTitle = cleanTitle,
+                pendingNote = null,
+                dailyCueId = cueId,
+                completedDailyCueGoalIds = it.completedDailyCueGoalIds - cueId,
+                statusMessage = null
+            )
+        }
+        saveActiveSession(
+            category = cleanCategory,
+            startTime = startTime,
+            goalMillis = cleanGoalMillis,
+            linkedTodoTitle = cleanTitle,
+            dailyCueId = cueId
+        )
+        activityTimerNotifier.showRunningTimer(cleanCategory, startTime)
         startTimer()
     }
 
@@ -235,6 +284,8 @@ class ActivityViewModel(
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = block.itemId,
                 pendingTitle = block.title,
+                pendingNote = null,
+                dailyCueId = null,
                 statusMessage = null
             )
         }
@@ -362,7 +413,8 @@ class ActivityViewModel(
             tags = emptyList(),
             linkedTodoId = state.linkedTodoId,
             sourceType = state.sourceType,
-            sourceId = state.sourceId
+            sourceId = state.sourceId,
+            note = state.pendingNote?.takeIf { it.isNotBlank() }
         )
 
         clearActiveSession()
@@ -379,7 +431,9 @@ class ActivityViewModel(
                 linkedTodoId = null,
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = null,
-                pendingTitle = null
+                pendingTitle = null,
+                pendingNote = null,
+                dailyCueId = null
             )
         }
 
@@ -430,7 +484,7 @@ class ActivityViewModel(
             startTime = state.startTime,
             endTime = endTime,
             durationMillis = durationMillis,
-            note = note?.takeIf { it.isNotBlank() },
+            note = note?.takeIf { it.isNotBlank() } ?: state.pendingNote?.takeIf { it.isNotBlank() },
             tags = emptyList(),
             linkedTodoId = state.linkedTodoId,
             sourceType = state.sourceType,
@@ -593,7 +647,22 @@ class ActivityViewModel(
         timerJob = viewModelScope.launch {
             while (_uiState.value.isRunning) {
                 _uiState.update {
-                    it.copy(elapsedTime = System.currentTimeMillis() - it.startTime)
+                    val elapsedTime = System.currentTimeMillis() - it.startTime
+                    val cueId = it.dailyCueId
+                    val shouldMarkCue = cueId != null &&
+                        elapsedTime >= it.timerGoalMillis &&
+                        cueId !in it.completedDailyCueGoalIds
+                    if (shouldMarkCue) {
+                        _dailyCueGoalReachedEvents.tryEmit(cueId)
+                    }
+                    it.copy(
+                        elapsedTime = elapsedTime,
+                        completedDailyCueGoalIds = if (shouldMarkCue) {
+                            it.completedDailyCueGoalIds + cueId
+                        } else {
+                            it.completedDailyCueGoalIds
+                        }
+                    )
                 }
                 delay(1_000L)
             }
@@ -619,6 +688,8 @@ class ActivityViewModel(
                 sourceType = activeTimer.sourceType,
                 sourceId = activeTimer.sourceId,
                 pendingTitle = activeTimer.linkedTodoTitle,
+                pendingNote = activeTimer.pendingNote,
+                dailyCueId = activeTimer.dailyCueId,
                 statusMessage = null
             )
         }
@@ -662,7 +733,9 @@ class ActivityViewModel(
                         linkedTodoId = null,
                         sourceType = ActivitySourceType.MANUAL,
                         sourceId = null,
-                        pendingTitle = null
+                        pendingTitle = null,
+                        pendingNote = null,
+                        dailyCueId = null
                     )
                 }
             }
@@ -688,6 +761,8 @@ class ActivityViewModel(
                     sourceType = activeTimer.sourceType,
                     sourceId = activeTimer.sourceId,
                     pendingTitle = activeTimer.linkedTodoTitle,
+                    pendingNote = activeTimer.pendingNote,
+                    dailyCueId = activeTimer.dailyCueId,
                     statusMessage = null
                 )
             }
@@ -1070,6 +1145,8 @@ class ActivityViewModel(
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = null,
                 pendingTitle = null,
+                pendingNote = null,
+                dailyCueId = null,
                 statusMessage = null
             )
         }
@@ -1086,6 +1163,8 @@ class ActivityViewModel(
         goalMillis: Long,
         linkedTodoId: Long? = null,
         linkedTodoTitle: String? = null,
+        pendingNote: String? = null,
+        dailyCueId: Long? = null,
         sourceType: String = ActivitySourceType.MANUAL,
         sourceId: String? = null
     ) {
@@ -1096,6 +1175,8 @@ class ActivityViewModel(
             goalMillis = goalMillis,
             linkedTodoId = linkedTodoId,
             linkedTodoTitle = linkedTodoTitle,
+            pendingNote = pendingNote,
+            dailyCueId = dailyCueId,
             sourceType = sourceType,
             sourceId = sourceId
         )
@@ -1184,6 +1265,7 @@ class ActivityViewModel(
             "WORK" -> "\uC5C5\uBB34"
             "COMPANY" -> "\uD68C\uC0AC"
             "DEVELOPMENT" -> "\uAC1C\uBC1C"
+            "READING" -> "\uB3C5\uC11C"
             "WASH" -> "\uC53B\uAE30"
             "REST" -> "\uD734\uC2DD"
             "SCHOOL" -> "\uD559\uAD50"

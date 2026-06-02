@@ -55,11 +55,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -81,9 +83,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
+import com.example.flowlog.ui.component.PickerWaveBackground
+import com.example.flowlog.ui.component.WheelPickerColumn
+import com.example.flowlog.ui.component.CategoryPicker
+import com.example.flowlog.ui.component.displayCategory
 import com.example.flowlog.ui.component.formatDuration
 import com.example.flowlog.ui.viewmodel.DailyCueItem
 import com.example.flowlog.ui.viewmodel.TodoViewModel
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -98,6 +105,12 @@ private val GreenSoft    = Color(0xFFE8F5E9)
 private val GreenTint    = Color(0xFF4CAF50)
 private val CardShape    = RoundedCornerShape(18.dp)
 private val ChipShape    = RoundedCornerShape(20.dp)
+private val DefaultDailyCueTimerCategories = listOf(
+    "SLEEP", "REST",
+    "WORK", "STUDY",
+    "EXERCISE", "WASH",
+    "MEAL", "ETC"
+)
 
 // ── 메인 화면 ─────────────────────────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
@@ -105,6 +118,8 @@ private val ChipShape    = RoundedCornerShape(20.dp)
 fun TodoScreen(
     viewModel: TodoViewModel,
     onStartTodo: (TodoItem) -> Unit,
+    onStartDailyCueRoutine: (Long, String, Long, String) -> Unit,
+    routineTimerCategories: List<String> = DefaultDailyCueTimerCategories,
     isDeveloperMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -267,7 +282,9 @@ fun TodoScreen(
                 onToggleCue = viewModel::toggleDailyCue,
                 onAddCue = viewModel::addDailyCue,
                 onUpdateCue = viewModel::updateDailyCue,
-                onDeleteCue = viewModel::deleteDailyCue
+                onDeleteCue = viewModel::deleteDailyCue,
+                onStartRoutine = onStartDailyCueRoutine,
+                timerCategories = routineTimerCategories
             )
         }
 
@@ -325,9 +342,11 @@ fun TodoScreen(
 private fun DailyCuesSection(
     cues: List<DailyCueItem>,
     onToggleCue: (Long) -> Unit,
-    onAddCue: (String, String) -> Unit,
-    onUpdateCue: (Long, String, String) -> Unit,
-    onDeleteCue: (Long) -> Unit
+    onAddCue: (String, String, Long?, String) -> Unit,
+    onUpdateCue: (Long, String, String, Long?, String) -> Unit,
+    onDeleteCue: (Long) -> Unit,
+    onStartRoutine: (Long, String, Long, String) -> Unit,
+    timerCategories: List<String>
 ) {
     var isShowingAll by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
@@ -339,10 +358,11 @@ private fun DailyCuesSection(
     if (showAddDialog) {
         DailyCueEditorDialog(
             cue = null,
+            timerCategories = timerCategories,
             onDismiss = { showAddDialog = false },
             onDelete = null,
-            onSave = { title, label ->
-                onAddCue(title, label)
+            onSave = { title, label, timerDurationMillis, timerCategory ->
+                onAddCue(title, label, timerDurationMillis, timerCategory)
                 showAddDialog = false
                 isShowingAll = true
             }
@@ -351,13 +371,14 @@ private fun DailyCuesSection(
     editingCue?.let { cue ->
         DailyCueEditorDialog(
             cue = cue,
+            timerCategories = timerCategories,
             onDismiss = { editingCue = null },
             onDelete = {
                 onDeleteCue(cue.id)
                 editingCue = null
             },
-            onSave = { title, label ->
-                onUpdateCue(cue.id, title, label)
+            onSave = { title, label, timerDurationMillis, timerCategory ->
+                onUpdateCue(cue.id, title, label, timerDurationMillis, timerCategory)
                 editingCue = null
             }
         )
@@ -422,6 +443,7 @@ private fun DailyCuesSection(
                         cue = cue,
                         onToggle = { onToggleCue(cue.id) },
                         onEdit = { editingCue = cue },
+                        onStartRoutine = onStartRoutine,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -436,13 +458,34 @@ private fun DailyCuesSection(
 @Composable
 private fun DailyCueEditorDialog(
     cue: DailyCueItem?,
+    timerCategories: List<String>,
     onDismiss: () -> Unit,
     onDelete: (() -> Unit)?,
-    onSave: (String, String) -> Unit
+    onSave: (String, String, Long?, String) -> Unit
 ) {
     var title by remember(cue?.id) { mutableStateOf(cue?.title ?: "") }
     var label by remember(cue?.id) { mutableStateOf(cue?.label ?: "Routine") }
+    var timerDurationMillis by remember(cue?.id) { mutableStateOf(cue?.timerDurationMillis) }
+    val categoryOptions = remember(timerCategories) {
+        timerCategories.distinct().filter { it.isNotBlank() }.ifEmpty { DefaultDailyCueTimerCategories }
+    }
+    var timerCategory by remember(cue?.id, categoryOptions) {
+        mutableStateOf((cue?.timerCategory ?: categoryOptions.first()).takeIf { it in categoryOptions } ?: categoryOptions.first())
+    }
+    var showDurationPicker by remember { mutableStateOf(false) }
     val isEditing = cue != null
+    val isRoutine = label == "Routine"
+
+    if (showDurationPicker) {
+        RoutineDurationPickerSheet(
+            initialDurationMillis = timerDurationMillis,
+            onDismiss = { showDurationPicker = false },
+            onConfirm = { durationMillis ->
+                timerDurationMillis = durationMillis.takeIf { it > 0L }
+                showDurationPicker = false
+            }
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -505,13 +548,78 @@ private fun DailyCueEditorDialog(
                         helper = "오늘만",
                         isSelected = label == "Memo",
                         modifier = Modifier.weight(1f)
-                    ) { label = "Memo" }
+                    ) {
+                        label = "Memo"
+                        timerDurationMillis = null
+                    }
+                }
+                if (isRoutine) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Timer",
+                            color = TextPrimary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "활동 카테고리",
+                            color = TextPrimary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        CategoryPicker(
+                            categories = categoryOptions,
+                            selectedCategory = timerCategory,
+                            onSelect = { timerCategory = it },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(PurpleSoft.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                .border(BorderStroke(1.dp, BorderLight), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    timerDurationMillis?.let { formatCueDuration(it) } ?: "No timer",
+                                    color = if (timerDurationMillis == null) TextMuted else TextPrimary,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Routine 카드에서 실행할 목표 시간",
+                                    color = TextMuted,
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp
+                                )
+                            }
+                            if (timerDurationMillis != null) {
+                                TextButton(onClick = { timerDurationMillis = null }) {
+                                    Text("없음", color = TextMuted, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = { showDurationPicker = true },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, Purple.copy(alpha = 0.35f)),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text("설정", color = Purple, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             }
         },
         confirmButton = {
             Button(
-                onClick = { onSave(title, label) },
+                onClick = {
+                    val duration = timerDurationMillis?.takeIf { label == "Routine" && it > 0L }
+                    onSave(title, label, duration, timerCategory)
+                },
                 enabled = title.isNotBlank(),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
@@ -572,6 +680,7 @@ private fun DailyCueCard(
     cue: DailyCueItem,
     onToggle: () -> Unit,
     onEdit: () -> Unit,
+    onStartRoutine: (Long, String, Long, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isMemo = cue.label == "Memo"
@@ -579,14 +688,18 @@ private fun DailyCueCard(
     val labelBg = if (isMemo) Color(0xFFFFEEF3) else PurpleSoft
     val borderColor = if (cue.isCompleted) GreenTint.copy(alpha = 0.35f) else PurpleSoft
     val cardBg = if (cue.isCompleted) GreenSoft.copy(alpha = 0.45f) else Color.White
+    val titleFontSize = when {
+        !isMemo -> 13.sp
+        cue.title.length > 18 -> 10.sp
+        cue.title.length > 14 -> 11.sp
+        cue.title.length > 10 -> 12.sp
+        else -> 13.sp
+    }
 
     Card(
         modifier = modifier
-            .height(70.dp)
-            .combinedClickable(
-                onClick = {},
-                onLongClick = onEdit
-            ),
+            .height(if (isMemo) 88.dp else 82.dp)
+            .combinedClickable(onClick = onEdit),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = cardBg),
         border = BorderStroke(1.dp, borderColor),
@@ -613,12 +726,42 @@ private fun DailyCueCard(
                 Text(
                     cue.title,
                     color = if (cue.isCompleted) TextMuted else TextPrimary,
-                    fontSize = 13.sp,
+                    fontSize = titleFontSize,
                     fontWeight = FontWeight.SemiBold,
-                    lineHeight = 17.sp,
-                    maxLines = 1,
+                    lineHeight = 16.sp,
+                    maxLines = if (isMemo) 2 else 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (!isMemo && cue.timerDurationMillis != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        displayCategory(cue.timerCategory),
+                        color = TextMuted,
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (!isMemo) {
+                IconButton(
+                    onClick = {
+                        cue.timerDurationMillis?.let { durationMillis ->
+                            onStartRoutine(cue.id, cue.title, durationMillis, cue.timerCategory)
+                        }
+                    },
+                    enabled = cue.timerDurationMillis != null,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        tint = if (cue.timerDurationMillis != null) Purple else TextMuted.copy(alpha = 0.35f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
             Box(
                 modifier = Modifier
@@ -645,6 +788,137 @@ private fun DailyCueCard(
 }
 
 // ── 새 할 일 입력 카드 ────────────────────────────────────────────────────────
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RoutineDurationPickerSheet(
+    initialDurationMillis: Long?,
+    onDismiss: () -> Unit,
+    onConfirm: (Long) -> Unit
+) {
+    val initialMinutes = TimeUnit.MILLISECONDS.toMinutes(initialDurationMillis ?: 0L)
+        .coerceIn(0L, 23L * 60L + 59L)
+        .toInt()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var hour by remember(initialDurationMillis) { mutableStateOf(initialMinutes / 60) }
+    var minute by remember(initialDurationMillis) { mutableStateOf(initialMinutes % 60) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        sheetGesturesEnabled = false,
+        dragHandle = null,
+        containerColor = Color.White,
+        contentColor = TextPrimary
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(560.dp)
+        ) {
+            PickerWaveBackground(
+                color = PurpleSoft.copy(alpha = 0.54f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(118.dp)
+                    .align(Alignment.BottomCenter)
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 28.dp)
+                    .padding(bottom = 22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "Timer duration",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = TextPrimary,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+                Text(
+                    "Routine 카드에서 실행할 목표 시간을 선택하세요.",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextMuted,
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+                Text(
+                    formatCueDuration(TimeUnit.HOURS.toMillis(hour.toLong()) + TimeUnit.MINUTES.toMillis(minute.toLong())),
+                    fontSize = 42.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = Color(0xFF27324D),
+                    modifier = Modifier.padding(top = 28.dp)
+                )
+                Row(
+                    modifier = Modifier.padding(top = 26.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    WheelPickerColumn(
+                        values = (0..23).toList(),
+                        selectedValue = hour,
+                        formatter = { "${it}h" },
+                        onSelect = { hour = it },
+                        selectedHighlightColor = Purple.copy(alpha = 0.44f),
+                        unselectedTextColor = TextMuted.copy(alpha = 0.45f)
+                    )
+                    WheelPickerColumn(
+                        values = (0..59).toList(),
+                        selectedValue = minute,
+                        formatter = { "${it}m" },
+                        onSelect = { minute = it },
+                        selectedHighlightColor = Purple.copy(alpha = 0.44f),
+                        unselectedTextColor = TextMuted.copy(alpha = 0.45f)
+                    )
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        colors = ButtonDefaults.textButtonColors(contentColor = TextPrimary)
+                    ) {
+                        Text("취소", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                    }
+                    Button(
+                        onClick = {
+                            onConfirm(TimeUnit.HOURS.toMillis(hour.toLong()) + TimeUnit.MINUTES.toMillis(minute.toLong()))
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Purple,
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text("확인", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatCueDuration(durationMillis: Long): String {
+    val hours = TimeUnit.MILLISECONDS.toHours(durationMillis)
+    val minutes = TimeUnit.MILLISECONDS.toMinutes(durationMillis) % 60
+    return when {
+        hours > 0 && minutes > 0 -> "${hours}시간 ${minutes}분"
+        hours > 0 -> "${hours}시간"
+        minutes > 0 -> "${minutes}분"
+        else -> "No timer"
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NewTodoCard(

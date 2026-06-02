@@ -2,12 +2,13 @@ package com.example.flowlog.ui.component
 
 import androidx.annotation.DrawableRes
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ChromeReaderMode
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
-import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Cookie
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Restaurant
@@ -20,10 +21,11 @@ import com.example.flowlog.R
 
 fun categoryAppIcon(category: String): ImageVector? = when (category) {
     "MEAL"        -> Icons.Filled.Restaurant
-    "STUDY"       -> Icons.AutoMirrored.Filled.MenuBook
+    "STUDY"       -> Icons.Filled.EditNote
     "WORK"        -> Icons.Filled.Work
     "COMPANY"     -> Icons.Filled.Apartment
     "DEVELOPMENT" -> Icons.Filled.Code
+    "READING"     -> Icons.AutoMirrored.Filled.ChromeReaderMode
     "WASH"        -> Icons.Filled.Shower
     "SCHOOL"      -> Icons.Filled.School
     "EXERCISE"    -> Icons.AutoMirrored.Filled.DirectionsRun
@@ -42,6 +44,7 @@ fun categoryNotificationIconRes(category: String): Int = when (category) {
     "WORK"        -> R.drawable.ic_activity_work
     "COMPANY"     -> R.drawable.ic_activity_work
     "DEVELOPMENT" -> R.drawable.ic_activity_development
+    "READING"     -> R.drawable.ic_activity_reading
     "WASH"        -> R.drawable.ic_activity_wash
     "SCHOOL"      -> R.drawable.ic_activity_school
     "EXERCISE"    -> R.drawable.ic_activity_exercise

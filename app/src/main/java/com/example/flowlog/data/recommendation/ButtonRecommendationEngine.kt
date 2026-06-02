@@ -14,7 +14,7 @@ class ButtonRecommendationEngine {
 
     companion object {
         // 직접 카테고리 버튼을 눌렀을 때 후보로 인정되는 카테고리
-        private val CANDIDATE_CATEGORIES = setOf("DEVELOPMENT", "SCHOOL", "COMPANY")
+        private val CANDIDATE_CATEGORIES = setOf("DEVELOPMENT", "READING", "SCHOOL", "COMPANY")
 
         // 활동 제목(정규화)으로 후보 카테고리를 추론하는 매핑
         // 사용자가 다른 버튼(예: 공부)을 눌러도 제목이 "개발"이면 DEVELOPMENT로 집계
@@ -22,9 +22,20 @@ class ButtonRecommendationEngine {
             "개발" to "DEVELOPMENT",
             "코딩" to "DEVELOPMENT",
             "프로그래밍" to "DEVELOPMENT",
+            "독서" to "READING",
+            "책" to "READING",
+            "읽기" to "READING",
+            "reading" to "READING",
+            "read" to "READING",
             "학교" to "SCHOOL",
             "회사" to "COMPANY",
             "출근" to "COMPANY"
+        )
+        private val TEXT_KEYWORDS_TO_CATEGORY = listOf(
+            listOf("개발", "코딩", "프로그래밍") to "DEVELOPMENT",
+            listOf("독서", "책", "읽기", "reading", "read") to "READING",
+            listOf("학교") to "SCHOOL",
+            listOf("회사", "출근") to "COMPANY"
         )
 
         // SCHOOL과 COMPANY는 같은 슬롯을 공유 — 점수 높은 쪽 하나만 승격
@@ -54,7 +65,7 @@ class ButtonRecommendationEngine {
             .mapNotNull { session ->
                 val candidateCategory = when {
                     session.category in CANDIDATE_CATEGORIES -> session.category
-                    else -> TITLE_TO_CATEGORY[session.title.trim().lowercase()]
+                    else -> inferCategoryFromText(session)
                 }
                 candidateCategory?.let { it to session }
             }
@@ -144,6 +155,17 @@ class ButtonRecommendationEngine {
                     false
                 }
             }
+    }
+
+    private fun inferCategoryFromText(session: ActivitySession): String? {
+        val title = session.title.trim().lowercase()
+        val note = session.note.orEmpty().trim().lowercase()
+        val exactTitleMatch = TITLE_TO_CATEGORY[title]
+        if (exactTitleMatch != null) return exactTitleMatch
+
+        return TEXT_KEYWORDS_TO_CATEGORY.firstNotNullOfOrNull { (keywords, category) ->
+            category.takeIf { keywords.any { keyword -> title.contains(keyword) || note.contains(keyword) } }
+        }
     }
 
     private fun dayKey(millis: Long): String {

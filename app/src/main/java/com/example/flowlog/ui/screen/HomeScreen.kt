@@ -40,7 +40,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -91,8 +90,6 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -120,7 +117,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.flowlog.data.constants.ActivitySourceType
+import com.example.flowlog.debug.CityTimetablePreset
+import com.example.flowlog.debug.CityTimetableSamples
+import com.example.flowlog.debug.SampleTimetableData
 import com.example.flowlog.data.model.ActivitySession
+import com.example.flowlog.ui.city.CityTimetableCard
 import com.example.flowlog.data.model.AutoButtonSchedule
 import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.ScheduledAutoButtonBlock
@@ -129,6 +130,8 @@ import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.ui.component.CategoryButton
 import com.example.flowlog.ui.component.CategoryGlyph
 import com.example.flowlog.ui.component.EditActivityDialog
+import com.example.flowlog.ui.component.PickerWaveBackground
+import com.example.flowlog.ui.component.WheelPickerColumn
 import com.example.flowlog.ui.component.categoryColor
 import com.example.flowlog.ui.component.displayCategory
 import com.example.flowlog.ui.component.formatDuration
@@ -168,12 +171,171 @@ private val PRECISE_TIMETABLE_CATEGORIES = setOf(
 private val PRODUCTIVE_TIMETABLE_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK")
 
 @Composable
+fun DevTimetableScreen(modifier: Modifier = Modifier) {
+    var samplePresetIndex by remember { mutableStateOf(0) }
+    var cityPreset   by remember { mutableStateOf(CityTimetablePreset.BASIC_DAY) }
+    var showCityView by remember { mutableStateOf(false) }
+    var showLabels   by remember { mutableStateOf(true) }
+    var showBadges   by remember { mutableStateOf(true) }
+    var bigBoat      by remember { mutableStateOf(false) }
+
+    LazyColumn(modifier = modifier.fillMaxSize()) {
+        item {
+            TimetableCard(
+                activities = SampleTimetableData.activitiesForIndex(samplePresetIndex),
+                scheduledBlocks = emptyList(),
+                recommendedBlocks = emptyList(),
+                incompleteTodos = emptyList(),
+                onSkipToday = {},
+                onUnskipToday = {},
+                onEditSchedule = {},
+                onManageSchedules = {},
+                onStartRecommended = {},
+                onSetRecommendedTime = { _, _ -> },
+                onReplaceRecommendedItem = { _, _ -> },
+                isDeveloperMode = true,
+                samplePresetIndex = samplePresetIndex,
+                onCyclePreset = { samplePresetIndex = (samplePresetIndex + 1) % SampleTimetableData.presetCount }
+            )
+        }
+        item {
+            DevCitySection(
+                cityPreset = cityPreset,
+                showCityView = showCityView,
+                showLabels = showLabels,
+                showBadges = showBadges,
+                bigBoat = bigBoat,
+                onSelectPreset = { cityPreset = it },
+                onToggleCityView = { showCityView = !showCityView },
+                onToggleLabels   = { showLabels = !showLabels },
+                onToggleBadges   = { showBadges = !showBadges },
+                onToggleBigBoat  = { bigBoat = !bigBoat }
+            )
+        }
+    }
+}
+
+@Composable
+private fun DevCitySection(
+    cityPreset: CityTimetablePreset,
+    showCityView: Boolean,
+    showLabels: Boolean,
+    showBadges: Boolean,
+    bigBoat: Boolean,
+    onSelectPreset: (CityTimetablePreset) -> Unit,
+    onToggleCityView: () -> Unit,
+    onToggleLabels: () -> Unit,
+    onToggleBadges: () -> Unit,
+    onToggleBigBoat: () -> Unit,
+) {
+    androidx.compose.material3.Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = Color(0xFFFFF8E1)
+        ),
+        elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+
+            // ── 헤더 + 미리보기 토글 ────────────────────────────────
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "도시 타임테이블 샘플",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF5D4037),
+                    modifier = Modifier.weight(1f)
+                )
+                androidx.compose.material3.Switch(
+                    checked = showCityView,
+                    onCheckedChange = { onToggleCityView() },
+                    colors = androidx.compose.material3.SwitchDefaults.colors(
+                        checkedTrackColor = FlowPurple
+                    )
+                )
+            }
+            Text(
+                text = "미리보기 ${if (showCityView) "ON" else "OFF"}",
+                fontSize = 11.sp,
+                color = Color(0xFF8D6E63),
+                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
+            )
+
+            // ── 샘플 프리셋 버튼 ────────────────────────────────────
+            androidx.compose.foundation.lazy.LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(vertical = 2.dp)
+            ) {
+                items(CityTimetableSamples.presets.size) { idx ->
+                    val preset   = CityTimetableSamples.presets[idx]
+                    val selected = preset == cityPreset
+                    Button(
+                        onClick = { onSelectPreset(preset) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (selected) FlowPurple else Color(0xFFFFE0B2),
+                            contentColor   = if (selected) Color.White else Color(0xFFE65100)
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
+                    ) {
+                        Text(preset.label, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            // ── 세부 옵션 칩 (라벨 / 배지 / 큰 보트) ────────────────
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                androidx.compose.material3.FilterChip(
+                    selected = showLabels,
+                    onClick = onToggleLabels,
+                    label = { Text("라벨", fontSize = 11.sp) }
+                )
+                androidx.compose.material3.FilterChip(
+                    selected = showBadges,
+                    onClick = onToggleBadges,
+                    label = { Text("카테고리 배지", fontSize = 11.sp) }
+                )
+                androidx.compose.material3.FilterChip(
+                    selected = bigBoat,
+                    onClick = onToggleBigBoat,
+                    label = { Text("큰 보트", fontSize = 11.sp) }
+                )
+            }
+
+            // ── 도시 시각화 (미리보기 ON일 때만) ────────────────────
+            if (showCityView) {
+                Spacer(modifier = Modifier.height(8.dp))
+                CityTimetableCard(
+                    activities = CityTimetableSamples.activitiesFor(cityPreset),
+                    currentTimeMillis = null,  // 샘플 모드: 보트 스트립 중앙 고정
+                    showLabels = showLabels,
+                    showBadges = showBadges,
+                    bigBoat = bigBoat
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun HomeScreen(
     viewModel: ActivityViewModel,
     topActions: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
     autoButtonManagerOpen: Boolean = false,
-    onAutoButtonManagerDismiss: () -> Unit = {}
+    onAutoButtonManagerDismiss: () -> Unit = {},
+    isDeveloperMode: Boolean = false
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var localAutoButtonManagerOpen by remember { mutableStateOf(false) }
@@ -185,6 +347,7 @@ fun HomeScreen(
             "STUDY",
             "WORK",
             "DEVELOPMENT",
+            "READING",
             "WASH",
             "SCHOOL",
             "COMPANY",
@@ -210,6 +373,7 @@ fun HomeScreen(
             }
         }
     }
+    var samplePresetIndex by remember { mutableStateOf(0) }
     var isActivityListExpanded by remember(selectedCategory) { mutableStateOf(false) }
     val visibleActivities = if (isActivityListExpanded) {
         displayActivities
@@ -283,19 +447,20 @@ fun HomeScreen(
 
         item {
             TimetableCard(
-                activities = uiState.todayActivities,
-                scheduledBlocks = uiState.scheduledAutoButtonBlocks,
-                recommendedBlocks = uiState.recommendedTodoBlocks,
-                incompleteTodos = uiState.incompleteTodos,
-                onSkipToday = { viewModel.skipAutoButtonToday(it) },
-                onUnskipToday = { viewModel.unskipAutoButtonToday(it) },
-                onEditSchedule = { scheduleId ->
-                    localAutoButtonManagerOpen = true
-                },
-                onManageSchedules = { localAutoButtonManagerOpen = true },
-                onStartRecommended = { viewModel.startRecommendedTodoActivity(it) },
-                onSetRecommendedTime = { block, hour -> viewModel.setRecommendedTodoTime(block, hour) },
-                onReplaceRecommendedItem = { block, todo -> viewModel.replaceRecommendedTodoItem(block, todo) }
+                activities = if (isDeveloperMode) SampleTimetableData.activitiesForIndex(samplePresetIndex) else uiState.todayActivities,
+                scheduledBlocks = if (isDeveloperMode) emptyList() else uiState.scheduledAutoButtonBlocks,
+                recommendedBlocks = if (isDeveloperMode) emptyList() else uiState.recommendedTodoBlocks,
+                incompleteTodos = if (isDeveloperMode) emptyList() else uiState.incompleteTodos,
+                onSkipToday = { if (!isDeveloperMode) viewModel.skipAutoButtonToday(it) },
+                onUnskipToday = { if (!isDeveloperMode) viewModel.unskipAutoButtonToday(it) },
+                onEditSchedule = { if (!isDeveloperMode) localAutoButtonManagerOpen = true },
+                onManageSchedules = { if (!isDeveloperMode) localAutoButtonManagerOpen = true },
+                onStartRecommended = { if (!isDeveloperMode) viewModel.startRecommendedTodoActivity(it) },
+                onSetRecommendedTime = { block, hour -> if (!isDeveloperMode) viewModel.setRecommendedTodoTime(block, hour) },
+                onReplaceRecommendedItem = { block, todo -> if (!isDeveloperMode) viewModel.replaceRecommendedTodoItem(block, todo) },
+                isDeveloperMode = isDeveloperMode,
+                samplePresetIndex = samplePresetIndex,
+                onCyclePreset = { samplePresetIndex = (samplePresetIndex + 1) % SampleTimetableData.presetCount }
             )
         }
 
@@ -717,6 +882,7 @@ private fun defaultActivityTitle(category: String): String {
         "WORK" -> "업무"
         "COMPANY" -> "회사"
         "DEVELOPMENT" -> "개발"
+        "READING" -> "독서"
         "WASH" -> "씻기"
         "REST" -> "휴식"
         "SCHOOL" -> "학교"
@@ -2030,7 +2196,10 @@ private fun TimetableCard(
     onManageSchedules: () -> Unit,
     onStartRecommended: (RecommendedTodoBlock) -> Unit,
     onSetRecommendedTime: (RecommendedTodoBlock, Int) -> Unit,
-    onReplaceRecommendedItem: (RecommendedTodoBlock, TodoItem) -> Unit
+    onReplaceRecommendedItem: (RecommendedTodoBlock, TodoItem) -> Unit,
+    isDeveloperMode: Boolean = false,
+    samplePresetIndex: Int = 0,
+    onCyclePreset: () -> Unit = {}
 ) {
     var selectedBlock by remember { mutableStateOf<ScheduledAutoButtonBlock?>(null) }
     var selectedRecommendedBlock by remember { mutableStateOf<RecommendedTodoBlock?>(null) }
@@ -2091,6 +2260,24 @@ private fun TimetableCard(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
+                }
+                if (isDeveloperMode) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Button(
+                        onClick = onCyclePreset,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFFFE0B2),
+                            contentColor = Color(0xFFE65100)
+                        ),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(
+                            text = "샘플 ${samplePresetIndex + 1}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
                 }
             }
             Text(
@@ -3002,11 +3189,13 @@ private fun RecommendedTodoActionSheet(
                         color = Color(0xFF27324D),
                         modifier = Modifier.padding(top = 20.dp, bottom = 20.dp)
                     )
-                    TimeWheelColumn(
+                    WheelPickerColumn(
                         values = (0..23).toList(),
                         selectedValue = selectedHour,
                         formatter = { "%02d:00".format(it) },
-                        onSelect = { selectedHour = it }
+                        onSelect = { selectedHour = it },
+                        selectedHighlightColor = FlowPurple.copy(alpha = 0.44f),
+                        unselectedTextColor = FlowMuted.copy(alpha = 0.45f)
                     )
                     Spacer(modifier = Modifier.height(20.dp))
                     Row(
@@ -3982,7 +4171,8 @@ private fun TimePickerSheet(
                 .fillMaxWidth()
                 .height(560.dp)
         ) {
-            TimePickerWaveBackground(
+            PickerWaveBackground(
+                color = FlowPurpleSoft.copy(alpha = 0.54f),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(118.dp)
@@ -4021,11 +4211,13 @@ private fun TimePickerSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(22.dp)
                 ) {
-                    TimeWheelColumn(
+                    WheelPickerColumn(
                         values = (0..23).toList(),
                         selectedValue = hour,
                         formatter = { "%02d".format(it) },
-                        onSelect = { hour = it }
+                        onSelect = { hour = it },
+                        selectedHighlightColor = FlowPurple.copy(alpha = 0.44f),
+                        unselectedTextColor = FlowMuted.copy(alpha = 0.45f)
                     )
                     Text(
                         ":",
@@ -4033,11 +4225,13 @@ private fun TimePickerSheet(
                         fontWeight = FontWeight.ExtraBold,
                         color = Color(0xFF27324D)
                     )
-                    TimeWheelColumn(
+                    WheelPickerColumn(
                         values = (0..55 step 5).toList(),
                         selectedValue = minute,
                         formatter = { "%02d".format(it) },
-                        onSelect = { minute = it }
+                        onSelect = { minute = it },
+                        selectedHighlightColor = FlowPurple.copy(alpha = 0.44f),
+                        unselectedTextColor = FlowMuted.copy(alpha = 0.45f)
                     )
                 }
                 Spacer(modifier = Modifier.weight(1f))
@@ -4071,121 +4265,6 @@ private fun TimePickerSheet(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun TimeWheelColumn(
-    values: List<Int>,
-    selectedValue: Int,
-    formatter: (Int) -> String,
-    onSelect: (Int) -> Unit
-) {
-    val itemHeight = 42.dp
-    val cycleCount = 101
-    val middleCycle = cycleCount / 2
-    val totalItems = values.size * cycleCount
-    val selectedIndex = values.indexOf(selectedValue).coerceAtLeast(0)
-    val initialIndex = (middleCycle * values.size + selectedIndex).coerceAtLeast(0)
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
-    var centeredItemIndex by remember { mutableStateOf(initialIndex) }
-
-    val latestOnSelect by rememberUpdatedState(onSelect)
-    val latestSelectedValue by rememberUpdatedState(selectedValue)
-
-    LaunchedEffect(listState, values) {
-        var prevScrolling = false
-        snapshotFlow { listState.centeredVisibleItemIndex(totalItems) to listState.isScrollInProgress }
-            .collect { (centeredIndex, isScrollInProgress) ->
-                if (centeredIndex == null) return@collect
-                centeredItemIndex = centeredIndex
-                val centeredValue = values[centeredIndex.floorMod(values.size)]
-                if (centeredValue != latestSelectedValue) {
-                    latestOnSelect(centeredValue)
-                }
-                if (prevScrolling && !isScrollInProgress) {
-                    val targetIndex = centeredIndex.coerceIn(0, totalItems - 1)
-                    if (listState.firstVisibleItemIndex != targetIndex || listState.firstVisibleItemScrollOffset != 0) {
-                        listState.animateScrollToItem(index = targetIndex)
-                    }
-                }
-                prevScrolling = isScrollInProgress
-            }
-    }
-
-    Box(
-        modifier = Modifier
-            .width(132.dp)
-            .height(246.dp)
-            .background(Color(0xFFFAFAFD), RoundedCornerShape(18.dp))
-            .padding(vertical = 18.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth()
-                .height(itemHeight)
-                .padding(horizontal = 5.dp)
-                .background(FlowPurple.copy(alpha = 0.44f), RoundedCornerShape(13.dp))
-        )
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            contentPadding = PaddingValues(vertical = itemHeight * 2)
-        ) {
-            items(totalItems) { index ->
-                val value = values[index.floorMod(values.size)]
-                val selected = index == centeredItemIndex
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(itemHeight)
-                        .combinedClickable(onClick = { onSelect(value) }),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = formatter(value),
-                        fontSize = if (selected) 23.sp else 22.sp,
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (selected) Color(0xFF27324D) else FlowMuted.copy(alpha = 0.45f)
-                    )
-                }
-            }
-        }
-    }
-}
-
-private fun Int.floorMod(other: Int): Int = ((this % other) + other) % other
-
-private fun androidx.compose.foundation.lazy.LazyListState.centeredVisibleItemIndex(totalItems: Int): Int? {
-    val visibleItems = layoutInfo.visibleItemsInfo
-    if (visibleItems.isEmpty()) return null
-    val viewportCenter = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
-    return visibleItems
-        .minByOrNull { item -> abs((item.offset + item.size / 2) - viewportCenter) }
-        ?.index
-        ?.coerceIn(0, totalItems - 1)
-}
-
-@Composable
-private fun TimePickerWaveBackground(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier) {
-        val first = Path().apply {
-            moveTo(0f, size.height * 0.35f)
-            cubicTo(
-                size.width * 0.28f,
-                size.height * 0.18f,
-                size.width * 0.52f,
-                size.height * 0.74f,
-                size.width,
-                size.height * 0.34f
-            )
-            lineTo(size.width, size.height)
-            lineTo(0f, size.height)
-            close()
-        }
-        drawPath(first, FlowPurpleSoft.copy(alpha = 0.54f))
     }
 }
 

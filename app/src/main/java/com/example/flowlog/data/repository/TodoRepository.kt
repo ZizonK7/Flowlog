@@ -7,7 +7,6 @@ import com.example.flowlog.data.local.RoomTodoLocalDataSource
 import com.example.flowlog.data.local.entity.TodoEntity
 import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.data.recommendation.TodoBurdenAnalysis
-import com.example.flowlog.notification.TodoReminderScheduler
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -22,7 +21,6 @@ import java.util.concurrent.atomic.AtomicLong
 
 class TodoRepository(context: Context) {
     private val appContext = context.applicationContext
-    private val todoReminderScheduler = TodoReminderScheduler(appContext)
     private val eventLogRepository = EventLogRepository(appContext)
     private val roomDataSource = RoomTodoLocalDataSource(appContext)
     private val restoreJson = Json {
@@ -70,7 +68,6 @@ class TodoRepository(context: Context) {
         val id = idCounter.incrementAndGet()
         // Room primary write — observeAllTodos Flow 즉시 emit → UI 즉각 갱신
         roomDataSource.insert(todo.copy(id = id), userId)
-        todoReminderScheduler.scheduleInitialReminder(id, todo.createdAt)
         runCatching {
             eventLogRepository.log(
                 eventType = EventType.TODO_CREATED,
@@ -83,7 +80,6 @@ class TodoRepository(context: Context) {
 
     suspend fun updateCompleted(id: Long, isCompleted: Boolean, completedAt: Long?) {
         if (isCompleted) {
-            todoReminderScheduler.cancelReminder(id)
             runCatching { roomDataSource.completeTodoByLegacyId(id) }
             runCatching {
                 eventLogRepository.log(
@@ -93,7 +89,6 @@ class TodoRepository(context: Context) {
                 )
             }
         } else {
-            todoReminderScheduler.scheduleInitialReminder(id, System.currentTimeMillis())
             runCatching { roomDataSource.uncompleteTodoByLegacyId(id) }
             runCatching {
                 eventLogRepository.log(
@@ -117,7 +112,6 @@ class TodoRepository(context: Context) {
     }
 
     suspend fun deleteTodo(todo: TodoItem) {
-        todoReminderScheduler.cancelReminder(todo.id)
         runCatching { roomDataSource.softDeleteByLegacyId(todo.id) }
         runCatching {
             eventLogRepository.log(
@@ -257,7 +251,6 @@ class TodoRepository(context: Context) {
             1 -> todo.copy(isCompleted = true, reviewStage = 2, completedAt = now, updatedAt = now)
             else -> return
         }
-        todoReminderScheduler.cancelReminder(todo.id)
         runCatching { roomDataSource.update(updated, userId) }
         runCatching {
             eventLogRepository.log(

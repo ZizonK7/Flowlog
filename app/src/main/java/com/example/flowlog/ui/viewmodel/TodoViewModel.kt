@@ -27,7 +27,9 @@ data class DailyCueItem(
     val id: Long,
     val label: String,
     val title: String,
-    val isCompleted: Boolean = false
+    val isCompleted: Boolean = false,
+    val timerDurationMillis: Long? = null,
+    val timerCategory: String = "TODO"
 )
 
 data class YesterdayFlowSuggestion(
@@ -274,14 +276,18 @@ class TodoViewModel(
         }
     }
 
-    fun addDailyCue(title: String, label: String) {
+    fun addDailyCue(title: String, label: String, timerDurationMillis: Long?, timerCategory: String) {
         val cleanTitle = title.trim()
         if (cleanTitle.isEmpty()) return
         val cleanLabel = if (label == "Memo") "Memo" else "Routine"
+        val cleanTimerDurationMillis = timerDurationMillis?.takeIf { cleanLabel == "Routine" && it > 0L }
+        val cleanTimerCategory = timerCategory.takeIf { cleanLabel == "Routine" && it.isNotBlank() } ?: "TODO"
         val updated = sortDailyCues(_dailyCues.value + DailyCueItem(
             id = System.currentTimeMillis(),
             label = cleanLabel,
-            title = cleanTitle
+            title = cleanTitle,
+            timerDurationMillis = cleanTimerDurationMillis,
+            timerCategory = cleanTimerCategory
         ))
         _dailyCues.value = updated
         saveDailyCues(updated)
@@ -295,12 +301,31 @@ class TodoViewModel(
         saveDailyCues(updated)
     }
 
-    fun updateDailyCue(cueId: Long, title: String, label: String) {
+    fun completeDailyCue(cueId: Long) {
+        val updated = sortDailyCues(_dailyCues.value.map { cue ->
+            if (cue.id == cueId) cue.copy(isCompleted = true) else cue
+        })
+        _dailyCues.value = updated
+        saveDailyCues(updated)
+    }
+
+    fun updateDailyCue(cueId: Long, title: String, label: String, timerDurationMillis: Long?, timerCategory: String) {
         val cleanTitle = title.trim()
         if (cleanTitle.isEmpty()) return
         val cleanLabel = if (label == "Memo") "Memo" else "Routine"
+        val cleanTimerDurationMillis = timerDurationMillis?.takeIf { cleanLabel == "Routine" && it > 0L }
+        val cleanTimerCategory = timerCategory.takeIf { cleanLabel == "Routine" && it.isNotBlank() } ?: "TODO"
         val updated = sortDailyCues(_dailyCues.value.map { cue ->
-            if (cue.id == cueId) cue.copy(title = cleanTitle, label = cleanLabel) else cue
+            if (cue.id == cueId) {
+                cue.copy(
+                    title = cleanTitle,
+                    label = cleanLabel,
+                    timerDurationMillis = cleanTimerDurationMillis,
+                    timerCategory = cleanTimerCategory
+                )
+            } else {
+                cue
+            }
         })
         _dailyCues.value = updated
         saveDailyCues(updated)
@@ -324,7 +349,9 @@ class TodoViewModel(
                     id = item.optLong("id", index.toLong()),
                     label = item.optString("label", "Routine"),
                     title = item.optString("title", ""),
-                    isCompleted = item.optBoolean("isCompleted", false)
+                    isCompleted = item.optBoolean("isCompleted", false),
+                    timerDurationMillis = item.optLong("timerDurationMillis", 0L).takeIf { it > 0L },
+                    timerCategory = item.optString("timerCategory", "TODO").ifBlank { "TODO" }
                 )
             }.filter { it.title.isNotBlank() }
         }.getOrElse { defaultDailyCues() }
@@ -333,7 +360,7 @@ class TodoViewModel(
         val normalized = if (storedDay == todayKey) {
             cues
         } else {
-            sortDailyCues(cues.filter { it.label != "Memo" }.map { it.copy(isCompleted = false) })
+            sortDailyCues(cues.map { it.copy(isCompleted = false) })
         }
         if (storedDay != todayKey || storedJson == null) {
             saveDailyCues(normalized, todayKey)
@@ -349,6 +376,8 @@ class TodoViewModel(
                 put("label", cue.label)
                 put("title", cue.title)
                 put("isCompleted", cue.isCompleted)
+                cue.timerDurationMillis?.let { put("timerDurationMillis", it) }
+                put("timerCategory", cue.timerCategory)
             })
         }
         cuePrefs.edit()

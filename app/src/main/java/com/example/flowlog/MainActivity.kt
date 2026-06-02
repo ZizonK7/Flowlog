@@ -58,6 +58,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -93,6 +94,7 @@ import com.example.flowlog.notification.AutoButtonScheduler
 import com.example.flowlog.notification.PlannedTodoReminderScheduler
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import com.example.flowlog.ui.screen.DevTimetableScreen
 import com.example.flowlog.ui.screen.HomeScreen
 import com.example.flowlog.ui.screen.TodoScreen
 import com.example.flowlog.ui.theme.FlowlogTheme
@@ -142,6 +144,20 @@ class MainActivity : ComponentActivity() {
                         this@MainActivity,
                         TodoViewModelFactory(this@MainActivity)
                     ).get(TodoViewModel::class.java)
+                }
+                val activityUiState by activityViewModel.uiState.collectAsState()
+                val routineTimerCategories = remember(activityUiState.promotedButtons) {
+                    val base = listOf("SLEEP", "REST", "WORK", "STUDY", "EXERCISE", "WASH", "MEAL", "ETC")
+                    if (activityUiState.promotedButtons.size == 2) {
+                        base.take(6) + listOf(activityUiState.promotedButtons[1], activityUiState.promotedButtons[0]) + base.drop(6)
+                    } else {
+                        base
+                    }.distinct()
+                }
+                LaunchedEffect(activityViewModel, todoViewModel) {
+                    activityViewModel.dailyCueGoalReachedEvents.collect { cueId ->
+                        todoViewModel.completeDailyCue(cueId)
+                    }
                 }
                 val auth = remember { FirebaseAuth.getInstance() }
                 var signedInUser by remember { mutableStateOf(auth.currentUser) }
@@ -275,16 +291,32 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val pagerState = rememberPagerState(
-                    initialPage = if (currentScreen == "todo") 1 else 0,
-                    pageCount = { 2 }
+                    initialPage = when {
+                        isDeveloperMode && currentScreen == "stats" -> 1
+                        currentScreen == "todo" -> if (isDeveloperMode) 2 else 1
+                        else -> 0
+                    },
+                    pageCount = { if (isDeveloperMode) 3 else 2 }
                 )
 
-                LaunchedEffect(pagerState.currentPage) {
-                    currentScreen = if (pagerState.currentPage == 0) "home" else "todo"
+                LaunchedEffect(pagerState.currentPage, isDeveloperMode) {
+                    currentScreen = if (isDeveloperMode) {
+                        when (pagerState.currentPage) { 1 -> "stats"; 2 -> "todo"; else -> "home" }
+                    } else {
+                        if (pagerState.currentPage == 0) "home" else "todo"
+                    }
                 }
 
-                LaunchedEffect(currentScreen) {
-                    val targetPage = if (currentScreen == "todo") 1 else 0
+                LaunchedEffect(currentScreen, isDeveloperMode) {
+                    if (!isDeveloperMode && currentScreen == "stats") {
+                        currentScreen = "home"
+                        return@LaunchedEffect
+                    }
+                    val targetPage = if (isDeveloperMode) {
+                        when (currentScreen) { "stats" -> 1; "todo" -> 2; else -> 0 }
+                    } else {
+                        if (currentScreen == "todo") 1 else 0
+                    }
                     if (pagerState.currentPage != targetPage) {
                         pagerState.animateScrollToPage(targetPage)
                     }
@@ -305,19 +337,28 @@ class MainActivity : ComponentActivity() {
                             state = pagerState,
                             modifier = Modifier.weight(1f)
                         ) { page ->
-                            if (page == 1) {
-                                TodoScreen(
+                            val todoPage = if (isDeveloperMode) 2 else 1
+                            when {
+                                page == todoPage -> TodoScreen(
                                     viewModel = todoViewModel,
                                     isDeveloperMode = isDeveloperMode,
                                     onStartTodo = { todo ->
                                         activityViewModel.startTodoActivity(todo.id, todo.title)
                                         currentScreen = "home"
                                     },
+                                    onStartDailyCueRoutine = { cueId, title, goalMillis, category ->
+                                        activityViewModel.startDailyCueRoutineActivity(cueId, title, goalMillis, category)
+                                        currentScreen = "home"
+                                    },
+                                    routineTimerCategories = routineTimerCategories,
                                     modifier = Modifier.fillMaxSize()
                                 )
-                            } else {
-                                HomeScreen(
+                                isDeveloperMode && page == 1 -> DevTimetableScreen(
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                else -> HomeScreen(
                                     viewModel = activityViewModel,
+                                    isDeveloperMode = isDeveloperMode,
                                     topActions = {
                                         HeaderActions(
                                             isSignedIn = signedInUser != null,
@@ -347,7 +388,9 @@ class MainActivity : ComponentActivity() {
 
                         FlowlogBottomBar(
                             currentScreen = currentScreen,
+                            isDeveloperMode = isDeveloperMode,
                             onHomeClick = { currentScreen = "home" },
+                            onStatsClick = { currentScreen = "stats" },
                             onTodoClick = { currentScreen = "todo" }
                         )
                     }
@@ -683,7 +726,9 @@ private fun ProfileAvatar(
 @Composable
 private fun FlowlogBottomBar(
     currentScreen: String,
+    isDeveloperMode: Boolean = false,
     onHomeClick: () -> Unit,
+    onStatsClick: () -> Unit = {},
     onTodoClick: () -> Unit
 ) {
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -707,6 +752,19 @@ private fun FlowlogBottomBar(
             },
             label = { Text("홈") }
         )
+        if (isDeveloperMode) {
+            NavigationBarItem(
+                selected = currentScreen == "stats",
+                onClick = onStatsClick,
+                icon = {
+                    Icon(
+                        imageVector = Icons.Filled.BarChart,
+                        contentDescription = "통계"
+                    )
+                },
+                label = { Text("통계") }
+            )
+        }
         NavigationBarItem(
             selected = currentScreen == "todo",
             onClick = onTodoClick,
