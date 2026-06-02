@@ -1233,8 +1233,13 @@ private fun TodoCard(
                         ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 태그 + 제목
-                    Column(Modifier.weight(1f)) {
+                    // 태그 + 제목 (탭하면 수정 패널 토글)
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .clickable(onClick = onEditToggle)
+                            .padding(end = 8.dp)
+                    ) {
                         if (todo.category != TodoCategory.NORMAL) {
                             CategoryTag(todo.category)
                             Spacer(Modifier.height(if (isFocus) 3.dp else 5.dp))
@@ -1266,27 +1271,12 @@ private fun TodoCard(
                         }
                     }
 
-                    // 액션 버튼 3개
+                    // 액션 버튼 (완료 + 시작)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(if (isFocus) 4.dp else 6.dp),
                         modifier = Modifier.padding(end = 2.dp)
                     ) {
-                        // 수정 / 닫기 (배경 없음)
-                        Box(
-                            modifier = Modifier
-                                .size(if (isFocus) 28.dp else 32.dp)
-                                .clip(CircleShape)
-                                .clickable(onClick = onEditToggle),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                if (isEditing) Icons.Filled.Close else Icons.Filled.Edit,
-                                if (isEditing) "닫기" else "수정",
-                                tint = TextMuted,
-                                modifier = Modifier.size(if (isFocus) 15.dp else 16.dp)
-                            )
-                        }
                         // 완료 (연초록 원) — UNIVERSITY_EXAM은 완료 불가
                         if (todo.category != TodoCategory.UNIVERSITY_EXAM) {
                             Box(
