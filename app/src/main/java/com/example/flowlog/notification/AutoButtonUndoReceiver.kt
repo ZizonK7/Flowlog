@@ -72,15 +72,22 @@ class AutoButtonUndoReceiver : BroadcastReceiver() {
         }
 
         val restoreCategory = previousSavedActivity?.category ?: previousCategory
-        val restoreTitle = previousSavedActivity?.title ?: snapshot.previousActivityTitle
-        val restoreSourceType = previousSavedActivity?.sourceType ?: ActivitySourceType.MANUAL
-        val restoreSourceId = previousSavedActivity?.sourceId
+        val restoreTitle = previousSavedActivity?.title
+            ?: snapshot.previousLinkedTodoTitle
+            ?: snapshot.previousActivityTitle
+        val restoreGoalMillis = snapshot.previousGoalMillis ?: TimerStateStore.DEFAULT_GOAL_MILLIS
+        val restoreLinkedTodoId = previousSavedActivity?.linkedTodoId ?: snapshot.previousLinkedTodoId
+        val restoreSourceType = previousSavedActivity?.sourceType
+            ?: snapshot.previousSourceType
+            ?: ActivitySourceType.MANUAL
+        val restoreSourceId = previousSavedActivity?.sourceId ?: snapshot.previousSourceId
 
         TimerStateStore.saveActiveTimer(
             context = context,
             category = restoreCategory,
             startTime = previousStartTime,
-            linkedTodoId = previousSavedActivity?.linkedTodoId,
+            goalMillis = restoreGoalMillis,
+            linkedTodoId = restoreLinkedTodoId,
             linkedTodoTitle = restoreTitle,
             sourceType = restoreSourceType,
             sourceId = restoreSourceId

@@ -95,6 +95,11 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
                 previousActivityCategory = previous.category,
                 previousActivityStartTime = previous.startTime,
                 previousActivityEndTimeBeforeAuto = endAt,
+                previousGoalMillis = previous.goalMillis,
+                previousLinkedTodoId = previous.linkedTodoId,
+                previousLinkedTodoTitle = previous.linkedTodoTitle,
+                previousSourceType = previous.sourceType,
+                previousSourceId = previous.sourceId,
                 triggeredAt = now
             )
         }
@@ -203,6 +208,11 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
         previousActivityCategory: String,
         previousActivityStartTime: Long,
         previousActivityEndTimeBeforeAuto: Long,
+        previousGoalMillis: Long,
+        previousLinkedTodoId: Long?,
+        previousLinkedTodoTitle: String?,
+        previousSourceType: String,
+        previousSourceId: String?,
         triggeredAt: Long
     ): String {
         val dao = FlowlogDatabase.getInstance(context).autoButtonScheduleDao()
@@ -220,6 +230,11 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
                 previousActivityCategory = previousActivityCategory,
                 previousActivityStartTime = previousActivityStartTime,
                 previousActivityEndTimeBeforeAuto = previousActivityEndTimeBeforeAuto,
+                previousGoalMillis = previousGoalMillis,
+                previousLinkedTodoId = previousLinkedTodoId,
+                previousLinkedTodoTitle = previousLinkedTodoTitle,
+                previousSourceType = previousSourceType,
+                previousSourceId = previousSourceId,
                 triggeredAt = triggeredAt,
                 expiresAt = triggeredAt + UNDO_EXPIRES_MILLIS,
                 isUsed = false
@@ -290,6 +305,6 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
         private const val DAY_MILLIS = 24L * 60L * 60L * 1000L
         private const val MAX_PLANNED_ALARM_LAG_MILLIS = 2L * 60L * 60L * 1000L
         private const val MARKER_RETENTION_MILLIS = 14L * DAY_MILLIS
-        private const val UNDO_EXPIRES_MILLIS = 30L * 60L * 1000L
+        private const val UNDO_EXPIRES_MILLIS = 2L * 60L * 60L * 1000L
     }
 }

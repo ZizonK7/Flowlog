@@ -22,6 +22,11 @@ data class AutoButtonUndoSnapshotEntity(
     val previousActivityCategory: String?,
     val previousActivityStartTime: Long?,
     val previousActivityEndTimeBeforeAuto: Long?,
+    val previousGoalMillis: Long?,
+    val previousLinkedTodoId: Long?,
+    val previousLinkedTodoTitle: String?,
+    val previousSourceType: String?,
+    val previousSourceId: String?,
     val triggeredAt: Long,
     val expiresAt: Long,
     val isUsed: Boolean = false

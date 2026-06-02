@@ -52,7 +52,7 @@ import com.example.flowlog.data.local.entity.UserEntity
         UserEntity::class,
         InstallationEntity::class,
     ],
-    version = 5,
+    version = 6,
     // 장기적으로는 schema export + Migration 검증을 붙이는 것이 바람직하지만,
     // 현재 단계에서는 개발 편의상 schema 파일 생성을 보류한다.
     exportSchema = false
@@ -83,7 +83,7 @@ abstract class FlowlogDatabase : RoomDatabase() {
                     FlowlogDatabase::class.java,
                     "flowlog.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build().also { INSTANCE = it }
             }
         }
@@ -192,6 +192,16 @@ abstract class FlowlogDatabase : RoomDatabase() {
         private val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE daily_goal_items ADD COLUMN notificationScheduledAtMillis INTEGER")
+            }
+        }
+
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE auto_button_undo_snapshots ADD COLUMN previousGoalMillis INTEGER")
+                db.execSQL("ALTER TABLE auto_button_undo_snapshots ADD COLUMN previousLinkedTodoId INTEGER")
+                db.execSQL("ALTER TABLE auto_button_undo_snapshots ADD COLUMN previousLinkedTodoTitle TEXT")
+                db.execSQL("ALTER TABLE auto_button_undo_snapshots ADD COLUMN previousSourceType TEXT")
+                db.execSQL("ALTER TABLE auto_button_undo_snapshots ADD COLUMN previousSourceId TEXT")
             }
         }
     }

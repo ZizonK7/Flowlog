@@ -1,5 +1,6 @@
 package com.example.flowlog.ui.screen
 
+import android.graphics.Paint
 import android.util.Log
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
@@ -102,6 +103,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -2131,10 +2135,6 @@ private fun TimetableCard(
                     blocks = scheduledBlocks,
                     onShowMenu = { block -> selectedBlock = block }
                 )
-                RecommendedTodoBlockList(
-                    blocks = recommendedBlocks,
-                    onShowMenu = { block -> selectedRecommendedBlock = block }
-                )
             }
         }
     }
@@ -2462,7 +2462,7 @@ private fun TimetableBar(
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
-            .height(72.dp)
+            .height(100.dp)
             .pointerInput(scheduled, recommended, windowStart, windowDuration) {
                 detectTapGestures(
                     onTap = { offset ->
@@ -2495,8 +2495,13 @@ private fun TimetableBar(
         val guideColor = Color(0x332196F3)
         val trackColor = Color(0xFFE8EDF3)
         val barHeight = 26.dp.toPx()
-        val top = 18.dp.toPx()
+        val top = 34.dp.toPx()
         val radius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+        val bubbleTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = FlowPurpleDeep.toArgb()
+            textSize = 10.sp.toPx()
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
 
         repeat(5) { index ->
             val x = size.width * index / 4f
@@ -2515,6 +2520,7 @@ private fun TimetableBar(
             cornerRadius = radius
         )
 
+        var recommendedBubbleIndex = 0
         blocks.forEach { block ->
             when (block) {
                 is TimelineBlock.ActualActivity -> {
@@ -2580,16 +2586,20 @@ private fun TimetableBar(
                             pathEffect = PathEffect.dashPathEffect(floatArrayOf(8.dp.toPx(), 5.dp.toPx()))
                         )
                     )
+                    val label = "${timeFormat.format(Date(item.plannedStartMillis))} ${item.title}"
+                    drawRecommendedTodoBubble(
+                        label = label,
+                        anchorCenterX = x + width / 2f,
+                        barTop = top,
+                        barBottom = top + barHeight,
+                        showAbove = recommendedBubbleIndex % 2 == 0,
+                        textPaint = bubbleTextPaint
+                    )
+                    recommendedBubbleIndex += 1
                 }
             }
         }
 
-        drawLine(
-            color = Color(0xFF64B5F6),
-            start = Offset(0f, top + barHeight + 8.dp.toPx()),
-            end = Offset(size.width, top + barHeight + 8.dp.toPx()),
-            strokeWidth = 1.dp.toPx()
-        )
     }
 
     Row(
@@ -2635,6 +2645,81 @@ private fun TimetableBar(
             }
         }
     }
+}
+
+private fun DrawScope.drawRecommendedTodoBubble(
+    label: String,
+    anchorCenterX: Float,
+    barTop: Float,
+    barBottom: Float,
+    showAbove: Boolean,
+    textPaint: Paint
+) {
+    val horizontalPadding = 7.dp.toPx()
+    val bubbleHeight = 20.dp.toPx()
+    val bubbleRadius = 6.dp.toPx()
+    val tailWidth = 8.dp.toPx()
+    val tailHeight = 5.dp.toPx()
+    val maxBubbleWidth = minOf(190.dp.toPx(), size.width - 8.dp.toPx()).coerceAtLeast(48.dp.toPx())
+    val availableTextWidth = (maxBubbleWidth - horizontalPadding * 2f).coerceAtLeast(1f)
+    val displayLabel = label.ellipsizeToWidth(textPaint, availableTextWidth)
+    val measuredTextWidth = textPaint.measureText(displayLabel)
+    val bubbleWidth = (measuredTextWidth + horizontalPadding * 2f)
+        .coerceIn(48.dp.toPx(), maxBubbleWidth)
+    val bubbleLeft = (anchorCenterX - bubbleWidth / 2f)
+        .coerceIn(0f, size.width - bubbleWidth)
+    val bubbleTop = if (showAbove) {
+        0f
+    } else {
+        (barBottom + tailHeight + 5.dp.toPx()).coerceAtMost(size.height - bubbleHeight)
+    }
+    val bubbleBottom = bubbleTop + bubbleHeight
+    val tailCenterX = anchorCenterX.coerceIn(
+        bubbleLeft + bubbleRadius,
+        bubbleLeft + bubbleWidth - bubbleRadius
+    )
+
+    drawRoundRect(
+        color = FlowPurpleSoft.copy(alpha = 0.95f),
+        topLeft = Offset(bubbleLeft, bubbleTop),
+        size = Size(bubbleWidth, bubbleHeight),
+        cornerRadius = CornerRadius(bubbleRadius, bubbleRadius)
+    )
+    drawPath(
+        path = Path().apply {
+            if (showAbove) {
+                moveTo(tailCenterX - tailWidth / 2f, bubbleBottom - 1.dp.toPx())
+                lineTo(tailCenterX + tailWidth / 2f, bubbleBottom - 1.dp.toPx())
+                lineTo(tailCenterX, (bubbleBottom + tailHeight).coerceAtMost(barTop - 1.dp.toPx()))
+            } else {
+                moveTo(tailCenterX - tailWidth / 2f, bubbleTop + 1.dp.toPx())
+                lineTo(tailCenterX + tailWidth / 2f, bubbleTop + 1.dp.toPx())
+                lineTo(tailCenterX, (bubbleTop - tailHeight).coerceAtLeast(barBottom + 1.dp.toPx()))
+            }
+            close()
+        },
+        color = FlowPurpleSoft.copy(alpha = 0.95f)
+    )
+
+    drawIntoCanvas { canvas ->
+        val baseline = bubbleTop + bubbleHeight / 2f -
+            (textPaint.ascent() + textPaint.descent()) / 2f
+        canvas.nativeCanvas.drawText(
+            displayLabel,
+            bubbleLeft + horizontalPadding,
+            baseline,
+            textPaint
+        )
+    }
+}
+
+private fun String.ellipsizeToWidth(paint: Paint, maxWidth: Float): String {
+    if (paint.measureText(this) <= maxWidth) return this
+    val ellipsis = "..."
+    val ellipsisWidth = paint.measureText(ellipsis)
+    if (ellipsisWidth >= maxWidth) return ellipsis
+    val count = paint.breakText(this, true, maxWidth - ellipsisWidth, null)
+    return take(count).trimEnd() + ellipsis
 }
 
 @Composable

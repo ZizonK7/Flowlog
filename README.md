@@ -23,6 +23,19 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Improved timetable routine and Todo recommendation behavior:
+  - Auto-started repetitive routines now keep an undo snapshot of the interrupted
+    timer, including its original start time, goal, Todo link, and source, so
+    undoing an automatic switch restores the previous stopwatch with elapsed
+    time continuing from the original start.
+  - Repetitive routine preview blocks disappear from the timetable when they are
+    skipped for today, when their scheduled end time passes, or when the
+    auto-started routine stopwatch is stopped and saved.
+  - Today's Goal recommendation blocks remain one-hour start-time hints on the
+    timetable, hide after the hint window or once started, and show their labels
+    directly as alternating above/below speech bubbles instead of a separate
+    recommendation list below the bar.
+
 - Fixed the auto-scroll offset bug in the repetitive routine (반복 루틴) time picker where selecting a time would incorrectly snap to the position 2 slots (10 minutes) above the center.
 
 - Improved the home timetable display compression:

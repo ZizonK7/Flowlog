@@ -12,8 +12,10 @@ import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.TodoItem
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -82,8 +84,19 @@ class DailyGoalRepository(context: Context) {
     fun todayDateKey(): String = dateFormat.format(Date())
 
     fun observeTodayRecommendedBlocks(dateKey: String = todayDateKey()): Flow<List<RecommendedTodoBlock>> {
-        return dao.observePlannedItemsForDate(userId, dateKey).map { items ->
-            items.mapNotNull { it.toRecommendedBlock() }
+        return combine(
+            dao.observePlannedItemsForDate(userId, dateKey),
+            minuteTicker()
+        ) { items, now ->
+            items.mapNotNull { item ->
+                val block = item.toRecommendedBlock() ?: return@mapNotNull null
+                if (block.userActionStatus !in VISIBLE_RECOMMENDED_BLOCK_STATUSES ||
+                    block.plannedStartMillis + HOUR_MILLIS <= now
+                ) {
+                    return@mapNotNull null
+                }
+                block
+            }
         }
     }
 
@@ -749,6 +762,7 @@ class DailyGoalRepository(context: Context) {
     companion object {
         private const val TAG = "DailyGoalRepository"
         private const val DAY_MILLIS = 24L * 60 * 60 * 1000
+        private const val MINUTE_MILLIS = 60L * 1000L
         private const val HOUR_MILLIS = 60L * 60L * 1000L
         private const val HEAVY_DURATION_MINUTES = 90
         private const val MEDIUM_DURATION_MINUTES = 60
@@ -761,6 +775,15 @@ class DailyGoalRepository(context: Context) {
         private val HEAVY_DENOMINATOR_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK", "COMPANY", "REST", "SLEEP", "SCHOOL")
         private val LIGHT_DENOMINATOR_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK", "COMPANY", "REST", "SCHOOL")
         private val REPLANNABLE_ACTION_STATUSES = setOf("PLANNED", "RESCHEDULED")
+        private val VISIBLE_RECOMMENDED_BLOCK_STATUSES = setOf("PLANNED", "RESCHEDULED")
+
+        private fun minuteTicker(): Flow<Long> = flow {
+            while (true) {
+                val now = System.currentTimeMillis()
+                emit(now)
+                delay(MINUTE_MILLIS - (now % MINUTE_MILLIS))
+            }
+        }
 
         private fun randomNotificationTime(
             plannedStartMillis: Long,
