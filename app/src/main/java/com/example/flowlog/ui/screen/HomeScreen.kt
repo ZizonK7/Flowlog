@@ -251,7 +251,7 @@ fun HomeScreen(
                 statusMessage = uiState.statusMessage,
                 appliedTitle = uiState.pendingTitle.orEmpty(),
                 titleSuggestions = titleSuggestions,
-                categories = categories,
+                promotedButtons = uiState.promotedButtons,
                 onStop = { title ->
                     viewModel.stopActivityAndSave(title)
                 },
@@ -414,7 +414,7 @@ private fun TodayFlowCard(
     statusMessage: String?,
     appliedTitle: String,
     titleSuggestions: List<String>,
-    categories: List<String>,
+    promotedButtons: List<String>,
     onStop: (String) -> Unit,
     onApplyTitle: (String) -> Unit,
     onStart: (String) -> Unit
@@ -462,7 +462,7 @@ private fun TodayFlowCard(
                 )
             } else {
                 FlowStartPage(
-                    categories = categories,
+                    promotedButtons = promotedButtons,
                     statusMessage = statusMessage,
                     onStart = onStart
                 )
@@ -724,55 +724,33 @@ private fun defaultActivityTitle(category: String): String {
     }
 }
 
+private val DEFAULT_MAIN_BUTTON_CATEGORIES = listOf(
+    "SLEEP", "REST",
+    "WORK", "STUDY",
+    "EXERCISE", "WASH",
+    "MEAL", "ETC"
+)
+
 @Composable
 private fun FlowStartPage(
-    categories: List<String>,
+    promotedButtons: List<String>,
     statusMessage: String?,
     onStart: (String) -> Unit
 ) {
-    val activityCategories = remember(categories) {
-        categories.filter { it !in setOf("TOOTHBRUSH", "SNACK", "COMPANY", "EXPERIMENT_1", "EXPERIMENT_2", "EXPERIMENT_3") }
+    // 기본 6개(3행) + promoted 2개 + 하단 2개(식사/기타)
+    val displayCategories = remember(promotedButtons) {
+        if (promotedButtons.size == 2) {
+            DEFAULT_MAIN_BUTTON_CATEGORIES.take(6) +
+                promotedButtons +
+                DEFAULT_MAIN_BUTTON_CATEGORIES.drop(6)
+        } else {
+            DEFAULT_MAIN_BUTTON_CATEGORIES
+        }
     }
 
-    val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("flowlog_prefs", android.content.Context.MODE_PRIVATE) }
-    var schoolSlotCategory by remember {
-        mutableStateOf(
-            when (prefs.getString("school_slot_category", "SCHOOL")) {
-                "WORK" -> "COMPANY"
-                "COMPANY" -> "COMPANY"
-                else -> "SCHOOL"
-            }
-        )
-    }
-    var showToggleDialog by remember { mutableStateOf(false) }
-
-    if (showToggleDialog) {
-        val isSchool = schoolSlotCategory == "SCHOOL"
-        AlertDialog(
-            onDismissRequest = { showToggleDialog = false },
-            title = { Text("버튼 변경") },
-            text = {
-                Text(
-                    if (isSchool) "'학교' 버튼을 '회사' 버튼으로 변경할까요?"
-                    else "'회사' 버튼을 '학교' 버튼으로 변경할까요?"
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val next = if (isSchool) "COMPANY" else "SCHOOL"
-                    schoolSlotCategory = next
-                    prefs.edit().putString("school_slot_category", next).apply()
-                    showToggleDialog = false
-                }) {
-                    Text(if (isSchool) "회사로 변경" else "학교로 변경")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showToggleDialog = false }) { Text("취소") }
-            }
-        )
-    }
+    // 행 수에 따른 그리드 높이: n행 × 84dp + (n-1) × 12dp 간격 + 8dp 여유(카드 그림자 클리핑 방지)
+    val rowCount = displayCategories.size / 2
+    val gridHeight = (rowCount * 84 + (rowCount - 1) * 12 + 8).dp
 
     Column(
         modifier = Modifier
@@ -812,22 +790,18 @@ private fun FlowStartPage(
             columns = GridCells.Fixed(2),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(476.dp),
+                .height(gridHeight),
             contentPadding = PaddingValues(0.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             userScrollEnabled = false
         ) {
-            items(activityCategories.size) { index ->
-                val rawCategory = activityCategories[index]
-                val effectiveCategory = if (rawCategory == "SCHOOL") schoolSlotCategory else rawCategory
+            items(displayCategories.size) { index ->
+                val category = displayCategories[index]
                 CategoryButton(
-                    category = effectiveCategory,
-                    label = displayCategory(effectiveCategory),
-                    onClick = { onStart(effectiveCategory) },
-                    onLongClick = if (rawCategory == "SCHOOL") {
-                        { showToggleDialog = true }
-                    } else null
+                    category = category,
+                    label = displayCategory(category),
+                    onClick = { onStart(category) }
                 )
             }
         }

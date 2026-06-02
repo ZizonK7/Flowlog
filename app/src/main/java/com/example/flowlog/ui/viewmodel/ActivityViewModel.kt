@@ -11,6 +11,7 @@ import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.ScheduledAutoButtonBlock
 import com.example.flowlog.data.model.TodoItem
+import com.example.flowlog.data.recommendation.ButtonRecommendationEngine
 import com.example.flowlog.data.repository.ActivityRepository
 import com.example.flowlog.data.repository.AutoButtonScheduleRepository
 import com.example.flowlog.data.repository.DailyGoalRepository
@@ -96,7 +97,8 @@ data class ActivityUiState(
     val autoButtonSchedules: List<AutoButtonSchedule> = emptyList(),
     val scheduledAutoButtonBlocks: List<ScheduledAutoButtonBlock> = emptyList(),
     val recommendedTodoBlocks: List<RecommendedTodoBlock> = emptyList(),
-    val incompleteTodos: List<TodoItem> = emptyList()
+    val incompleteTodos: List<TodoItem> = emptyList(),
+    val promotedButtons: List<String> = emptyList()
 )
 
 class ActivityViewModel(
@@ -115,6 +117,7 @@ class ActivityViewModel(
     private val activityTimerNotifier = ActivityTimerNotifier(appContext)
     private val autoButtonScheduleRepository = AutoButtonScheduleRepository(appContext)
     private val dailyGoalRepository = DailyGoalRepository(appContext)
+    private val buttonRecommendationEngine = ButtonRecommendationEngine()
     private val autoButtonScheduler = AutoButtonScheduler(appContext)
     private val undoPreferences = appContext.getSharedPreferences(
         PREFS_ACTIVITY_UNDO,
@@ -841,12 +844,16 @@ class ActivityViewModel(
                 val analytics = withContext(Dispatchers.Default) {
                     buildAnalytics(timedActivities)
                 }
+                val promotedButtons = withContext(Dispatchers.Default) {
+                    buttonRecommendationEngine.computePromotedCategories(activities)
+                }
                 _uiState.update {
                     it.copy(
                         allActivities = activities,
                         favoriteActivities = timedActivities.filter { activity -> activity.isFavorite },
                         lastTimedActivity = timedActivities.maxByOrNull { activity -> activity.startTime },
-                        analytics = analytics
+                        analytics = analytics,
+                        promotedButtons = promotedButtons
                     )
                 }
             }
