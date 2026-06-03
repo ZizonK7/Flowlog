@@ -428,6 +428,10 @@ class DailyGoalRepository(context: Context) {
         plannedTodoReminderScheduler.cancel(itemId)
     }
 
+    suspend fun revertStartedItem(itemId: String) {
+        dao.revertStartedItem(userId, itemId, System.currentTimeMillis())
+    }
+
     suspend fun markOpenPlannedItemCompleted(todoLegacyId: Long, activityLegacyId: Long) {
         dao.markOpenPlannedItemCompleted(
             userId = userId,

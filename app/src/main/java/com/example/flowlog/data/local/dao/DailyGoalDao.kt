@@ -298,6 +298,17 @@ interface DailyGoalDao {
 
     @Query("""
         UPDATE daily_goal_items
+        SET userActionStatus = 'RESCHEDULED',
+            updatedAt = :updatedAt,
+            syncStatus = '${SyncStatus.PENDING}'
+        WHERE itemId = :itemId
+            AND userId = :userId
+            AND userActionStatus = 'STARTED'
+    """)
+    suspend fun revertStartedItem(userId: String, itemId: String, updatedAt: Long)
+
+    @Query("""
+        UPDATE daily_goal_items
         SET userActionStatus = 'COMPLETED',
             wasCompleted = 1,
             actualCompletedAt = :actualCompletedAt,
