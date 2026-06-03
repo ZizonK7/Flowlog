@@ -353,8 +353,8 @@ class MainActivity : ComponentActivity() {
                                         activityViewModel.startDailyCueRoutineActivity(cueId, title, goalMillis, category)
                                         currentScreen = "home"
                                     },
-                                    onStartExamStudy = { todoId, subjectTitle ->
-                                        activityViewModel.startExamStudyActivity(todoId, subjectTitle)
+                                    onStartExamStudy = { todoId, subjectTitle, dValue ->
+                                        activityViewModel.startExamStudyActivity(todoId, subjectTitle, dValue)
                                         currentScreen = "home"
                                     },
                                     routineTimerCategories = routineTimerCategories,

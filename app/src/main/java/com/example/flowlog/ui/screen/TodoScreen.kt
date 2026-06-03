@@ -134,7 +134,7 @@ fun TodoScreen(
     viewModel: TodoViewModel,
     onStartTodo: (TodoItem) -> Unit,
     onStartDailyCueRoutine: (Long, String, Long, String) -> Unit,
-    onStartExamStudy: (todoId: Long, subjectTitle: String) -> Unit = { _, _ -> },
+    onStartExamStudy: (todoId: Long, subjectTitle: String, dValue: Int) -> Unit = { _, _, _ -> },
     routineTimerCategories: List<String> = DefaultDailyCueTimerCategories,
     isDeveloperMode: Boolean = false,
     modifier: Modifier = Modifier
@@ -331,7 +331,7 @@ fun TodoScreen(
             item(key = "exam_section") {
                 ExamSection(
                     examCards = examCards,
-                    onStartStudy = { card -> onStartExamStudy(card.examTodoId, card.examTitle) },
+                    onStartStudy = { card -> onStartExamStudy(card.examTodoId, card.examTitle, card.dValue) },
                     onCheck = { card ->
                         viewModel.checkExamStrategy(
                             examTodoId = card.examTodoId,
@@ -1612,7 +1612,7 @@ private fun ExamStrategyCard(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "${card.examTitle} 시험 공부",
+                        "${card.examTitle} 시험 공부 ${if (card.dValue == 0) "D-Day" else "D-${card.dValue}"}",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF11182F)

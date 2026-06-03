@@ -847,9 +847,10 @@ class ActivityViewModel(
         }
     }
 
-    fun startExamStudyActivity(todoId: Long, subjectTitle: String) {
+    fun startExamStudyActivity(todoId: Long, subjectTitle: String, dValue: Int) {
         if (_uiState.value.isRunning) return
-        val title = "$subjectTitle 시험 공부"
+        val dLabel = if (dValue == 0) "D-Day" else "D-$dValue"
+        val title = "$subjectTitle 시험 공부 $dLabel"
         val startTime = System.currentTimeMillis()
         val goalMillis = com.example.flowlog.data.local.TimerStateStore.DEFAULT_GOAL_MILLIS
         _uiState.update {
