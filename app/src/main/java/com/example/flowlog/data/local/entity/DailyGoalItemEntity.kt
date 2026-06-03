@@ -32,6 +32,8 @@ data class DailyGoalItemEntity(
     val actualCompletedAt: Long? = null,
     val linkedActivityId: String? = null,
     val completedTodoId: String? = null,
+    val notificationDeliveredAt: Long? = null,
+    val notificationClickedAt: Long? = null,
     val wasClicked: Boolean = false,
     val wasCompleted: Boolean = false,
     val wasSkipped: Boolean = false,

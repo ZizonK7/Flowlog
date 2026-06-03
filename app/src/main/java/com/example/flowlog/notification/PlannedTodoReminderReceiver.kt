@@ -12,7 +12,6 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import com.example.flowlog.MainActivity
 import com.example.flowlog.R
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.model.TodoItem
@@ -22,6 +21,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class PlannedTodoReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -61,15 +63,16 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                 }
 
                 val expectedAt = item.notificationScheduledAtMillis ?: run {
-                    Log.w(TAG, "receive blocked: itemId=$itemId title=$snapshotTitle intentScheduledAt=$scheduledAt reason=no_scheduled_at_in_db")
+                    Log.w(TAG, "receive blocked: itemId=$itemId title=$snapshotTitle intentScheduledAt=${dateFormat.format(Date(scheduledAt))} reason=no_scheduled_at_in_db")
                     return@launch
                 }
                 if (scheduledAt != expectedAt) {
-                    Log.w(TAG, "receive blocked: itemId=$itemId title=$snapshotTitle intentScheduledAt=$scheduledAt dbScheduledAt=$expectedAt actionStatus=${item.userActionStatus} reason=scheduled_at_mismatch")
+                    Log.w(TAG, "receive blocked: itemId=$itemId title=$snapshotTitle intentScheduledAt=${dateFormat.format(Date(scheduledAt))} dbScheduledAt=${dateFormat.format(Date(expectedAt))} actionStatus=${item.userActionStatus} reason=scheduled_at_mismatch")
                     return@launch
                 }
+                Log.d(TAG, "receive match: itemId=$itemId intentScheduledAt=${dateFormat.format(Date(scheduledAt))} dbScheduledAt=${dateFormat.format(Date(expectedAt))}")
                 if (System.currentTimeMillis() - expectedAt > MAX_STALE_ALARM_MILLIS) {
-                    Log.w(TAG, "receive blocked: itemId=$itemId title=$snapshotTitle intentScheduledAt=$scheduledAt age=${System.currentTimeMillis() - expectedAt}ms reason=stale_alarm")
+                    Log.w(TAG, "receive blocked: itemId=$itemId title=$snapshotTitle intentScheduledAt=${dateFormat.format(Date(scheduledAt))} age=${System.currentTimeMillis() - expectedAt}ms reason=stale_alarm")
                     return@launch
                 }
 
@@ -87,13 +90,17 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                 }
 
                 val title = todo?.title ?: item.titleFromSnapshot() ?: "\uD560 \uC77C"
-                Log.d(TAG, "receive allowed: itemId=$itemId title=$title intentScheduledAt=$scheduledAt dbScheduledAt=$expectedAt actionStatus=${item.userActionStatus}")
-                val openPendingIntent = PendingIntent.getActivity(
+                val notificationId = itemId.hashCode()
+                Log.i(TAG, "receive allowed: itemId=$itemId title=$title intentScheduledAt=$scheduledAt dbScheduledAt=$expectedAt actionStatus=${item.userActionStatus}")
+
+                val clickIntent = Intent(context, PlannedTodoNotificationClickReceiver::class.java).apply {
+                    putExtra(PlannedTodoNotificationClickReceiver.EXTRA_ITEM_ID, itemId)
+                    putExtra(PlannedTodoNotificationClickReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+                }
+                val clickPendingIntent = PendingIntent.getBroadcast(
                     context,
-                    REQUEST_OPEN_HOME,
-                    Intent(context, MainActivity::class.java).apply {
-                        putExtra(MainActivity.EXTRA_OPEN_SCREEN, MainActivity.SCREEN_HOME)
-                    },
+                    notificationId,
+                    clickIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
@@ -108,7 +115,7 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                     .setContentTitle("\uC9C0\uAE08 \uC2DC\uC791\uD560 \uD560 \uC77C")
                     .setContentText(title)
                     .setStyle(NotificationCompat.BigTextStyle().bigText(title))
-                    .setContentIntent(openPendingIntent)
+                    .setContentIntent(clickPendingIntent)
                     .setCategory(NotificationCompat.CATEGORY_REMINDER)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -127,7 +134,11 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                         .setVibrate(longArrayOf(0L, 400L, 200L, 400L))
                 }
 
-                notifySafely(context, itemId.hashCode(), builder.build())
+                notifySafely(context, notificationId, builder.build())
+
+                val deliveredAt = System.currentTimeMillis()
+                db.dailyGoalDao().markNotificationDelivered(itemId = itemId, deliveredAt = deliveredAt)
+                Log.i(TAG, "delivered: itemId=$itemId deliveredAt=$deliveredAt")
             } catch (e: Exception) {
                 Log.e(TAG, "Error in PlannedTodoReminderReceiver", e)
             } finally {
@@ -159,11 +170,11 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
     companion object {
         const val EXTRA_ITEM_ID = "com.example.flowlog.extra.PLANNED_TODO_ITEM_ID"
         const val EXTRA_SCHEDULED_AT = "com.example.flowlog.extra.PLANNED_TODO_SCHEDULED_AT"
-        private const val REQUEST_OPEN_HOME = 5201
         private const val MAX_STALE_ALARM_MILLIS = 30L * 60L * 1000L
         private const val TAG = "PlannedTodoReminder"
         private val ACTIVE_STATUSES = setOf("PLANNED", "RESCHEDULED")
         private val NOTIFICATION_ICON_COLOR = 0xFF4F5060.toInt()
         private val json = Json { ignoreUnknownKeys = true }
+        private val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     }
 }

@@ -11,6 +11,9 @@ import com.example.flowlog.data.local.entity.DailyGoalItemEntity
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class PlannedTodoReminderScheduler(private val context: Context) {
     private val appContext = context.applicationContext
@@ -53,13 +56,18 @@ class PlannedTodoReminderScheduler(private val context: Context) {
     }
 
     private fun scheduleItem(item: DailyGoalItemEntity, now: Long) {
-        val triggerAt = item.notificationScheduledAtMillis ?: return
+        Log.i(TAG, "scheduleItem: itemId=${item.itemId} plannedStartMillis=${item.plannedStartMillis} notifAt=${item.notificationScheduledAtMillis} status=${item.userActionStatus} wasCompleted=${item.wasCompleted} wasSkipped=${item.wasSkipped}")
+        val triggerAt = item.notificationScheduledAtMillis ?: run {
+            Log.i(TAG, "skip(notifAt=null): itemId=${item.itemId}")
+            return
+        }
         if (triggerAt <= now ||
             item.userActionStatus !in ACTIVE_STATUSES ||
             item.wasCompleted ||
             item.wasSkipped ||
             item.wasDeleted
         ) {
+            Log.i(TAG, "skip(guard): itemId=${item.itemId} triggerAt=$triggerAt now=$now status=${item.userActionStatus}")
             return
         }
 
@@ -69,7 +77,10 @@ class PlannedTodoReminderScheduler(private val context: Context) {
             flags = PendingIntent.FLAG_UPDATE_CURRENT
         ) ?: return
 
-        Log.d(TAG, "schedule: itemId=${item.itemId} todoId=${item.todoId} plannedStartMillis=${item.plannedStartMillis} notificationScheduledAtMillis=$triggerAt requestCode=${requestCode(item.itemId)}")
+        Log.d(TAG, "scheduleItem: itemId=${item.itemId} " +
+            "plannedStart=${item.plannedStartMillis?.let { dateFormat.format(Date(it)) } ?: "null"} " +
+            "notificationScheduledAt=${dateFormat.format(Date(triggerAt))} " +
+            "requestCode=${requestCode(item.itemId)}")
         runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
                 throw SecurityException("Exact alarms are not allowed")
@@ -111,5 +122,6 @@ class PlannedTodoReminderScheduler(private val context: Context) {
         private const val TAG = "PlannedTodoScheduler"
         private const val REQUEST_PLANNED_TODO_REMINDER = 42_000
         private val ACTIVE_STATUSES = setOf("PLANNED", "RESCHEDULED")
+        private val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     }
 }

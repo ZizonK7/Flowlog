@@ -340,6 +340,8 @@ class FirebaseRestoreDataSource(context: Context) {
                         actualCompletedAt = doc.getLong("actualCompletedAt"),
                         linkedActivityId = doc.getString("linkedActivityId"),
                         completedTodoId = doc.getString("completedTodoId"),
+                        notificationDeliveredAt = doc.getLong("notificationDeliveredAt"),
+                        notificationClickedAt = doc.getLong("notificationClickedAt"),
                         wasClicked = doc.getBoolean("wasClicked") ?: false,
                         wasCompleted = doc.getBoolean("wasCompleted") ?: false,
                         wasSkipped = doc.getBoolean("wasSkipped") ?: false,

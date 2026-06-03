@@ -361,6 +361,20 @@ interface DailyGoalDao {
 
     @Query("""
         UPDATE daily_goal_items
+        SET notificationDeliveredAt = :deliveredAt, updatedAt = :deliveredAt, syncStatus = '${SyncStatus.PENDING}'
+        WHERE itemId = :itemId
+    """)
+    suspend fun markNotificationDelivered(itemId: String, deliveredAt: Long)
+
+    @Query("""
+        UPDATE daily_goal_items
+        SET notificationClickedAt = :clickedAt, updatedAt = :clickedAt, syncStatus = '${SyncStatus.PENDING}'
+        WHERE itemId = :itemId
+    """)
+    suspend fun markNotificationClicked(itemId: String, clickedAt: Long)
+
+    @Query("""
+        UPDATE daily_goal_items
         SET wasSkipped = 1, updatedAt = :updatedAt, syncStatus = '${SyncStatus.PENDING}'
         WHERE recommendationId = :recommendationId AND todoId = :todoId
     """)

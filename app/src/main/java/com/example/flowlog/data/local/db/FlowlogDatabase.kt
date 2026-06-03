@@ -57,7 +57,7 @@ import com.example.flowlog.data.local.entity.UserEntity
         // Phase 4 — Exam
         ExamStrategyCheckEntity::class,
     ],
-    version = 8,
+    version = 9,
     // 장기적으로는 schema export + Migration 검증을 붙이는 것이 바람직하지만,
     // 현재 단계에서는 개발 편의상 schema 파일 생성을 보류한다.
     exportSchema = false
@@ -91,7 +91,7 @@ abstract class FlowlogDatabase : RoomDatabase() {
                     FlowlogDatabase::class.java,
                     "flowlog.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .build().also { INSTANCE = it }
             }
         }
@@ -216,6 +216,13 @@ abstract class FlowlogDatabase : RoomDatabase() {
         private val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE exam_strategy_checks ADD COLUMN undoneAtMillis INTEGER")
+            }
+        }
+
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE daily_goal_items ADD COLUMN notificationDeliveredAt INTEGER")
+                db.execSQL("ALTER TABLE daily_goal_items ADD COLUMN notificationClickedAt INTEGER")
             }
         }
 

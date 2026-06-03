@@ -220,6 +220,8 @@ class FirestoreSyncRepository(
         "actualCompletedAt" to actualCompletedAt,
         "linkedActivityId" to linkedActivityId,
         "completedTodoId" to completedTodoId,
+        "notificationDeliveredAt" to notificationDeliveredAt,
+        "notificationClickedAt" to notificationClickedAt,
         "wasClicked" to wasClicked,
         "wasCompleted" to wasCompleted,
         "wasSkipped" to wasSkipped,
