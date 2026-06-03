@@ -94,8 +94,26 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                 }
 
                 val title = todo?.title ?: item.titleFromSnapshot() ?: "\uD560 \uC77C"
-                val notificationId = itemId.hashCode()
-                Log.i(TAG, "receive allowed: itemId=$itemId todoId=${item.todoId} plannedStart=${item.plannedStartMillis?.let { dateFormat.format(Date(it)) } ?: "null"} notifAt=${dateFormat.format(Date(expectedAt))} intentScheduledAt=${dateFormat.format(Date(scheduledAt))} userActionStatus=${item.userActionStatus}")
+                val notificationId = PlannedTodoReminderScheduler.notificationIdFor(itemId)
+
+                // Final DB re-check to catch race conditions between initial checks and notify()
+                val freshItem = db.dailyGoalDao().getGoalItem(itemId)
+                val finalBlockReason = when {
+                    freshItem == null -> "item_gone"
+                    freshItem.userActionStatus !in ACTIVE_STATUSES -> "status_changed"
+                    freshItem.wasCompleted || freshItem.actualCompletedAt != null -> "completed"
+                    freshItem.wasSkipped -> "skipped"
+                    freshItem.wasDeleted -> "deleted"
+                    freshItem.actualStartedAt != null -> "started"
+                    freshItem.notificationScheduledAtMillis != expectedAt -> "scheduled_at_changed"
+                    else -> null
+                }
+                if (finalBlockReason != null) {
+                    Log.w(TAG, "receive finalCheckBlocked: itemId=$itemId notificationId=$notificationId reason=$finalBlockReason")
+                    return@launch
+                }
+
+                Log.i(TAG, "receive allowed: itemId=$itemId notificationId=$notificationId todoId=${item.todoId} plannedStart=${item.plannedStartMillis?.let { dateFormat.format(Date(it)) } ?: "null"} notifAt=${dateFormat.format(Date(expectedAt))} intentScheduledAt=${dateFormat.format(Date(scheduledAt))} userActionStatus=${item.userActionStatus}")
 
                 val clickIntent = Intent(context, PlannedTodoNotificationClickReceiver::class.java).apply {
                     putExtra(PlannedTodoNotificationClickReceiver.EXTRA_ITEM_ID, itemId)

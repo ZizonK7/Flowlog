@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import androidx.core.app.NotificationManagerCompat
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.local.entity.DailyGoalItemEntity
 import com.google.firebase.auth.FirebaseAuth
@@ -54,6 +55,15 @@ class PlannedTodoReminderScheduler(private val context: Context) {
         }
         alarmManager.cancel(pendingIntent)
         pendingIntent.cancel()
+        cancelDeliveredNotification(itemId, reason = "alarm_cancelled")
+    }
+
+    fun cancelDeliveredNotification(itemId: String, reason: String) {
+        val notificationId = notificationIdFor(itemId)
+        runCatching {
+            NotificationManagerCompat.from(appContext).cancel(notificationId)
+        }
+        Log.d(TAG, "cancelDeliveredNotification: itemId=$itemId notificationId=$notificationId reason=$reason")
     }
 
     private fun scheduleItem(item: DailyGoalItemEntity, now: Long) {
@@ -128,5 +138,7 @@ class PlannedTodoReminderScheduler(private val context: Context) {
         private const val REQUEST_PLANNED_TODO_REMINDER = 42_000
         private val ACTIVE_STATUSES = setOf("PLANNED", "RESCHEDULED")
         private val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+
+        fun notificationIdFor(itemId: String): Int = itemId.hashCode()
     }
 }
