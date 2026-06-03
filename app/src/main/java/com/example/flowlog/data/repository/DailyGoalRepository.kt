@@ -919,7 +919,7 @@ class DailyGoalRepository(context: Context) {
         private val HEAVY_DENOMINATOR_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK", "COMPANY", "REST", "SLEEP", "SCHOOL")
         private val LIGHT_DENOMINATOR_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK", "COMPANY", "REST", "SCHOOL")
         private val REPLANNABLE_ACTION_STATUSES = setOf("PLANNED", "RESCHEDULED")
-        private val VISIBLE_RECOMMENDED_BLOCK_STATUSES = setOf("PLANNED", "RESCHEDULED")
+        private val VISIBLE_RECOMMENDED_BLOCK_STATUSES = setOf("PLANNED", "RESCHEDULED", "STARTED")
 
         private fun minuteTicker(): Flow<Long> = flow {
             while (true) {

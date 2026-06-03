@@ -443,9 +443,7 @@ class ActivityViewModel(
             val savedActivity = activity.copy(id = newId)
             state.linkedTodoId?.let { todoId ->
                 todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
-                if (state.sourceId != null) {
-                    dailyGoalRepository.markPlannedItemCompleted(state.sourceId, todoId, newId)
-                } else {
+                if (state.sourceId == null) {
                     dailyGoalRepository.markOpenPlannedItemCompleted(todoId, newId)
                 }
             }
