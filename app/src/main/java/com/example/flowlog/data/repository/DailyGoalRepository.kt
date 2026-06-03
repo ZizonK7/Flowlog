@@ -136,6 +136,7 @@ class DailyGoalRepository(context: Context) {
                     return@mapNotNull null
                 }
                 val expired = block.plannedStartMillis + HOUR_MILLIS <= now
+                Log.d(TAG, "renderBlock: itemId=${item.itemId} todoId=${item.todoId} plannedStart=${fmtTime(item.plannedStartMillis)} plannedEnd=${fmtTime(item.plannedEndMillis)} notifAt=${fmtTime(item.notificationScheduledAtMillis)} userActionStatus=${item.userActionStatus} expired=$expired")
                 block.copy(isBubbleOnly = expired)
             }
         }
@@ -329,7 +330,9 @@ class DailyGoalRepository(context: Context) {
         val dayStart = startOfDay(now)
         val startMillis = dayStart + startHourOfDay * HOUR_MILLIS
         val endMillis = startMillis + HOUR_MILLIS
-        val notificationScheduledAtMillis = startMillis.takeIf { it > now }
+        val workplaceBlocks = todayWorkplaceBlocks(dayStart)
+        val notificationScheduledAtMillis = randomNotificationTime(startMillis, workplaceBlocks)
+        Log.d(TAG, "setPlannedItemTime: itemId=$itemId startHour=$startHourOfDay plannedStart=${fmtTime(startMillis)} notifAt=${fmtTime(notificationScheduledAtMillis)}")
         dao.updateItemTimeManually(
             userId = userId,
             itemId = itemId,
@@ -378,12 +381,16 @@ class DailyGoalRepository(context: Context) {
             )
         )
 
+        Log.d(TAG, "replacePlannedItemTodo begin: oldItemId=${block.itemId} newItemId=$newItemId inheritedRank=$inheritedRank oldPlannedStart=${fmtTime(oldItem?.plannedStartMillis)} newTodoId=${newTodo.id} newPlannedStartBeforeRecompute=null")
+
         // Assign time slots — burdenLevel is computed here
         val result = ensureTodayTimePlan(activities = activities, forceRefresh = true)
 
         // Log EventLog after time plan so final plannedStart/EndMillis are captured
         runCatching {
             val newItem = dao.getGoalItem(newItemId)
+            val rec = dao.getRecommendationByDate(userId, todayDateKey())
+            Log.d(TAG, "replacePlannedItemTodo done: newItemId=$newItemId newPlannedStart=${fmtTime(newItem?.plannedStartMillis)} newNotifAt=${fmtTime(newItem?.notificationScheduledAtMillis)} result=$result mode=${rec?.recommendationMode} heavy=${rec?.heavyTodoId} light=${rec?.lightTodoId}")
             eventLogRepository.log(
                 eventType = EventType.DAILY_GOAL_ITEM_REPLACED,
                 entityType = EntityType.DAILY_GOAL_ITEM,
@@ -675,7 +682,8 @@ class DailyGoalRepository(context: Context) {
             plannedStartMillis = start,
             plannedEndMillis = end,
             recommendedDurationMinutes = recommendedDurationMinutes ?: ((end - start) / 60_000L).toInt().coerceAtLeast(1),
-            userActionStatus = userActionStatus
+            userActionStatus = userActionStatus,
+            notificationScheduledAtMillis = notificationScheduledAtMillis
         )
     }
 
@@ -920,6 +928,9 @@ class DailyGoalRepository(context: Context) {
         private val LIGHT_DENOMINATOR_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK", "COMPANY", "REST", "SCHOOL")
         private val REPLANNABLE_ACTION_STATUSES = setOf("PLANNED", "RESCHEDULED")
         private val VISIBLE_RECOMMENDED_BLOCK_STATUSES = setOf("PLANNED", "RESCHEDULED", "STARTED")
+
+        private val logFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
+        private fun fmtTime(ms: Long?): String = ms?.let { logFmt.format(Date(it)) } ?: "null"
 
         private fun minuteTicker(): Flow<Long> = flow {
             while (true) {

@@ -29,6 +29,10 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val itemId = intent.getStringExtra(EXTRA_ITEM_ID) ?: return
         val scheduledAt = intent.getLongExtra(EXTRA_SCHEDULED_AT, 0L)
+        if (scheduledAt == 0L) {
+            Log.w(TAG, "receive blocked: itemId=$itemId intentScheduledAt=0 reason=missing_intent_scheduled_at")
+            return
+        }
 
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -91,7 +95,7 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
 
                 val title = todo?.title ?: item.titleFromSnapshot() ?: "\uD560 \uC77C"
                 val notificationId = itemId.hashCode()
-                Log.i(TAG, "receive allowed: itemId=$itemId title=$title intentScheduledAt=$scheduledAt dbScheduledAt=$expectedAt actionStatus=${item.userActionStatus}")
+                Log.i(TAG, "receive allowed: itemId=$itemId todoId=${item.todoId} plannedStart=${item.plannedStartMillis?.let { dateFormat.format(Date(it)) } ?: "null"} notifAt=${dateFormat.format(Date(expectedAt))} intentScheduledAt=${dateFormat.format(Date(scheduledAt))} userActionStatus=${item.userActionStatus}")
 
                 val clickIntent = Intent(context, PlannedTodoNotificationClickReceiver::class.java).apply {
                     putExtra(PlannedTodoNotificationClickReceiver.EXTRA_ITEM_ID, itemId)

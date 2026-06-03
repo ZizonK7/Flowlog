@@ -22,6 +22,7 @@ import com.example.flowlog.notification.AutoButtonScheduler
 import com.example.flowlog.notification.ReminderScheduler
 import com.example.flowlog.widget.FlowStatusWidgetProvider
 import com.google.firebase.auth.FirebaseAuth
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -822,12 +823,14 @@ class ActivityViewModel(
     }
 
     fun setRecommendedTodoTime(block: RecommendedTodoBlock, startHourOfDay: Int) {
+        Log.d(TAG, "user setRecommendedTodoTime: itemId=${block.itemId} todoId=${block.todoId} oldPlannedStart=${block.plannedStartMillis} newHour=$startHourOfDay")
         viewModelScope.launch {
             dailyGoalRepository.setPlannedItemTime(block.itemId, startHourOfDay)
         }
     }
 
     fun replaceRecommendedTodoItem(block: RecommendedTodoBlock, newTodo: TodoItem) {
+        Log.d(TAG, "user replaceRecommendedTodoItem: oldItemId=${block.itemId} oldTodoId=${block.todoId} oldPlannedStart=${block.plannedStartMillis} newTodoId=${newTodo.id} newTodoTitle=${newTodo.title}")
         viewModelScope.launch {
             dailyGoalRepository.replacePlannedItemTodo(
                 block = block,
@@ -1262,6 +1265,9 @@ class ActivityViewModel(
     private fun observeRecommendedTodoBlocks() {
         viewModelScope.launch {
             dailyGoalRepository.observeTodayRecommendedBlocks().collect { blocks ->
+                blocks.forEach { block ->
+                    Log.d(TAG, "uiBlock: itemId=${block.itemId} todoId=${block.todoId} plannedStart=${block.plannedStartMillis} plannedEnd=${block.plannedEndMillis} notifAt=${block.notificationScheduledAtMillis} userActionStatus=${block.userActionStatus} isBubbleOnly=${block.isBubbleOnly}")
+                }
                 _uiState.update { it.copy(recommendedTodoBlocks = blocks) }
             }
         }
@@ -1319,6 +1325,7 @@ class ActivityViewModel(
     }
 
     companion object {
+        private const val TAG = "ActivityViewModel"
         private const val PREFS_MIGRATIONS = "flowlog_migrations"
         private const val PREFS_ACTIVITY_UNDO = "activity_undo"
         private const val PREFS_TIMER_STATE = "timer_state"

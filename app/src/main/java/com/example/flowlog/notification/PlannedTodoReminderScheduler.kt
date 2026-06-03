@@ -41,33 +41,37 @@ class PlannedTodoReminderScheduler(private val context: Context) {
         }
     }
 
-    fun cancel(itemId: String) {
+    suspend fun cancel(itemId: String) {
         val rc = requestCode(itemId)
+        val item = withContext(Dispatchers.IO) { runCatching { dao.getGoalItem(itemId) }.getOrNull() }
+        Log.d(TAG, "cancel: itemId=$itemId todoId=${item?.todoId} plannedStart=${item?.plannedStartMillis?.let { dateFormat.format(Date(it)) } ?: "null"} notifAt=${item?.notificationScheduledAtMillis?.let { dateFormat.format(Date(it)) } ?: "null"} userActionStatus=${item?.userActionStatus} requestCode=$rc")
         // FLAG_UPDATE_CURRENT: scheduleItem과 동일한 PendingIntent identity를 보장.
         // FLAG_NO_CREATE는 앱 재시작 후 메모리 캐시가 없으면 null을 반환해 cancel이 no-op이 되는 문제가 있다.
         val pendingIntent = buildPendingIntent(itemId, scheduledAt = 0L, flags = PendingIntent.FLAG_UPDATE_CURRENT)
         if (pendingIntent == null) {
-            Log.w(TAG, "cancel: itemId=$itemId requestCode=$rc pendingIntent=null (no-op)")
+            Log.w(TAG, "cancel: no-op — itemId=$itemId requestCode=$rc pendingIntent=null")
             return
         }
-        Log.d(TAG, "cancel: itemId=$itemId requestCode=$rc")
         alarmManager.cancel(pendingIntent)
         pendingIntent.cancel()
     }
 
     private fun scheduleItem(item: DailyGoalItemEntity, now: Long) {
-        Log.i(TAG, "scheduleItem: itemId=${item.itemId} plannedStartMillis=${item.plannedStartMillis} notifAt=${item.notificationScheduledAtMillis} status=${item.userActionStatus} wasCompleted=${item.wasCompleted} wasSkipped=${item.wasSkipped}")
+        Log.i(TAG, "scheduleItem: itemId=${item.itemId} todoId=${item.todoId} plannedStart=${item.plannedStartMillis?.let { dateFormat.format(Date(it)) } ?: "null"} notifAt=${item.notificationScheduledAtMillis?.let { dateFormat.format(Date(it)) } ?: "null"} userActionStatus=${item.userActionStatus} wasCompleted=${item.wasCompleted} wasSkipped=${item.wasSkipped} wasDeleted=${item.wasDeleted}")
         val triggerAt = item.notificationScheduledAtMillis ?: run {
-            Log.i(TAG, "skip(notifAt=null): itemId=${item.itemId}")
+            Log.i(TAG, "skip: itemId=${item.itemId} todoId=${item.todoId} blockReason=notif_at_null")
             return
         }
-        if (triggerAt <= now ||
-            item.userActionStatus !in ACTIVE_STATUSES ||
-            item.wasCompleted ||
-            item.wasSkipped ||
-            item.wasDeleted
-        ) {
-            Log.i(TAG, "skip(guard): itemId=${item.itemId} triggerAt=$triggerAt now=$now status=${item.userActionStatus}")
+        val blockReason = when {
+            triggerAt <= now -> "trigger_in_past"
+            item.userActionStatus !in ACTIVE_STATUSES -> "status_not_active"
+            item.wasCompleted -> "completed"
+            item.wasSkipped -> "skipped"
+            item.wasDeleted -> "deleted"
+            else -> null
+        }
+        if (blockReason != null) {
+            Log.i(TAG, "skip: itemId=${item.itemId} todoId=${item.todoId} plannedStart=${item.plannedStartMillis?.let { dateFormat.format(Date(it)) } ?: "null"} notifAt=${dateFormat.format(Date(triggerAt))} userActionStatus=${item.userActionStatus} blockReason=$blockReason")
             return
         }
 
@@ -77,9 +81,10 @@ class PlannedTodoReminderScheduler(private val context: Context) {
             flags = PendingIntent.FLAG_UPDATE_CURRENT
         ) ?: return
 
-        Log.d(TAG, "scheduleItem: itemId=${item.itemId} " +
+        Log.d(TAG, "scheduleItem ok: itemId=${item.itemId} todoId=${item.todoId} " +
             "plannedStart=${item.plannedStartMillis?.let { dateFormat.format(Date(it)) } ?: "null"} " +
-            "notificationScheduledAt=${dateFormat.format(Date(triggerAt))} " +
+            "notifAt=${dateFormat.format(Date(triggerAt))} " +
+            "userActionStatus=${item.userActionStatus} " +
             "requestCode=${requestCode(item.itemId)}")
         runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {

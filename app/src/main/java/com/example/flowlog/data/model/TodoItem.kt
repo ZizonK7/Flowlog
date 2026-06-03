@@ -35,5 +35,6 @@ data class RecommendedTodoBlock(
     val plannedEndMillis: Long,
     val recommendedDurationMinutes: Int,
     val userActionStatus: String,
+    val notificationScheduledAtMillis: Long? = null,
     val isBubbleOnly: Boolean = false
 )
