@@ -62,7 +62,7 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
 
         val channelId = if (shouldSilence) SleepAlarmGuard.SILENT_CHANNEL_ID else DING_CHANNEL_ID
         val builder = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(R.drawable.ic_timer_notification)
+            .setSmallIcon(R.drawable.ic_notification)
             .setColor(NOTIFICATION_ICON_COLOR)
             .setContentTitle(title)
             .setContentText(message)

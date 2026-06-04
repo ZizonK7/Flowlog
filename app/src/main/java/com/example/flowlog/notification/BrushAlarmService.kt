@@ -50,14 +50,14 @@ class BrushAlarmService : Service() {
     }
 
     private fun buildNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setSmallIcon(R.drawable.ic_timer_notification)
+        .setSmallIcon(R.drawable.ic_notification)
         .setColor(NOTIFICATION_ICON_COLOR)
         .setContentTitle("\uC591\uCE58 3\uBD84 \uC54C\uB78C")
         .setContentText("\uB04C \uB54C\uAE4C\uC9C0 \uC54C\uB78C\uC774 \uC6B8\uB824\uC694.")
         .setContentIntent(openAppPendingIntent())
         .setFullScreenIntent(alarmScreenPendingIntent(), true)
         .addAction(
-            R.drawable.ic_timer_notification,
+            R.drawable.ic_notification,
             "\uB044\uAE30",
             stopPendingIntent()
         )

@@ -143,30 +143,32 @@ fun TodoScreen(
     val focusTodos    by viewModel.todayFocusItems.collectAsState()
     val dailyCues     by viewModel.dailyCues.collectAsState()
     val examCards     by viewModel.examCards.collectAsState()
-    val visibleFocusTodos = remember(focusTodos) { focusTodos.take(2) }
     val focusIds      = remember(focusTodos) { focusTodos.map { it.id }.toSet() }
     val todayStart = startOfDay(System.currentTimeMillis())
-    // UNIVERSITY_EXAM은 시험 당일까지만 표시. 완료 항목, 목표 항목 제외
+    // NORMAL은 상단 섹션에 별도 표시. 나머지 완료 항목, 목표 항목 제외
+    val normalTodos   = remember(todos) {
+        todos.filter { todo -> !todo.isCompleted && todo.category == TodoCategory.NORMAL }
+    }
     val activeTodos   = remember(todos, focusIds, todayStart) {
         todos.filter { todo ->
             !todo.isCompleted &&
             todo.id !in focusIds &&
+            todo.category != TodoCategory.NORMAL &&
             !(todo.category == TodoCategory.UNIVERSITY_EXAM &&
               todo.selectedDate != null &&
               startOfDay(todo.selectedDate) < todayStart)
         }
     }
-    // 전체 할 일에서 완료된 항목: 최대 1개만 존재 (completeTodo가 이전 항목 삭제)
     val tomorrowStart = todayStart + DAY_MILLIS
     val completedRegular = remember(todos, focusIds, todayStart) {
         todos.filter {
             val completedAt = it.completedAt
             it.isCompleted &&
                 it.id !in focusIds &&
+                it.category != TodoCategory.NORMAL &&
                 completedAt != null &&
                 completedAt in todayStart until tomorrowStart
-        }
-            .maxByOrNull { it.completedAt ?: 0L }
+        }.maxByOrNull { it.completedAt ?: 0L }
     }
 
     // 입력 카드 상태
@@ -182,13 +184,16 @@ fun TodoScreen(
     LaunchedEffect(isTitleFocused) { if (isTitleFocused) isInputExpanded = true }
 
     // 카드 인터랙션 상태
-    var editingId        by remember { mutableStateOf<Long?>(null) }
-    var completingId     by remember { mutableStateOf<Long?>(null) }
-    var isActiveExpanded by remember { mutableStateOf(false) }
+    var editingId          by remember { mutableStateOf<Long?>(null) }
+    var completingId       by remember { mutableStateOf<Long?>(null) }
+    var isActiveExpanded   by remember { mutableStateOf(false) }
+    var isAnchorsExpanded  by remember { mutableStateOf(false) }
+    val visibleNormalTodos = remember(normalTodos, isAnchorsExpanded) { if (isAnchorsExpanded) normalTodos else normalTodos.take(4) }
     val scope = rememberCoroutineScope()
 
     // Exam 체크 Snackbar
-    val examSnackbarHostState = remember { SnackbarHostState() }
+    val examSnackbarHostState  = remember { SnackbarHostState() }
+    val normalSnackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(viewModel) {
         viewModel.examCheckEvents.collect { event ->
             val result = examSnackbarHostState.showSnackbar(
@@ -212,6 +217,25 @@ fun TodoScreen(
             delay(380)
             viewModel.completeFocusTodo(todo)
             completingId = null
+        }
+    }
+
+    // 오늘 할 일 완료: 완료 후 되돌리기 스낵바 표시
+    val onCompleteNormal: (TodoItem) -> Unit = { todo ->
+        scope.launch {
+            completingId = todo.id
+            delay(380)
+            viewModel.completeTodo(todo)
+            completingId = null
+            if (editingId == todo.id) editingId = null
+            val result = normalSnackbarHostState.showSnackbar(
+                message = "${todo.title} 완료됨",
+                actionLabel = "되돌리기",
+                duration = SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.uncompleteTodo(todo)
+            }
         }
     }
 
@@ -303,21 +327,40 @@ fun TodoScreen(
         }
 
         // ── 오늘의 목표 ───────────────────────────────────────────────────────
-        if (focusTodos.isNotEmpty()) {
+        if (normalTodos.isNotEmpty()) {
             item(key = "focus_header") {
-                SectionHeader(title = "Anchors", badge = "✦", color = Purple)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Petites", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Purple)
+                        Spacer(Modifier.width(5.dp))
+                        Text("✦", fontSize = 14.sp, color = Purple.copy(alpha = 0.7f))
+                    }
+                    TextButton(
+                        onClick = { isAnchorsExpanded = !isAnchorsExpanded },
+                        enabled = normalTodos.size > 4,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text(
+                            if (isAnchorsExpanded) "접기" else "더보기",
+                            fontSize = 13.sp,
+                            color = if (normalTodos.size > 4) Purple else TextMuted.copy(alpha = 0.45f),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
-            items(visibleFocusTodos, key = { "focus_${it.id}" }) { todo ->
+            items(visibleNormalTodos, key = { "focus_${it.id}" }) { todo ->
                 TodoCard(
                     todo         = todo,
                     isEditing    = editingId == todo.id,
                     isCompleting = completingId == todo.id,
-                    isFocus      = true,
-                    onStartTodo  = {
-                        viewModel.startFocusTodo(todo)
-                        onStartTodo(todo)
-                    },
-                    onComplete   = { onCompleteFocus(todo) },
+                    isFocus      = false,
+                    onStartTodo  = { onStartTodo(todo) },
+                    onComplete   = { onCompleteNormal(todo) },
                     onUncomplete = { viewModel.uncompleteTodo(todo) },
                     onEditToggle = { editingId = if (editingId == todo.id) null else todo.id },
                     onSave       = { t, c, d -> viewModel.updateTodo(todo.copy(title = t, category = c, selectedDate = d)); editingId = null },
@@ -363,7 +406,7 @@ fun TodoScreen(
             SectionHeader(title = "전체 할 일")
         }
 
-        if (activeTodos.isEmpty() && focusTodos.isEmpty() && completedRegular == null) {
+        if (activeTodos.isEmpty() && normalTodos.isEmpty() && completedRegular == null) {
             item(key = "empty") {
                 Box(
                     Modifier.fillMaxWidth().height(100.dp),
@@ -395,7 +438,6 @@ fun TodoScreen(
             }
         }
 
-        // ── 전체 할 일 완료 항목 (1개만) ──────────────────────────────────────
         completedRegular?.let { todo ->
             item(key = "completed_regular_${todo.id}") {
                 CompletedCard(
@@ -407,6 +449,22 @@ fun TodoScreen(
         }
     }
 
+    // 오늘 할 일 완료 되돌리기 Snackbar
+    SnackbarHost(
+        hostState = normalSnackbarHostState,
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .padding(bottom = 16.dp),
+        snackbar = { data ->
+            Snackbar(
+                snackbarData = data,
+                containerColor = Color(0xFF1565C0),
+                contentColor = Color.White,
+                actionColor = Color(0xFFBBDEFB),
+                shape = RoundedCornerShape(12.dp)
+            )
+        }
+    )
     // Exam 체크 되돌리기 Snackbar
     SnackbarHost(
         hostState = examSnackbarHostState,
@@ -1082,6 +1140,9 @@ private fun NewTodoCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        TypeChip("오늘 할 일", category == TodoCategory.NORMAL) {
+                            onCategoryChange(if (category == TodoCategory.NORMAL) null else TodoCategory.NORMAL)
+                        }
                         TypeChip("복습", category == TodoCategory.REVIEW) {
                             onCategoryChange(if (category == TodoCategory.REVIEW) null else TodoCategory.REVIEW)
                         }
@@ -1336,6 +1397,9 @@ private fun TodoCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        TypeChip("오늘 할 일", editCategory == TodoCategory.NORMAL) {
+                            editCategory = TodoCategory.NORMAL
+                        }
                         TypeChip("복습", editCategory == TodoCategory.REVIEW) {
                             editCategory = if (editCategory == TodoCategory.REVIEW) TodoCategory.NORMAL else TodoCategory.REVIEW
                         }
@@ -1520,7 +1584,7 @@ private fun TypeChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
         modifier = Modifier.height(36.dp)
     ) {
-        Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

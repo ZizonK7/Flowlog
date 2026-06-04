@@ -56,7 +56,7 @@ class ActivityTimerNotifier(private val context: Context) {
             title = "\uAC04\uC2DD \uD0C0\uC774\uBA38",
             text = "\uC591\uCE58 \uC54C\uB9BC\uAE4C\uC9C0 \uB0A8\uC740 \uC2DC\uAC04",
             endsAtMillis = endsAtMillis,
-            smallIcon = R.drawable.ic_timer_notification
+            smallIcon = R.drawable.ic_notification
         )
     }
 
@@ -66,7 +66,7 @@ class ActivityTimerNotifier(private val context: Context) {
             title = "\uC2DD\uC0AC \uD0C0\uC774\uBA38",
             text = "\uC591\uCE58 \uC54C\uB9BC\uAE4C\uC9C0 \uB0A8\uC740 \uC2DC\uAC04",
             endsAtMillis = endsAtMillis,
-            smallIcon = R.drawable.ic_timer_notification
+            smallIcon = R.drawable.ic_notification
         )
     }
 
@@ -76,7 +76,7 @@ class ActivityTimerNotifier(private val context: Context) {
             title = "\uC591\uCE58 3\uBD84 \uD0C0\uC774\uBA38",
             text = "\uC591\uCE58 \uB9C8\uBB34\uB9AC\uAE4C\uC9C0 \uB0A8\uC740 \uC2DC\uAC04",
             endsAtMillis = endsAtMillis,
-            smallIcon = R.drawable.ic_timer_notification
+            smallIcon = R.drawable.ic_notification
         )
     }
 
@@ -86,7 +86,7 @@ class ActivityTimerNotifier(private val context: Context) {
             title = "\uC591\uCE58 30\uBD84 \uD0C0\uC774\uBA38",
             text = "\uBA39\uC5B4\uB3C4 \uB418\uB294 \uC2DC\uAC04\uAE4C\uC9C0 \uB0A8\uC740 \uC2DC\uAC04",
             endsAtMillis = endsAtMillis,
-            smallIcon = R.drawable.ic_timer_notification
+            smallIcon = R.drawable.ic_notification
         )
     }
 
@@ -106,7 +106,7 @@ class ActivityTimerNotifier(private val context: Context) {
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_timer_notification)
+            .setSmallIcon(R.drawable.ic_notification)
             .setColor(NOTIFICATION_ICON_COLOR)
             .setContentTitle("\uC591\uCE58 \uD0C0\uC774\uBA38\uB97C \uC2DC\uC791\uD588\uC5B4\uC694")
             .setContentText(
@@ -325,7 +325,7 @@ class ActivityTimerNotifier(private val context: Context) {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             builder.addAction(
-                R.drawable.ic_timer_notification,
+                R.drawable.ic_notification,
                 "되돌리기",
                 undoPendingIntent
             )
@@ -341,7 +341,8 @@ class ActivityTimerNotifier(private val context: Context) {
         }
     }
 
-    private fun notificationIcon(category: String): Int = categoryNotificationIconRes(category)
+    private fun notificationIcon(@Suppress("UNUSED_PARAMETER") category: String): Int =
+        R.drawable.ic_notification
 
     private fun ensureNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return

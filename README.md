@@ -23,6 +23,25 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Redesigned the top Todo section as **Petites**:
+  - The former `Anchors` section is renamed `Petites` and now shows only
+    `TodoCategory.NORMAL` ("오늘 할 일") items, keeping category-specific todos
+    (복습, 과제, 대학 시험) out of the top area.
+  - Defaults to showing up to four items; a `더보기` button expands to the full
+    list when there are more than four.
+  - Completing a Petites item shows a blue Snackbar with a `되돌리기` action,
+    matching the behavior of Exam strategy card checks.
+  - The `전체 할 일` section below Daily Cues now shows only non-NORMAL category
+    todos so no item appears twice.
+
+- Added **"오늘 할 일"** TypeChip to the Todo input and edit cards:
+  - Placed to the left of the `복습` chip; maps to `TodoCategory.NORMAL`.
+  - No chip is pre-selected by default when the input card opens.
+  - Selecting `오늘 할 일` routes the todo into the Petites section at the top
+    of the Todo tab.
+  - Chip font size reduced from 14 sp to 12 sp across all type chips.
+
+
 - Added `대학 시험` Todo type and `Exam D-#` section:
   - A new `UNIVERSITY_EXAM` category sits alongside `복습` and `과제` in the Todo
     input card. The date button label changes to `시험일 선택` when this type is

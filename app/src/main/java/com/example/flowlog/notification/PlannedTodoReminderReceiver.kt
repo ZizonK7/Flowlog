@@ -132,7 +132,7 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                     ToothbrushReminderReceiver.DING_CHANNEL_ID
                 }
                 val builder = NotificationCompat.Builder(context, channelId)
-                    .setSmallIcon(R.drawable.ic_timer_notification)
+                    .setSmallIcon(R.drawable.ic_notification)
                     .setColor(NOTIFICATION_ICON_COLOR)
                     .setContentTitle("\uC9C0\uAE08 \uC2DC\uC791\uD560 \uD560 \uC77C")
                     .setContentText(title)
