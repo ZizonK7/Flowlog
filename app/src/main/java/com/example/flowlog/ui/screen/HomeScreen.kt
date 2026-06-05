@@ -3,14 +3,19 @@ package com.example.flowlog.ui.screen
 import android.graphics.Paint
 import android.util.Log
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -47,6 +52,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -117,6 +123,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.flowlog.data.constants.ActivitySourceType
+import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.debug.CityTimetablePreset
 import com.example.flowlog.debug.CityTimetableSamples
 import com.example.flowlog.debug.SampleTimetableData
@@ -186,6 +193,7 @@ fun DevTimetableScreen(modifier: Modifier = Modifier) {
                 scheduledBlocks = emptyList(),
                 recommendedBlocks = emptyList(),
                 incompleteTodos = emptyList(),
+                activeCategory = null,
                 onSkipToday = {},
                 onUnskipToday = {},
                 onEditSchedule = {},
@@ -337,7 +345,11 @@ fun HomeScreen(
     onAutoButtonManagerDismiss: () -> Unit = {},
     isDeveloperMode: Boolean = false
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+    val restoredPinnedTimer = remember(context) {
+        TimerStateStore.getPinnedTimer(context)
+    }
     var localAutoButtonManagerOpen by remember { mutableStateOf(false) }
     val activityCategories = remember {
         listOf(
@@ -375,6 +387,12 @@ fun HomeScreen(
     }
     var samplePresetIndex by remember { mutableStateOf(0) }
     var isActivityListExpanded by remember(selectedCategory) { mutableStateOf(false) }
+    var pinnedQuickCategory by remember(restoredPinnedTimer) {
+        mutableStateOf(restoredPinnedTimer?.category)
+    }
+    var pinnedQuickStartedAt by remember(restoredPinnedTimer) {
+        mutableStateOf(restoredPinnedTimer?.startTime ?: 0L)
+    }
     val visibleActivities = if (isActivityListExpanded) {
         displayActivities
     } else {
@@ -416,6 +434,13 @@ fun HomeScreen(
                 appliedTitle = uiState.pendingTitle.orEmpty(),
                 titleSuggestions = titleSuggestions,
                 promotedButtons = uiState.promotedButtons,
+                onPinQuickCategory = { category ->
+                    val startedAt = System.currentTimeMillis()
+                    pinnedQuickCategory = category
+                    pinnedQuickStartedAt = startedAt
+                    viewModel.startOverlappingActivity(category, startedAt)
+                },
+                pinnedQuickCategory = pinnedQuickCategory,
                 onStop = { title ->
                     viewModel.stopActivityAndSave(title)
                 },
@@ -433,6 +458,16 @@ fun HomeScreen(
         item {
             QuickTimerSection(
                 categories = categories,
+                pinnedCategory = pinnedQuickCategory,
+                onUnpinCategory = {
+                    val category = pinnedQuickCategory
+                    val startedAt = pinnedQuickStartedAt
+                    if (category != null && startedAt > 0L) {
+                        viewModel.saveOverlappingActivity(category, startedAt)
+                    }
+                    pinnedQuickCategory = null
+                    pinnedQuickStartedAt = 0L
+                },
                 isBrushTimerRunning = uiState.isBrushTimerRunning,
                 brushDoneEndsAtMillis = uiState.brushDoneEndsAtMillis,
                 snackButtonEndsAtMillis = uiState.snackButtonEndsAtMillis,
@@ -451,6 +486,7 @@ fun HomeScreen(
                 scheduledBlocks = if (isDeveloperMode) emptyList() else uiState.scheduledAutoButtonBlocks,
                 recommendedBlocks = if (isDeveloperMode) emptyList() else uiState.recommendedTodoBlocks,
                 incompleteTodos = if (isDeveloperMode) emptyList() else uiState.incompleteTodos,
+                activeCategory = uiState.currentCategory.takeIf { uiState.isRunning },
                 onSkipToday = { if (!isDeveloperMode) viewModel.skipAutoButtonToday(it) },
                 onUnskipToday = { if (!isDeveloperMode) viewModel.unskipAutoButtonToday(it) },
                 onEditSchedule = { if (!isDeveloperMode) localAutoButtonManagerOpen = true },
@@ -580,6 +616,8 @@ private fun TodayFlowCard(
     appliedTitle: String,
     titleSuggestions: List<String>,
     promotedButtons: List<String>,
+    onPinQuickCategory: (String) -> Unit,
+    pinnedQuickCategory: String?,
     onStop: (String) -> Unit,
     onApplyTitle: (String) -> Unit,
     onStart: (String) -> Unit
@@ -628,6 +666,9 @@ private fun TodayFlowCard(
             } else {
                 FlowStartPage(
                     promotedButtons = promotedButtons,
+                    activeCategory = currentCategory.takeIf { isRunning },
+                    onPinQuickCategory = onPinQuickCategory,
+                    pinnedQuickCategory = pinnedQuickCategory,
                     statusMessage = statusMessage,
                     onStart = onStart
                 )
@@ -900,6 +941,9 @@ private val DEFAULT_MAIN_BUTTON_CATEGORIES = listOf(
 @Composable
 private fun FlowStartPage(
     promotedButtons: List<String>,
+    activeCategory: String?,
+    onPinQuickCategory: (String) -> Unit,
+    pinnedQuickCategory: String?,
     statusMessage: String?,
     onStart: (String) -> Unit
 ) {
@@ -915,7 +959,29 @@ private fun FlowStartPage(
     }
 
     // 행 수에 따른 그리드 높이: n행 × 84dp + (n-1) × 12dp 간격 + 8dp 여유(카드 그림자 클리핑 방지)
-    val rowCount = displayCategories.size / 2
+    var hidingPromotedCategories by remember(promotedButtons) { mutableStateOf(emptySet<String>()) }
+    var hiddenPromotedCategories by remember(promotedButtons) { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(pinnedQuickCategory) {
+        if (pinnedQuickCategory == null) {
+            hidingPromotedCategories = emptySet()
+            hiddenPromotedCategories = emptySet()
+        }
+    }
+    LaunchedEffect(hidingPromotedCategories) {
+        if (hidingPromotedCategories.isNotEmpty()) {
+            kotlinx.coroutines.delay(300L)
+            hiddenPromotedCategories = hiddenPromotedCategories + hidingPromotedCategories
+            hidingPromotedCategories = emptySet()
+        }
+    }
+    val visibleCategories = remember(displayCategories, activeCategory, hiddenPromotedCategories, pinnedQuickCategory) {
+        displayCategories.filterNot { category ->
+            category == activeCategory ||
+                category == pinnedQuickCategory ||
+                category in hiddenPromotedCategories
+        }
+    }
+    val rowCount = (visibleCategories.size + 1) / 2
     val gridHeight = (rowCount * 84 + (rowCount - 1) * 12 + 8).dp
 
     Column(
@@ -962,13 +1028,38 @@ private fun FlowStartPage(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             userScrollEnabled = false
         ) {
-            items(displayCategories.size) { index ->
-                val category = displayCategories[index]
-                CategoryButton(
-                    category = category,
-                    label = displayCategory(category),
-                    onClick = { onStart(category) }
-                )
+            items(
+                items = visibleCategories,
+                key = { category -> category }
+            ) { category ->
+                AnimatedVisibility(
+                    visible = category !in hidingPromotedCategories,
+                    enter = slideInVertically(
+                        animationSpec = tween(260),
+                        initialOffsetY = { -it / 3 }
+                    ) + fadeIn(animationSpec = tween(180)),
+                    exit = slideOutVertically(
+                        animationSpec = tween(280),
+                        targetOffsetY = { it }
+                    ) + fadeOut(animationSpec = tween(180)),
+                    modifier = Modifier.animateItem()
+                ) {
+                    CategoryButton(
+                        category = category,
+                        label = displayCategory(category),
+                        onClick = {
+                            when {
+                                category == "SCHOOL" || category == "COMPANY" -> {
+                                    if (pinnedQuickCategory == null) {
+                                        hidingPromotedCategories = hidingPromotedCategories + category
+                                        onPinQuickCategory(category)
+                                    }
+                                }
+                                category != activeCategory -> onStart(category)
+                            }
+                        }
+                    )
+                }
             }
         }
     }
@@ -996,6 +1087,8 @@ private fun FlowPageDots(activePage: Int) {
 @Composable
 private fun QuickTimerSection(
     categories: List<String>,
+    pinnedCategory: String?,
+    onUnpinCategory: () -> Unit,
     isBrushTimerRunning: Boolean,
     brushDoneEndsAtMillis: Long,
     snackButtonEndsAtMillis: Long,
@@ -1032,6 +1125,15 @@ private fun QuickTimerSection(
             .fillMaxWidth()
             .padding(horizontal = 18.dp, vertical = 8.dp)
     ) {
+        pinnedCategory?.let { category ->
+            CategoryButton(
+                category = category,
+                isSelected = true,
+                label = displayCategory(category),
+                onClick = onUnpinCategory,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+        }
         Text(
             text = "빠른 타이머",
             fontSize = 16.sp,
@@ -1512,6 +1614,13 @@ private fun ActivityStartGrid(
     val activityCategories = remember(categories) {
         categories.filter { it != "TOOTHBRUSH" && it != "SNACK" }
     }
+    val visibleActivityCategories = remember(activityCategories, isRunning, currentCategory) {
+        if (isRunning) {
+            activityCategories.filterNot { category -> category == currentCategory }
+        } else {
+            activityCategories
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -1561,12 +1670,19 @@ private fun ActivityStartGrid(
             verticalArrangement = Arrangement.spacedBy(14.dp),
             userScrollEnabled = false
         ) {
-            items(activityCategories.size) { index ->
-                val category = activityCategories[index]
+            items(
+                items = visibleActivityCategories,
+                key = { category -> category }
+            ) { category ->
                 CategoryButton(
                     category = category,
                     isSelected = isRunning && currentCategory == category,
-                    onClick = { onStart(category) }
+                    onClick = {
+                        if (!isRunning || currentCategory != category) {
+                            onStart(category)
+                        }
+                    },
+                    modifier = Modifier.animateItem()
                 )
             }
         }
@@ -2190,6 +2306,7 @@ private fun TimetableCard(
     scheduledBlocks: List<ScheduledAutoButtonBlock>,
     recommendedBlocks: List<RecommendedTodoBlock>,
     incompleteTodos: List<TodoItem>,
+    activeCategory: String?,
     onSkipToday: (String) -> Unit,
     onUnskipToday: (String) -> Unit,
     onEditSchedule: (String) -> Unit,
@@ -2211,9 +2328,12 @@ private fun TimetableCard(
             )
         }
     }
-    val timelineItems = remember(displayActivitySegments, scheduledBlocks, recommendedBlocks) {
+    val visibleScheduledBlocks = remember(scheduledBlocks, activeCategory) {
+        scheduledBlocks.filterNot { block -> block.category == activeCategory }
+    }
+    val timelineItems = remember(displayActivitySegments, visibleScheduledBlocks, recommendedBlocks) {
         displayActivitySegments.map { TimelineBlock.ActualActivity(it) } +
-            scheduledBlocks.map { TimelineBlock.ScheduledAutoButton(it) } +
+            visibleScheduledBlocks.map { TimelineBlock.ScheduledAutoButton(it) } +
             recommendedBlocks.map { TimelineBlock.RecommendedTodo(it) }
     }.sortedBy { block ->
         when (block) {
@@ -2302,7 +2422,8 @@ private fun TimetableCard(
                     onRecommendedClick = { block -> selectedRecommendedBlock = block }
                 )
                 ScheduledAutoButtonList(
-                    blocks = scheduledBlocks,
+                    blocks = visibleScheduledBlocks,
+                    activeCategory = activeCategory,
                     onShowMenu = { block -> selectedBlock = block }
                 )
             }
@@ -2928,6 +3049,7 @@ private fun String.ellipsizeToWidth(paint: Paint, maxWidth: Float): String {
 @Composable
 private fun ScheduledAutoButtonList(
     blocks: List<ScheduledAutoButtonBlock>,
+    activeCategory: String?,
     onShowMenu: (ScheduledAutoButtonBlock) -> Unit
 ) {
     if (blocks.isEmpty()) return
@@ -2937,10 +3059,13 @@ private fun ScheduledAutoButtonList(
         modifier = Modifier.padding(top = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(blocks.size) { index ->
-            val block = blocks[index]
+        items(
+            items = blocks,
+            key = { block -> block.scheduleId }
+        ) { block ->
             Row(
                 modifier = Modifier
+                    .animateItem()
                     .border(
                         width = 1.dp,
                         color = categoryColor(block.category).copy(alpha = if (block.isSkippedToday) 0.2f else 0.45f),
@@ -2950,7 +3075,10 @@ private fun ScheduledAutoButtonList(
                         categoryColor(block.category).copy(alpha = if (block.isSkippedToday) 0.04f else 0.08f),
                         RoundedCornerShape(12.dp)
                     )
-                    .combinedClickable(onClick = {}, onLongClick = { onShowMenu(block) })
+                    .combinedClickable(
+                        onClick = {},
+                        onLongClick = { onShowMenu(block) }
+                    )
                     .padding(horizontal = 10.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)

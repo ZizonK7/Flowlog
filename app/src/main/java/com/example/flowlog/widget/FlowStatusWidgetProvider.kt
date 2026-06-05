@@ -57,6 +57,7 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
         appWidgetIds: IntArray
     ) {
         val activeTimer = TimerStateStore.getActiveTimer(context)
+            ?: TimerStateStore.getPinnedTimer(context)
         val views = buildRemoteViews(context, activeTimer)
         appWidgetIds.forEach { id ->
             appWidgetManager.updateAppWidget(id, views)

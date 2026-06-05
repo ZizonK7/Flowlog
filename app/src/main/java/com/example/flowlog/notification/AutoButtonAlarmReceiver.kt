@@ -103,6 +103,21 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
                 triggeredAt = now
             )
         }
+        TimerStateStore.getPinnedTimer(context)?.let { pinned ->
+            previousTitle = previousTitle ?: displayCategory(pinned.category)
+            val endAt = startAt.coerceAtLeast(pinned.startTime + 1L)
+            saveCompletedActivity(
+                context = context,
+                category = pinned.category,
+                title = displayCategory(pinned.category),
+                startTime = pinned.startTime,
+                endTime = endAt,
+                linkedTodoId = null,
+                sourceType = ActivitySourceType.MANUAL,
+                sourceId = null
+            )
+            TimerStateStore.clearPinnedTimer(context)
+        }
 
         TimerStateStore.saveActiveTimer(
             context = context,

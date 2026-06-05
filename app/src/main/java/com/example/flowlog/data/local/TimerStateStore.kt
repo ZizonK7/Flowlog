@@ -46,6 +46,9 @@ object TimerStateStore {
     private const val KEY_ACTIVE_DAILY_CUE_ID = "active_daily_cue_id"
     private const val KEY_ACTIVE_SOURCE_TYPE = "active_source_type"
     private const val KEY_ACTIVE_SOURCE_ID = "active_source_id"
+    private const val KEY_PINNED_CATEGORY = "pinned_category"
+    private const val KEY_PINNED_START_TIME = "pinned_start_time"
+    private const val KEY_PINNED_GOAL_MILLIS = "pinned_goal_millis"
     private const val NO_TODO_ID = -1L
     const val DEFAULT_GOAL_MILLIS = 2L * 60L * 60L * 1000L
 
@@ -114,6 +117,48 @@ object TimerStateStore {
             .putLong(KEY_ACTIVE_DAILY_CUE_ID, dailyCueId ?: NO_TODO_ID)
             .putString(KEY_ACTIVE_SOURCE_TYPE, sourceType)
             .putString(KEY_ACTIVE_SOURCE_ID, sourceId)
+            .apply()
+    }
+
+    fun getPinnedTimer(context: Context): ActiveTimerState? {
+        val preferences = context.applicationContext.getSharedPreferences(
+            PREFS_TIMER_STATE,
+            Context.MODE_PRIVATE
+        )
+        val category = preferences.getString(KEY_PINNED_CATEGORY, null) ?: return null
+        val startTime = preferences.getLong(KEY_PINNED_START_TIME, 0L)
+        if (startTime == 0L) return null
+        val goalMillis = preferences.getLong(KEY_PINNED_GOAL_MILLIS, DEFAULT_GOAL_MILLIS)
+            .coerceAtLeast(1L)
+
+        return ActiveTimerState(
+            category = category,
+            startTime = startTime,
+            goalMillis = goalMillis,
+            status = TimerStatus.RUNNING
+        )
+    }
+
+    fun savePinnedTimer(
+        context: Context,
+        category: String,
+        startTime: Long,
+        goalMillis: Long = DEFAULT_GOAL_MILLIS
+    ) {
+        context.applicationContext.getSharedPreferences(PREFS_TIMER_STATE, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_PINNED_CATEGORY, category)
+            .putLong(KEY_PINNED_START_TIME, startTime)
+            .putLong(KEY_PINNED_GOAL_MILLIS, goalMillis.coerceAtLeast(1L))
+            .apply()
+    }
+
+    fun clearPinnedTimer(context: Context) {
+        context.applicationContext.getSharedPreferences(PREFS_TIMER_STATE, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_PINNED_CATEGORY)
+            .remove(KEY_PINNED_START_TIME)
+            .remove(KEY_PINNED_GOAL_MILLIS)
             .apply()
     }
 

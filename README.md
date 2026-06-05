@@ -23,6 +23,21 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Added overlapping pinned timers for school/company:
+  - Tapping a promoted `SCHOOL` or `COMPANY` button moves it out of the start
+    grid with a downward animation without switching the main timer card into
+    running mode.
+  - The pinned school/company button remains above quick timers and can be
+    tapped again to return it to the start grid and save the elapsed session.
+  - Pinned sessions are stored separately from the main active timer, persist
+    across app restarts, and can overlap with regular activity records in the
+    database.
+  - The home-screen widget prioritizes the main active timer, then falls back to
+    the pinned school/company timer when no main timer is running.
+  - Fixed-time auto routines now close and save any pinned school/company
+    session before starting their own active timer, matching the existing
+    forced-switch behavior for regular timers.
+
 - Redesigned the top Todo section as **Petites**:
   - The former `Anchors` section is renamed `Petites` and now shows only
     `TodoCategory.NORMAL` ("오늘 할 일") items, keeping category-specific todos

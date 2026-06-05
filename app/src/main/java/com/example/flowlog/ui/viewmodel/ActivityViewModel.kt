@@ -194,6 +194,43 @@ class ActivityViewModel(
         startActivity(activity.category)
     }
 
+    fun startOverlappingActivity(category: String, startTime: Long) {
+        if (category.isBlank() || startTime <= 0L) return
+        val cleanCategory = category.trim()
+        TimerStateStore.savePinnedTimer(
+            context = appContext,
+            category = cleanCategory,
+            startTime = startTime,
+            goalMillis = goalMillisForTimer(cleanCategory, startTime)
+        )
+        FlowStatusWidgetProvider.updateAll(appContext)
+    }
+
+    fun saveOverlappingActivity(category: String, startTime: Long, endTime: Long = System.currentTimeMillis()) {
+        if (category.isBlank() || startTime <= 0L || endTime <= startTime) {
+            TimerStateStore.clearPinnedTimer(appContext)
+            FlowStatusWidgetProvider.updateAll(appContext)
+            return
+        }
+        val cleanCategory = category.trim()
+        val activity = ActivitySession(
+            category = cleanCategory,
+            title = defaultTitle(cleanCategory),
+            startTime = startTime,
+            endTime = endTime,
+            durationMillis = endTime - startTime,
+            tags = emptyList(),
+            sourceType = ActivitySourceType.MANUAL
+        )
+        viewModelScope.launch {
+            val newId = repository.insertActivity(activity)
+            rememberLastAddedActivity(activity.copy(id = newId))
+            TimerStateStore.clearPinnedTimer(appContext)
+            FlowStatusWidgetProvider.updateAll(appContext)
+            attemptDeferredSync()
+        }
+    }
+
     fun setRunningActivityTitle(title: String) {
         if (!_uiState.value.isRunning) return
         val cleanTitle = title.trim().takeIf { cleanTitle -> cleanTitle.isNotBlank() }
