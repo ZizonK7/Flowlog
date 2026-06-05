@@ -25,7 +25,8 @@ object TodoBurdenCalculator {
     private val defaultBurdenByCategory = mapOf(
         TodoCategory.ASSIGNMENT to BurdenLevel.MEDIUM,
         TodoCategory.REVIEW to BurdenLevel.LIGHT,
-        TodoCategory.NORMAL to BurdenLevel.MEDIUM
+        TodoCategory.NORMAL to BurdenLevel.MEDIUM,
+        TodoCategory.TODAY to BurdenLevel.MEDIUM
     )
 
     fun analyze(

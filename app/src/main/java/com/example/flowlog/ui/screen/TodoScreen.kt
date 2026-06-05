@@ -145,15 +145,15 @@ fun TodoScreen(
     val examCards     by viewModel.examCards.collectAsState()
     val focusIds      = remember(focusTodos) { focusTodos.map { it.id }.toSet() }
     val todayStart = startOfDay(System.currentTimeMillis())
-    // NORMAL은 상단 섹션에 별도 표시. 나머지 완료 항목, 목표 항목 제외
+    // TODAY(오늘 할 일)만 Petites 섹션에 표시. NORMAL(미분류)은 전체 할 일로.
     val normalTodos   = remember(todos) {
-        todos.filter { todo -> !todo.isCompleted && todo.category == TodoCategory.NORMAL }
+        todos.filter { todo -> !todo.isCompleted && todo.category == TodoCategory.TODAY }
     }
     val activeTodos   = remember(todos, focusIds, todayStart) {
         todos.filter { todo ->
             !todo.isCompleted &&
             todo.id !in focusIds &&
-            todo.category != TodoCategory.NORMAL &&
+            todo.category != TodoCategory.TODAY &&
             !(todo.category == TodoCategory.UNIVERSITY_EXAM &&
               todo.selectedDate != null &&
               startOfDay(todo.selectedDate) < todayStart)
@@ -165,7 +165,7 @@ fun TodoScreen(
             val completedAt = it.completedAt
             it.isCompleted &&
                 it.id !in focusIds &&
-                it.category != TodoCategory.NORMAL &&
+                it.category != TodoCategory.TODAY &&
                 completedAt != null &&
                 completedAt in todayStart until tomorrowStart
         }.maxByOrNull { it.completedAt ?: 0L }
@@ -1140,8 +1140,8 @@ private fun NewTodoCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        TypeChip("오늘 할 일", category == TodoCategory.NORMAL) {
-                            onCategoryChange(if (category == TodoCategory.NORMAL) null else TodoCategory.NORMAL)
+                        TypeChip("오늘 할 일", category == TodoCategory.TODAY) {
+                            onCategoryChange(if (category == TodoCategory.TODAY) null else TodoCategory.TODAY)
                         }
                         TypeChip("복습", category == TodoCategory.REVIEW) {
                             onCategoryChange(if (category == TodoCategory.REVIEW) null else TodoCategory.REVIEW)
@@ -1261,7 +1261,7 @@ private fun TodoCard(
                     )
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
-                        if (todo.category != TodoCategory.NORMAL) {
+                        if (todo.category != TodoCategory.NORMAL && todo.category != TodoCategory.TODAY) {
                             CategoryTag(todo.category, muted = true)
                             Spacer(Modifier.height(3.dp))
                         }
@@ -1301,7 +1301,7 @@ private fun TodoCard(
                             .clickable(onClick = onEditToggle)
                             .padding(end = 8.dp)
                     ) {
-                        if (todo.category != TodoCategory.NORMAL) {
+                        if (todo.category != TodoCategory.NORMAL && todo.category != TodoCategory.TODAY) {
                             CategoryTag(todo.category)
                             Spacer(Modifier.height(if (isFocus) 3.dp else 5.dp))
                         }
@@ -1397,8 +1397,8 @@ private fun TodoCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        TypeChip("오늘 할 일", editCategory == TodoCategory.NORMAL) {
-                            editCategory = TodoCategory.NORMAL
+                        TypeChip("오늘 할 일", editCategory == TodoCategory.TODAY) {
+                            editCategory = if (editCategory == TodoCategory.TODAY) TodoCategory.NORMAL else TodoCategory.TODAY
                         }
                         TypeChip("복습", editCategory == TodoCategory.REVIEW) {
                             editCategory = if (editCategory == TodoCategory.REVIEW) TodoCategory.NORMAL else TodoCategory.REVIEW
@@ -1488,7 +1488,7 @@ private fun CompletedCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                if (todo.category != TodoCategory.NORMAL) {
+                if (todo.category != TodoCategory.NORMAL && todo.category != TodoCategory.TODAY) {
                     CategoryTag(todo.category, muted = true)
                     Spacer(Modifier.height(3.dp))
                 }
@@ -1558,7 +1558,7 @@ private fun CategoryTag(category: TodoCategory, muted: Boolean = false) {
         TodoCategory.REVIEW          -> Triple(if (muted) Color(0xFFF0EEFF) else PurpleSoft, if (muted) Purple.copy(.5f) else Purple, "복습")
         TodoCategory.ASSIGNMENT      -> Triple(if (muted) Color(0xFFFFF0F0) else Color(0xFFFFEFF0), if (muted) Color(0xFFE35B5B).copy(.5f) else Color(0xFFE35B5B), "과제")
         TodoCategory.UNIVERSITY_EXAM -> Triple(if (muted) Color(0xFFE3F2FD) else Color(0xFFE8F4FF), if (muted) Color(0xFF1565C0).copy(.5f) else Color(0xFF1565C0), "대학 시험")
-        TodoCategory.NORMAL          -> return
+        TodoCategory.NORMAL, TodoCategory.TODAY -> return
     }
     Text(
         text = label,

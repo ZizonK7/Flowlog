@@ -521,7 +521,7 @@ class TodoViewModel(
                         else -> return@mapNotNull null
                     }
                 }
-                TodoCategory.NORMAL -> return@mapNotNull null
+                TodoCategory.NORMAL, TodoCategory.TODAY -> return@mapNotNull null
                 TodoCategory.UNIVERSITY_EXAM -> return@mapNotNull null
             }
             Candidate(todo, priority, reason)
