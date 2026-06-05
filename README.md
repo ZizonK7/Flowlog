@@ -382,6 +382,48 @@ users/{uid}/flowlog/data/todos
 Firestore rules should allow each signed-in user to access only their own
 `users/{uid}/flowlog/**` data.
 
+## AI Decision Backend
+
+The Todo tab AI Organizer can optionally call a Firebase Functions v2 HTTPS
+endpoint named `aiDecision`. The Android app does not store an OpenAI API key;
+the backend reads `OPENAI_API_KEY` and calls OpenAI server-side. Remote AI is
+an enhancement over the local organizer rules, so Android always falls back to
+local ranking/templates when the endpoint, auth token, network, or OpenAI call
+fails.
+
+Deployment, environment setup, smoke-test curl commands, and security TODOs are
+documented in:
+
+```text
+functions/README.md
+```
+
+Android endpoint wiring is build-type specific. Set the endpoint URL and remote
+flag in the matching source-set file:
+
+```text
+app/src/debug/java/com/example/flowlog/data/agent/AiDecisionSettings.kt
+app/src/release/java/com/example/flowlog/data/agent/AiDecisionSettings.kt
+```
+
+Remote AI stays disabled unless `REMOTE_AI_DECISION_ENABLED` is explicitly
+`true`; blank endpoints automatically keep local fallback behavior.
+
+GPT API safety checklist:
+
+- Never commit `OPENAI_API_KEY`, Firebase dotenv files, shell history snippets,
+  or screenshots containing tokens.
+- Keep both debug and release `AiDecisionSettings` remote flags off by default.
+  Enable them only in a local branch/build when testing the deployed endpoint.
+- `aiDecision` requires a Firebase Auth ID token in
+  `Authorization: Bearer <idToken>` before it validates requests or calls
+  OpenAI.
+- The server sends only minimized candidate summaries, not full user logs or raw
+  activity history.
+- Before enabling remote AI broadly, add App Check enforcement and rate limiting
+  to protect API cost. Origin checks may be used only as a secondary browser
+  signal, not as native-app security.
+
 ## Sync Behavior
 
 Flowlog keeps local data as the source of truth. Activities and todos are saved

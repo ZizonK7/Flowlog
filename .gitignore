@@ -18,3 +18,4 @@
 local.properties
 flowlog_activities.csv
 app/google-services.json
+.firebaserc

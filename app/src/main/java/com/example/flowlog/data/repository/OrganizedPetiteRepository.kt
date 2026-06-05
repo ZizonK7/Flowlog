@@ -1,0 +1,140 @@
+package com.example.flowlog.data.repository
+
+import android.content.Context
+import com.example.flowlog.data.agent.OrganizedPetite
+import com.example.flowlog.data.agent.PetiteSourceType
+import com.example.flowlog.data.local.dao.OrganizedPetiteDao
+import com.example.flowlog.data.local.db.FlowlogDatabase
+import com.example.flowlog.data.local.entity.OrganizedPetiteEntity
+import com.example.flowlog.data.model.TodoCategory
+import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import org.json.JSONArray
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class OrganizedPetiteRepository(context: Context) {
+
+    private val dao: OrganizedPetiteDao = FlowlogDatabase.getInstance(context).organizedPetiteDao()
+
+    private val userId: String
+        get() = FirebaseAuth.getInstance().currentUser?.uid ?: "anonymous"
+
+    private fun userIdFlow() = callbackFlow {
+        val auth = FirebaseAuth.getInstance()
+        val listener = FirebaseAuth.AuthStateListener { fa ->
+            trySend(fa.currentUser?.uid ?: "anonymous")
+        }
+        auth.addAuthStateListener(listener)
+        trySend(auth.currentUser?.uid ?: "anonymous")
+        awaitClose { auth.removeAuthStateListener(listener) }
+    }.distinctUntilChanged()
+
+    fun observeActivePetites(): Flow<List<OrganizedPetite>> {
+        return userIdFlow().flatMapLatest { uid ->
+            dao.observeActive(uid).map { rows -> rows.mapNotNull { it.toModel() } }
+        }
+    }
+
+    suspend fun replaceWith(items: List<OrganizedPetite>) {
+        val now = System.currentTimeMillis()
+        dao.replaceAllForUser(
+            userId = userId,
+            items = items.mapIndexed { index, item -> item.toEntity(userId, index, now) }
+        )
+    }
+
+    suspend fun dismiss(item: OrganizedPetite) {
+        dao.dismissBySource(
+            userId = userId,
+            sourceType = item.sourceType.name,
+            sourceId = item.sourceId,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
+    suspend fun restore(item: OrganizedPetite) {
+        dao.restoreBySource(
+            userId = userId,
+            sourceType = item.sourceType.name,
+            sourceId = item.sourceId,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
+    suspend fun loadDismissedSourceKeys(): Set<String> {
+        return dao.getDismissed(userId).map { "${it.sourceType}:${it.sourceId}" }.toSet()
+    }
+
+    private fun OrganizedPetite.toEntity(uid: String, rank: Int, now: Long): OrganizedPetiteEntity {
+        return OrganizedPetiteEntity(
+            id = id,
+            userId = uid,
+            title = title,
+            sourceType = sourceType.name,
+            sourceId = sourceId,
+            category = category?.name,
+            dateMillis = dateMillis,
+            linkedActivityName = linkedActivityName,
+            activityCategory = activityCategory,
+            isCompleted = isCompleted,
+            priorityScore = priorityScore,
+            burdenScore = burdenScore,
+            isSeverelyBehind = isSeverelyBehind,
+            totalStudyMinutesSinceD7 = totalStudyMinutesSinceD7,
+            studiedDaysSinceD7 = studiedDaysSinceD7,
+            missedDaysSinceD7 = missedDaysSinceD7,
+            aiComment = aiComment,
+            estimatedMinutes = estimatedMinutes,
+            stepsJson = JSONArray().apply { steps.forEach { put(it) } }.toString(),
+            examDValue = examDValue,
+            routineTimerDurationMillis = routineTimerDurationMillis,
+            routineTimerCategory = routineTimerCategory,
+            rank = rank,
+            isDismissed = false,
+            createdAt = now,
+            updatedAt = now
+        )
+    }
+
+    private fun OrganizedPetiteEntity.toModel(): OrganizedPetite? {
+        val parsedSourceType = runCatching { PetiteSourceType.valueOf(sourceType) }.getOrNull() ?: return null
+        val parsedCategory = category?.let { runCatching { TodoCategory.valueOf(it) }.getOrNull() }
+        return OrganizedPetite(
+            id = id,
+            title = title,
+            sourceType = parsedSourceType,
+            sourceId = sourceId,
+            category = parsedCategory,
+            dateMillis = dateMillis,
+            linkedActivityName = linkedActivityName,
+            activityCategory = activityCategory,
+            isCompleted = isCompleted,
+            priorityScore = priorityScore,
+            burdenScore = burdenScore,
+            isSeverelyBehind = isSeverelyBehind,
+            totalStudyMinutesSinceD7 = totalStudyMinutesSinceD7,
+            studiedDaysSinceD7 = studiedDaysSinceD7,
+            missedDaysSinceD7 = missedDaysSinceD7,
+            aiComment = aiComment,
+            estimatedMinutes = estimatedMinutes,
+            steps = parseSteps(stepsJson),
+            examDValue = examDValue,
+            routineTimerDurationMillis = routineTimerDurationMillis,
+            routineTimerCategory = routineTimerCategory
+        )
+    }
+
+    private fun parseSteps(json: String): List<String> {
+        return runCatching {
+            val array = JSONArray(json)
+            List(array.length()) { index -> array.optString(index) }
+                .filter { it.isNotBlank() }
+        }.getOrDefault(emptyList())
+    }
+}

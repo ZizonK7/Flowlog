@@ -1,5 +1,7 @@
 package com.example.flowlog.data.agent
 
+import com.example.flowlog.data.remote.awaitResult
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -9,11 +11,6 @@ import java.io.BufferedReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
-
-object AiDecisionSettings {
-    const val REMOTE_AI_DECISION_ENABLED: Boolean = false
-    const val AI_DECISION_ENDPOINT_URL: String = ""
-}
 
 class RemoteAiDecisionProvider(
     private val endpointUrl: String,
@@ -75,7 +72,8 @@ class RemoteAiDecisionProvider(
 
 class RemoteAiDecisionClient(
     private val endpointUrl: String,
-    private val timeoutMillis: Long = 2_500L
+    private val timeoutMillis: Long = 2_500L,
+    private val authTokenProvider: suspend () -> String? = { currentFirebaseIdToken() }
 ) {
     suspend fun rankAmbiguousItems(
         candidates: List<OrganizedPetite>,
@@ -108,6 +106,8 @@ class RemoteAiDecisionClient(
     }
 
     private suspend fun postJson(payload: JSONObject): JSONObject {
+        val idToken = authTokenProvider()?.takeIf { it.isNotBlank() }
+            ?: error("AI decision auth token is unavailable")
         return withContext(Dispatchers.IO) {
             withTimeout(timeoutMillis) {
                 val connection = (URL(endpointUrl).openConnection() as HttpURLConnection).apply {
@@ -117,6 +117,7 @@ class RemoteAiDecisionClient(
                     doOutput = true
                     setRequestProperty("Content-Type", "application/json; charset=utf-8")
                     setRequestProperty("Accept", "application/json")
+                    setRequestProperty("Authorization", "Bearer $idToken")
                 }
                 try {
                     OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { writer ->
@@ -162,6 +163,11 @@ class RemoteAiDecisionClient(
     }
 
     private companion object {
+        suspend fun currentFirebaseIdToken(): String? {
+            val user = FirebaseAuth.getInstance().currentUser ?: return null
+            return user.getIdToken(false).awaitResult().token
+        }
+
         val PROMPT_RULES = listOf(
             "Flowlog reduces record and choice fatigue.",
             "Do not tell the user to catch up on everything that is late.",

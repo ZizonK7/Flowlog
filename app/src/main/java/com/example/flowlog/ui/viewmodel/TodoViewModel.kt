@@ -24,6 +24,7 @@ import com.example.flowlog.data.repository.DailyGoalRepository
 import com.example.flowlog.data.repository.EventLogRepository
 import com.example.flowlog.data.repository.ExamRepository
 import com.example.flowlog.data.repository.GoalItem
+import com.example.flowlog.data.repository.OrganizedPetiteRepository
 import com.example.flowlog.data.repository.TodoRepository
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -78,6 +79,7 @@ class TodoViewModel(
     private val activityRepository = ActivityRepository(context.applicationContext)
     private val examRepository = ExamRepository(context.applicationContext)
     private val eventLogRepository = EventLogRepository(context.applicationContext)
+    private val organizedPetiteRepository = OrganizedPetiteRepository(context.applicationContext)
     private val todayOrganizer = TodayExamOrganizer(AiDecisionProviderFactory.create())
 
     private val _todos = MutableStateFlow<List<TodoItem>>(emptyList())
@@ -135,6 +137,13 @@ class TodoViewModel(
             activityRepository.getAllActivities().collect { activities ->
                 latestActivities = activities
                 _yesterdaySuggestion.value = buildYesterdaySuggestion(_todos.value, activities)
+            }
+        }
+        viewModelScope.launch {
+            hiddenAiSourceKeys.clear()
+            hiddenAiSourceKeys += organizedPetiteRepository.loadDismissedSourceKeys()
+            organizedPetiteRepository.observeActivePetites().collect { saved ->
+                _organizedPetites.value = saved
             }
         }
     }
@@ -341,6 +350,7 @@ class TodoViewModel(
         viewModelScope.launch {
             _isTodayOrganizerRunning.value = true
             try {
+                hiddenAiSourceKeys.clear()
                 val organized = todayOrganizer.organize(
                     todayMillis = System.currentTimeMillis(),
                     todos = _todos.value,
@@ -358,6 +368,7 @@ class TodoViewModel(
                     hiddenAiSourceKeys = hiddenAiSourceKeys
                 )
                 _organizedPetites.value = organized
+                organizedPetiteRepository.replaceWith(organized)
             } finally {
                 _isTodayOrganizerRunning.value = false
             }
@@ -394,7 +405,11 @@ class TodoViewModel(
                 wasHidden = true
             }
         }
-        _organizedPetites.value = _organizedPetites.value.filterNot { it.sourceKey() == item.sourceKey() }
+        val updatedPetites = _organizedPetites.value.filterNot { it.sourceKey() == item.sourceKey() }
+        _organizedPetites.value = updatedPetites
+        viewModelScope.launch {
+            runCatching { organizedPetiteRepository.dismiss(item) }
+        }
         _organizedPetiteUndoEvents.tryEmit(
             OrganizedPetiteUndoEvent(
                 item = item,
@@ -428,7 +443,11 @@ class TodoViewModel(
             }
         }
         if (_organizedPetites.value.none { it.sourceKey() == item.sourceKey() }) {
-            _organizedPetites.value = TodayOrganizerRules.sort(_organizedPetites.value + item)
+            val restored = TodayOrganizerRules.sort(_organizedPetites.value + item)
+            _organizedPetites.value = restored
+            viewModelScope.launch {
+                runCatching { organizedPetiteRepository.restore(item) }
+            }
         }
     }
 
