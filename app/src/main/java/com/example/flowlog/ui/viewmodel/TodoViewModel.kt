@@ -3,6 +3,12 @@ package com.example.flowlog.ui.viewmodel
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.flowlog.data.agent.AiDecisionProviderFactory
+import com.example.flowlog.data.agent.OrganizedPetite
+import com.example.flowlog.data.agent.OrganizerRoutine
+import com.example.flowlog.data.agent.PetiteSourceType
+import com.example.flowlog.data.agent.TodayExamOrganizer
+import com.example.flowlog.data.agent.TodayOrganizerRules
 import com.example.flowlog.data.constants.RecommendationReason
 import com.example.flowlog.data.local.entity.ExamStrategyCheckEntity
 import com.example.flowlog.data.model.ActivitySession
@@ -55,6 +61,12 @@ data class YesterdayFlowSuggestion(
     val actionCategory: String
 )
 
+data class OrganizedPetiteUndoEvent(
+    val item: OrganizedPetite,
+    val previousCompletedState: Boolean,
+    val wasHidden: Boolean
+)
+
 class TodoViewModel(
     private val repository: TodoRepository,
     context: Context
@@ -66,20 +78,28 @@ class TodoViewModel(
     private val activityRepository = ActivityRepository(context.applicationContext)
     private val examRepository = ExamRepository(context.applicationContext)
     private val eventLogRepository = EventLogRepository(context.applicationContext)
+    private val todayOrganizer = TodayExamOrganizer(AiDecisionProviderFactory.create())
 
     private val _todos = MutableStateFlow<List<TodoItem>>(emptyList())
     val todos: StateFlow<List<TodoItem>> = _todos.asStateFlow()
 
     private val _examCheckEvents = MutableSharedFlow<ExamCheckEvent>(extraBufferCapacity = 4)
     val examCheckEvents: SharedFlow<ExamCheckEvent> = _examCheckEvents.asSharedFlow()
+    private val _organizedPetiteUndoEvents = MutableSharedFlow<OrganizedPetiteUndoEvent>(extraBufferCapacity = 4)
+    val organizedPetiteUndoEvents: SharedFlow<OrganizedPetiteUndoEvent> = _organizedPetiteUndoEvents.asSharedFlow()
 
     private val _focusIds = MutableStateFlow<List<Long>>(emptyList())
     private val _dailyCues = MutableStateFlow<List<DailyCueItem>>(loadDailyCues())
     val dailyCues: StateFlow<List<DailyCueItem>> = _dailyCues.asStateFlow()
+    private val _organizedPetites = MutableStateFlow<List<OrganizedPetite>>(emptyList())
+    val organizedPetites: StateFlow<List<OrganizedPetite>> = _organizedPetites.asStateFlow()
+    private val _isTodayOrganizerRunning = MutableStateFlow(false)
+    val isTodayOrganizerRunning: StateFlow<Boolean> = _isTodayOrganizerRunning.asStateFlow()
     private val _yesterdaySuggestion = MutableStateFlow<YesterdayFlowSuggestion?>(null)
     val yesterdaySuggestion: StateFlow<YesterdayFlowSuggestion?> = _yesterdaySuggestion.asStateFlow()
     private var latestActivities: List<ActivitySession> = emptyList()
     private var isRefreshing = false
+    private val hiddenAiSourceKeys = mutableSetOf<String>()
 
     val todayFocusItems: StateFlow<List<TodoItem>> = combine(
         _todos,
@@ -315,6 +335,104 @@ class TodoViewModel(
             }
         }
     }
+
+    fun runTodayOrganizer() {
+        if (_isTodayOrganizerRunning.value) return
+        viewModelScope.launch {
+            _isTodayOrganizerRunning.value = true
+            try {
+                val organized = todayOrganizer.organize(
+                    todayMillis = System.currentTimeMillis(),
+                    todos = _todos.value,
+                    routines = _dailyCues.value.map {
+                        OrganizerRoutine(
+                            id = it.id,
+                            label = it.label,
+                            title = it.title,
+                            isCompleted = it.isCompleted,
+                            timerDurationMillis = it.timerDurationMillis,
+                            timerCategory = it.timerCategory
+                        )
+                    },
+                    activities = latestActivities,
+                    hiddenAiSourceKeys = hiddenAiSourceKeys
+                )
+                _organizedPetites.value = organized
+            } finally {
+                _isTodayOrganizerRunning.value = false
+            }
+        }
+    }
+
+    fun completeOrganizedPetite(item: OrganizedPetite) {
+        val previousCompletedState = when (item.sourceType) {
+            PetiteSourceType.PETITE,
+            PetiteSourceType.TODO -> item.sourceId
+                ?.toLongOrNull()
+                ?.let { id -> _todos.value.firstOrNull { it.id == id } }
+                ?.isCompleted ?: item.isCompleted
+            PetiteSourceType.ROUTINE -> item.sourceId
+                ?.toLongOrNull()
+                ?.let { id -> _dailyCues.value.firstOrNull { it.id == id } }
+                ?.isCompleted ?: item.isCompleted
+            PetiteSourceType.EXAM -> false
+        }
+        var wasHidden = false
+        when (item.sourceType) {
+            PetiteSourceType.PETITE,
+            PetiteSourceType.TODO -> {
+                val todo = item.sourceId?.toLongOrNull()?.let { id -> _todos.value.firstOrNull { it.id == id } }
+                if (todo != null) {
+                    if (item.sourceType == PetiteSourceType.PETITE) completeTodo(todo) else completeFocusTodo(todo)
+                }
+            }
+            PetiteSourceType.ROUTINE -> {
+                item.sourceId?.toLongOrNull()?.let { completeDailyCue(it) }
+            }
+            PetiteSourceType.EXAM -> {
+                hiddenAiSourceKeys += item.sourceKey()
+                wasHidden = true
+            }
+        }
+        _organizedPetites.value = _organizedPetites.value.filterNot { it.sourceKey() == item.sourceKey() }
+        _organizedPetiteUndoEvents.tryEmit(
+            OrganizedPetiteUndoEvent(
+                item = item,
+                previousCompletedState = previousCompletedState,
+                wasHidden = wasHidden
+            )
+        )
+    }
+
+    fun undoOrganizedPetiteCompletion(event: OrganizedPetiteUndoEvent) {
+        val item = event.item
+        when (item.sourceType) {
+            PetiteSourceType.PETITE,
+            PetiteSourceType.TODO -> {
+                if (!event.previousCompletedState) {
+                    item.sourceId
+                        ?.toLongOrNull()
+                        ?.let { id -> _todos.value.firstOrNull { it.id == id } }
+                        ?.let { uncompleteTodo(it) }
+                }
+            }
+            PetiteSourceType.ROUTINE -> {
+                if (!event.previousCompletedState) {
+                    item.sourceId?.toLongOrNull()?.let { toggleDailyCue(it) }
+                }
+            }
+            PetiteSourceType.EXAM -> {
+                if (event.wasHidden) {
+                    hiddenAiSourceKeys -= item.sourceKey()
+                }
+            }
+        }
+        if (_organizedPetites.value.none { it.sourceKey() == item.sourceKey() }) {
+            _organizedPetites.value = TodayOrganizerRules.sort(_organizedPetites.value + item)
+        }
+    }
+
+    private fun OrganizedPetite.sourceKey(): String = "$sourceType:$sourceId"
 
     fun addDailyCue(title: String, label: String, timerDurationMillis: Long?, timerCategory: String) {
         val cleanTitle = title.trim()

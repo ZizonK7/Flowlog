@@ -91,6 +91,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.content.Intent
 import android.net.Uri
+import com.example.flowlog.data.agent.OrganizedPetite
+import com.example.flowlog.data.agent.PetiteSourceType
 import com.example.flowlog.data.model.ExamStrategyCard
 import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
@@ -143,6 +145,8 @@ fun TodoScreen(
     val focusTodos    by viewModel.todayFocusItems.collectAsState()
     val dailyCues     by viewModel.dailyCues.collectAsState()
     val examCards     by viewModel.examCards.collectAsState()
+    val organizedPetites by viewModel.organizedPetites.collectAsState()
+    val isTodayOrganizerRunning by viewModel.isTodayOrganizerRunning.collectAsState()
     val focusIds      = remember(focusTodos) { focusTodos.map { it.id }.toSet() }
     val todayStart = startOfDay(System.currentTimeMillis())
     // TODAY(오늘 할 일)만 Petites 섹션에 표시. NORMAL(미분류)은 전체 할 일로.
@@ -189,6 +193,9 @@ fun TodoScreen(
     var isActiveExpanded   by remember { mutableStateOf(false) }
     var isAnchorsExpanded  by remember { mutableStateOf(false) }
     val visibleNormalTodos = remember(normalTodos, isAnchorsExpanded) { if (isAnchorsExpanded) normalTodos else normalTodos.take(4) }
+    val visibleOrganizedPetites = remember(organizedPetites, isAnchorsExpanded) {
+        if (isAnchorsExpanded) organizedPetites else organizedPetites.take(4)
+    }
     val scope = rememberCoroutineScope()
 
     // Exam 체크 Snackbar
@@ -206,6 +213,19 @@ fun TodoScreen(
             }
         }
     }
+    LaunchedEffect(viewModel) {
+        viewModel.organizedPetiteUndoEvents.collect { event ->
+            val result = normalSnackbarHostState.showSnackbar(
+                message = "${event.item.title} 완료했어요",
+                actionLabel = "되돌리기",
+                duration = SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.undoOrganizedPetiteCompletion(event)
+            }
+        }
+    }
+
 
     val visibleActive = if (isActiveExpanded) activeTodos else activeTodos.take(2)
     val hiddenCount   = (activeTodos.size - 2).coerceAtLeast(0)
@@ -287,6 +307,17 @@ fun TodoScreen(
                     color = TextPrimary,
                     modifier = Modifier.weight(1f)
                 )
+                OutlinedButton(
+                    onClick = { viewModel.runTodayOrganizer() },
+                    enabled = !isTodayOrganizerRunning,
+                    shape = RoundedCornerShape(999.dp),
+                    border = BorderStroke(1.dp, Purple.copy(alpha = 0.25f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Purple),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    modifier = Modifier.height(30.dp)
+                ) {
+                    Text(if (isTodayOrganizerRunning) "AI..." else "AI", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                }
                 if (isDeveloperMode) {
                     IconButton(onClick = { viewModel.refreshSort() }) {
                         Icon(
@@ -327,8 +358,9 @@ fun TodoScreen(
         }
 
         // ── 오늘의 목표 ───────────────────────────────────────────────────────
-        if (normalTodos.isNotEmpty()) {
+        if (normalTodos.isNotEmpty() || organizedPetites.isNotEmpty()) {
             item(key = "focus_header") {
+                val petiteCount = if (organizedPetites.isNotEmpty()) organizedPetites.size else normalTodos.size
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -340,19 +372,56 @@ fun TodoScreen(
                     }
                     TextButton(
                         onClick = { isAnchorsExpanded = !isAnchorsExpanded },
-                        enabled = normalTodos.size > 4,
+                        enabled = petiteCount > 4,
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                         modifier = Modifier.height(32.dp)
                     ) {
                         Text(
                             if (isAnchorsExpanded) "접기" else "더보기",
                             fontSize = 13.sp,
-                            color = if (normalTodos.size > 4) Purple else TextMuted.copy(alpha = 0.45f),
+                            color = if (petiteCount > 4) Purple else TextMuted.copy(alpha = 0.45f),
                             fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
             }
+            if (organizedPetites.isNotEmpty()) {
+                items(visibleOrganizedPetites, key = { "organized_${it.id}" }) { item ->
+                    OrganizedPetiteCard(
+                        item = item,
+                        onStart = {
+                            when (item.sourceType) {
+                                PetiteSourceType.PETITE,
+                                PetiteSourceType.TODO -> item.sourceId
+                                    ?.toLongOrNull()
+                                    ?.let { id -> todos.firstOrNull { it.id == id } }
+                                    ?.let(onStartTodo)
+                                PetiteSourceType.ROUTINE -> item.sourceId
+                                    ?.toLongOrNull()
+                                    ?.let { cueId ->
+                                        onStartDailyCueRoutine(
+                                            cueId,
+                                            item.title,
+                                            item.routineTimerDurationMillis ?: 0L,
+                                            item.routineTimerCategory ?: "TODO"
+                                        )
+                                    }
+                                PetiteSourceType.EXAM -> item.sourceId
+                                    ?.toLongOrNull()
+                                    ?.let { examId ->
+                                        onStartExamStudy(
+                                            examId,
+                                            item.linkedActivityName ?: item.title,
+                                            item.examDValue ?: 0
+                                        )
+                                    }
+                            }
+                        },
+                        onComplete = { viewModel.completeOrganizedPetite(item) }
+                    )
+                }
+            }
+            if (organizedPetites.isEmpty()) {
             items(visibleNormalTodos, key = { "focus_${it.id}" }) { todo ->
                 TodoCard(
                     todo         = todo,
@@ -366,6 +435,7 @@ fun TodoScreen(
                     onSave       = { t, c, d -> viewModel.updateTodo(todo.copy(title = t, category = c, selectedDate = d)); editingId = null },
                     onDelete     = { viewModel.deleteTodo(todo); editingId = null }
                 )
+            }
             }
         }
 
@@ -484,6 +554,265 @@ fun TodoScreen(
     } // Box 닫기
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OrganizedPetiteCard(
+    item: OrganizedPetite,
+    onStart: () -> Unit,
+    onComplete: () -> Unit
+) {
+    var showDetail by remember(item.id) { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val accent = organizedPetiteAccent(item.sourceType)
+    val label = organizedPetiteLabel(item.sourceType)
+    val metaItems = organizedPetiteMetaItems(item)
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(78.dp)
+            .clickable { showDetail = true },
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(0.dp),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.18f)),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        label,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = accent,
+                        maxLines = 1
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text("·", fontSize = 12.sp, color = TextMuted)
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        item.title,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary,
+                        lineHeight = 18.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (metaItems.isNotEmpty()) {
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        metaItems.joinToString(" · "),
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        color = TextMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(GreenSoft)
+                    .clickable(onClick = onComplete),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Outlined.CheckCircle, "check", tint = GreenTint, modifier = Modifier.size(17.dp))
+            }
+            Spacer(Modifier.width(4.dp))
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(accent.copy(alpha = 0.10f))
+                    .clickable(onClick = onStart),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Filled.PlayArrow, "start", tint = accent, modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+    if (showDetail) {
+        ModalBottomSheet(
+            onDismissRequest = { showDetail = false },
+            sheetState = sheetState,
+            containerColor = Color.White,
+            contentColor = TextPrimary
+        ) {
+            OrganizedPetiteDetailSheet(
+                item = item,
+                label = label,
+                accent = accent,
+                metaItems = metaItems,
+                onClose = { showDetail = false },
+                onComplete = {
+                    onComplete()
+                    showDetail = false
+                },
+                onStart = {
+                    onStart()
+                    showDetail = false
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun OrganizedPetiteDetailSheet(
+    item: OrganizedPetite,
+    label: String,
+    accent: Color,
+    metaItems: List<String>,
+    onClose: () -> Unit,
+    onComplete: () -> Unit,
+    onStart: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            label,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = accent,
+            modifier = Modifier
+                .background(accent.copy(alpha = 0.10f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 7.dp, vertical = 3.dp)
+        )
+        Text(
+            item.title,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = TextPrimary,
+            lineHeight = 25.sp
+        )
+        if (metaItems.isNotEmpty()) {
+            Text(metaItems.joinToString(" · "), fontSize = 13.sp, color = TextMuted)
+        }
+        item.estimatedMinutes?.let { minutes ->
+            DetailInfoRow(label = "Estimated", value = "${minutes}분")
+        }
+        item.linkedActivityName?.let { name ->
+            DetailInfoRow(label = "Source", value = name)
+        }
+        item.aiComment?.let { comment ->
+            DetailSection(title = "AI Comment", body = comment)
+        }
+        if (item.steps.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("Steps", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                item.steps.forEachIndexed { index, step ->
+                    Text(
+                        "${index + 1}. $step",
+                        fontSize = 14.sp,
+                        lineHeight = 19.sp,
+                        color = TextMuted
+                    )
+                }
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = onClose,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, BorderLight),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextMuted)
+            ) {
+                Text("닫기", fontWeight = FontWeight.Bold)
+            }
+            Button(
+                onClick = onComplete,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = GreenTint, contentColor = Color.White)
+            ) {
+                Icon(Icons.Outlined.CheckCircle, null, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("체크", fontWeight = FontWeight.Bold)
+            }
+            Button(
+                onClick = onStart,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.White)
+            ) {
+                Icon(Icons.Filled.PlayArrow, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("시작", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailInfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+        Text(value, fontSize = 14.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun DetailSection(title: String, body: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+        Text(body, fontSize = 14.sp, lineHeight = 20.sp, color = TextMuted)
+    }
+}
+
+private fun organizedPetiteAccent(sourceType: PetiteSourceType): Color = when (sourceType) {
+    PetiteSourceType.EXAM -> Color(0xFF1565C0)
+    PetiteSourceType.ROUTINE -> Purple
+    PetiteSourceType.TODO -> Color(0xFFE35B5B)
+    PetiteSourceType.PETITE -> Purple
+}
+
+private fun organizedPetiteLabel(sourceType: PetiteSourceType): String = when (sourceType) {
+    PetiteSourceType.EXAM -> "Exam"
+    PetiteSourceType.ROUTINE -> "Routine"
+    PetiteSourceType.TODO -> "Todo"
+    PetiteSourceType.PETITE -> "Petite"
+}
+
+private fun organizedPetiteMetaItems(item: OrganizedPetite): List<String> = buildList {
+    item.dateMillis?.let { add(if (item.sourceType == PetiteSourceType.EXAM) examDdayLabel(item.examDValue) else fmtDate(it)) }
+    item.activityCategory?.let { add(it) }
+    item.routineTimerCategory?.let { add(it) }
+    item.category
+        ?.takeIf { it != TodoCategory.TODAY && it != TodoCategory.NORMAL && item.activityCategory == null }
+        ?.let { add(it.name) }
+}
+
+private fun examDdayLabel(dValue: Int?): String = when (dValue) {
+    0 -> "D-Day"
+    null -> "Exam"
+    else -> "D-$dValue"
+}
 @Composable
 private fun DailyCuesSection(
     cues: List<DailyCueItem>,

@@ -23,6 +23,30 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Added the first foundation for the Todo tab **AI Organizer**:
+  - A small `AI` button beside the Todo title runs a today organizer and reflects
+    a lightweight loading state while it works.
+  - The organizer keeps local rule-based priority as the source of truth, with
+    recovery-mode ordering for urgent exams, assignments, general todos,
+    routines, and existing Petites.
+  - Exam recommendations use one card per exam inside D-7 and start the same
+    STUDY timer path as the existing Exam study action. Checking an Exam AI card
+    only hides today's recommendation and does not create D-day completion state.
+  - Todo recommendations are limited to items covered by the organizer rules
+    such as due today, overdue, or high-risk tomorrow items; far-future items are
+    not pulled into Petites.
+  - Routine recommendations now exclude Memo cues, and existing Petites remain
+    part of the queue.
+  - AI recommendation cards use compact two-line Petites cards; detailed
+    comments, steps, estimated minutes, and source details appear only in a
+    bottom sheet.
+  - Checking AI cards shows an undo Snackbar. Undo restores Todo/Petite/Routine
+    completion state or re-displays a hidden Exam recommendation.
+  - Added `AiDecisionProvider`, `MockAiDecisionProvider`, and
+    `RemoteAiDecisionProvider` scaffolding. Remote AI calls are disabled by
+    default, route only through a configurable backend endpoint, send minimized
+    payloads, and fall back to local mock rules on timeout or error.
+
 - Updated promoted activity button recommendations:
   - A single stable promoted button is now enough to appear in the activity start
     grid; the app no longer waits until two promoted candidates qualify.
