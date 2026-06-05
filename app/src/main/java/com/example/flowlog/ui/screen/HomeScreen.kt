@@ -1288,11 +1288,11 @@ private fun FlowStartPage(
     statusMessage: String?,
     onStart: (String) -> Unit
 ) {
-    // 기본 6개(3행) + promoted 2개 + 하단 2개(식사/기타)
+    // 기본 6개(3행) + promoted 버튼 + 하단 2개(식사/기타)
     val displayCategories = remember(promotedButtons) {
-        if (promotedButtons.size == 2) {
+        if (promotedButtons.isNotEmpty()) {
             DEFAULT_MAIN_BUTTON_CATEGORIES.take(6) +
-                listOf(promotedButtons[1], promotedButtons[0]) +
+                promotedButtons.asReversed() +
                 DEFAULT_MAIN_BUTTON_CATEGORIES.drop(6)
         } else {
             DEFAULT_MAIN_BUTTON_CATEGORIES

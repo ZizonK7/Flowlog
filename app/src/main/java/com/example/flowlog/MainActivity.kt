@@ -164,8 +164,8 @@ class MainActivity : ComponentActivity() {
                 val activityUiState by activityViewModel.uiState.collectAsState()
                 val routineTimerCategories = remember(activityUiState.promotedButtons) {
                     val base = listOf("SLEEP", "REST", "WORK", "STUDY", "EXERCISE", "WASH", "MEAL", "ETC")
-                    if (activityUiState.promotedButtons.size == 2) {
-                        base.take(6) + listOf(activityUiState.promotedButtons[1], activityUiState.promotedButtons[0]) + base.drop(6)
+                    if (activityUiState.promotedButtons.isNotEmpty()) {
+                        base.take(6) + activityUiState.promotedButtons.asReversed() + base.drop(6)
                     } else {
                         base
                     }.distinct()

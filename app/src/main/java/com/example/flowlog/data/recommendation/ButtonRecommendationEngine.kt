@@ -126,18 +126,16 @@ class ButtonRecommendationEngine {
             )
         }
 
-        val deduplicated = applyMutualExclusion(scores)
-        val top2 = deduplicated.sortedByDescending { it.score }.take(2)
+        return applyMutualExclusion(scores)
+            .sortedByDescending { it.score }
+            .take(2)
+            .filter { it.isStablePromotion() }
+            .map { it.category }
+    }
 
-        if (top2.size < 2) return emptyList()
-
-        val second = top2[1]
-        val secondIsStable = second.score >= MIN_SECOND_SCORE ||
-            second.recentActiveDays >= MIN_SECOND_ACTIVE_DAYS
-
-        if (!secondIsStable) return emptyList()
-
-        return top2.map { it.category }
+    private fun CandidateScore.isStablePromotion(): Boolean {
+        return score >= MIN_SECOND_SCORE ||
+            recentActiveDays >= MIN_SECOND_ACTIVE_DAYS
     }
 
     private fun applyMutualExclusion(scores: List<CandidateScore>): List<CandidateScore> {

@@ -23,6 +23,14 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Updated promoted activity button recommendations:
+  - A single stable promoted button is now enough to appear in the activity start
+    grid; the app no longer waits until two promoted candidates qualify.
+  - Promoted buttons still come from recent activity records and are recalculated
+    automatically when records are added, edited, or deleted.
+  - When two candidates qualify, up to two promoted buttons are inserted in the
+    same slot before the meal and ETC buttons.
+
 - Added **집중하기 (Focus Mode)** to the timer card:
   - A `집중하기 (75분)` button appears between the tag/memo area and the stop
     button for STUDY, DEVELOPMENT, WORK, TODO, and ETC category timers.
