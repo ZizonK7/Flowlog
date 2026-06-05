@@ -360,6 +360,7 @@ class MainActivity : ComponentActivity() {
                                 page == todoPage -> TodoScreen(
                                     viewModel = todoViewModel,
                                     isDeveloperMode = isDeveloperMode,
+                                    isAiOrganizerAllowed = isDeveloper,
                                     onStartTodo = { todo ->
                                         activityViewModel.startTodoActivity(todo.id, todo.title)
                                         currentScreen = "home"

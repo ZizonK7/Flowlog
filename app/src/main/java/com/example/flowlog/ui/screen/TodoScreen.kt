@@ -139,6 +139,7 @@ fun TodoScreen(
     onStartExamStudy: (todoId: Long, subjectTitle: String, dValue: Int) -> Unit = { _, _, _ -> },
     routineTimerCategories: List<String> = DefaultDailyCueTimerCategories,
     isDeveloperMode: Boolean = false,
+    isAiOrganizerAllowed: Boolean = isDeveloperMode,
     modifier: Modifier = Modifier
 ) {
     val todos         by viewModel.todos.collectAsState()
@@ -186,6 +187,9 @@ fun TodoScreen(
     val titleSrc = remember { MutableInteractionSource() }
     val isTitleFocused by titleSrc.collectIsFocusedAsState()
     LaunchedEffect(isTitleFocused) { if (isTitleFocused) isInputExpanded = true }
+    LaunchedEffect(isAiOrganizerAllowed) {
+        viewModel.setTodayOrganizerAllowed(isAiOrganizerAllowed)
+    }
 
     // 카드 인터랙션 상태
     var editingId          by remember { mutableStateOf<Long?>(null) }
@@ -193,8 +197,11 @@ fun TodoScreen(
     var isActiveExpanded   by remember { mutableStateOf(false) }
     var isAnchorsExpanded  by remember { mutableStateOf(false) }
     val visibleNormalTodos = remember(normalTodos, isAnchorsExpanded) { if (isAnchorsExpanded) normalTodos else normalTodos.take(4) }
-    val visibleOrganizedPetites = remember(organizedPetites, isAnchorsExpanded) {
-        if (isAnchorsExpanded) organizedPetites else organizedPetites.take(4)
+    val adminOrganizedPetites = remember(organizedPetites, isAiOrganizerAllowed) {
+        if (isAiOrganizerAllowed) organizedPetites else emptyList()
+    }
+    val visibleOrganizedPetites = remember(adminOrganizedPetites, isAnchorsExpanded) {
+        if (isAnchorsExpanded) adminOrganizedPetites else adminOrganizedPetites.take(4)
     }
     val scope = rememberCoroutineScope()
 
@@ -307,16 +314,30 @@ fun TodoScreen(
                     color = TextPrimary,
                     modifier = Modifier.weight(1f)
                 )
-                OutlinedButton(
-                    onClick = { viewModel.runTodayOrganizer() },
-                    enabled = !isTodayOrganizerRunning,
-                    shape = RoundedCornerShape(999.dp),
-                    border = BorderStroke(1.dp, Purple.copy(alpha = 0.25f)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Purple),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                    modifier = Modifier.height(30.dp)
-                ) {
-                    Text(if (isTodayOrganizerRunning) "AI..." else "AI", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                if (isAiOrganizerAllowed) {
+                    OutlinedButton(
+                        onClick = { viewModel.runTodayOrganizer() },
+                        enabled = !isTodayOrganizerRunning,
+                        shape = RoundedCornerShape(999.dp),
+                        border = BorderStroke(1.dp, Purple.copy(alpha = 0.25f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Purple),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Text(if (isTodayOrganizerRunning) "AI..." else "AI", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.resetTodayOrganizer() },
+                        enabled = !isTodayOrganizerRunning && adminOrganizedPetites.isNotEmpty(),
+                        shape = RoundedCornerShape(999.dp),
+                        border = BorderStroke(1.dp, TextMuted.copy(alpha = 0.25f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextMuted),
+                        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Text("초기화", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
                 if (isDeveloperMode) {
                     IconButton(onClick = { viewModel.refreshSort() }) {
@@ -358,9 +379,9 @@ fun TodoScreen(
         }
 
         // ── 오늘의 목표 ───────────────────────────────────────────────────────
-        if (normalTodos.isNotEmpty() || organizedPetites.isNotEmpty()) {
+        if (normalTodos.isNotEmpty() || adminOrganizedPetites.isNotEmpty()) {
             item(key = "focus_header") {
-                val petiteCount = if (organizedPetites.isNotEmpty()) organizedPetites.size else normalTodos.size
+                val petiteCount = if (adminOrganizedPetites.isNotEmpty()) adminOrganizedPetites.size else normalTodos.size
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -385,7 +406,7 @@ fun TodoScreen(
                     }
                 }
             }
-            if (organizedPetites.isNotEmpty()) {
+            if (adminOrganizedPetites.isNotEmpty()) {
                 items(visibleOrganizedPetites, key = { "organized_${it.id}" }) { item ->
                     OrganizedPetiteCard(
                         item = item,
@@ -421,7 +442,7 @@ fun TodoScreen(
                     )
                 }
             }
-            if (organizedPetites.isEmpty()) {
+            if (adminOrganizedPetites.isEmpty()) {
             items(visibleNormalTodos, key = { "focus_${it.id}" }) { todo ->
                 TodoCard(
                     todo         = todo,

@@ -102,6 +102,7 @@ class TodoViewModel(
     private var latestActivities: List<ActivitySession> = emptyList()
     private var isRefreshing = false
     private val hiddenAiSourceKeys = mutableSetOf<String>()
+    private var isTodayOrganizerAllowed = false
 
     val todayFocusItems: StateFlow<List<TodoItem>> = combine(
         _todos,
@@ -346,6 +347,7 @@ class TodoViewModel(
     }
 
     fun runTodayOrganizer() {
+        if (!isTodayOrganizerAllowed) return
         if (_isTodayOrganizerRunning.value) return
         viewModelScope.launch {
             _isTodayOrganizerRunning.value = true
@@ -373,6 +375,19 @@ class TodoViewModel(
                 _isTodayOrganizerRunning.value = false
             }
         }
+    }
+
+    fun resetTodayOrganizer() {
+        if (!isTodayOrganizerAllowed) return
+        hiddenAiSourceKeys.clear()
+        _organizedPetites.value = emptyList()
+        viewModelScope.launch {
+            runCatching { organizedPetiteRepository.replaceWith(emptyList()) }
+        }
+    }
+
+    fun setTodayOrganizerAllowed(allowed: Boolean) {
+        isTodayOrganizerAllowed = allowed
     }
 
     fun completeOrganizedPetite(item: OrganizedPetite) {
