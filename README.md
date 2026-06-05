@@ -23,6 +23,40 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Added **집중하기 (Focus Mode)** to the timer card:
+  - A `집중하기 (75분)` button appears between the tag/memo area and the stop
+    button for STUDY, DEVELOPMENT, WORK, TODO, and ETC category timers.
+  - Starting focus mode silences all Flowlog notification sounds for the
+    duration; only the focus-end notification plays when the timer expires.
+  - The button shows a live `집중 중 · H:MM:SS 남음` countdown while active.
+    Tapping the active button opens a stop-confirmation dialog.
+  - First-time use shows a confirmation dialog with a `다시 보지 않기` checkbox
+    and an optional `시스템 방해금지도 함께 켜기` checkbox. Subsequent presses
+    start immediately using the last DND preference, with a permission check.
+  - The two-hour alarm is scheduled with `AlarmManager` (`setExactAndAllowWhileIdle`)
+    so the timer survives background kills; state is saved to `SharedPreferences`
+    and restored on app restart.
+  - System DND integration requires the `ACCESS_NOTIFICATION_POLICY` permission.
+    When granted, focus mode sets the interruption filter to PRIORITY on start and
+    restores the previous filter on stop or expiry. If DND was already PRIORITY
+    before focus started the filter is left untouched on exit.
+  - Focus start and stop events (`FOCUS_MODE_STARTED`, `FOCUS_MODE_STOPPED`) are
+    logged to the `event_logs` table with `metadataJson` carrying `dnd_enabled`
+    and, for stop events, `reason` (`manual` or `expired`).
+
+- Added a **global notification sound toggle** to the home-screen header:
+  - A circular icon button (Notifications / NotificationsOff) sits between the
+    stats button and the profile button.
+  - When muted, all regular Flowlog sounds (KakaoStyleAlertPlayer direct sounds
+    and high-importance notification channel routing) are suppressed. Focus-end
+    notifications always play regardless of this toggle.
+
+- Added a **설정** menu item to the profile dropdown:
+  - Appears above `개발자 블로그` in the profile menu.
+  - Currently shows a DND access permission row with a Switch reflecting the
+    current `isNotificationPolicyAccessGranted` state. Toggling it opens the
+    system `ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS` screen.
+
 - Added overlapping pinned timers for school/company:
   - Tapping a promoted `SCHOOL` or `COMPANY` button moves it out of the start
     grid with a downward animation without switching the main timer card into

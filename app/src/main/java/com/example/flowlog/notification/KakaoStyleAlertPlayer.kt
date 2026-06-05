@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.Uri
 import com.example.flowlog.R
+import com.example.flowlog.data.local.FocusModeStore
 
 object KakaoStyleAlertPlayer {
     fun soundUri(context: Context): Uri =
@@ -18,6 +19,7 @@ object KakaoStyleAlertPlayer {
             .build()
 
     fun play(context: Context) {
+        if (!FocusModeStore.shouldPlayRegularSound(context)) return
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         if (audioManager.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
 

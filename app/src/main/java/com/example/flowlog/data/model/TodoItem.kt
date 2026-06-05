@@ -29,6 +29,8 @@ data class RecommendedTodoBlock(
     val recommendationId: String,
     val todoId: Long,
     val title: String,
+    val category: TodoCategory? = null,
+    val selectedDate: Long? = null,
     val burdenLevel: String,
     val reason: String?,
     val plannedStartMillis: Long,

@@ -14,6 +14,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.flowlog.MainActivity
 import com.example.flowlog.R
+import com.example.flowlog.data.local.FocusModeStore
 import com.example.flowlog.ui.component.categoryNotificationIconRes
 import com.example.flowlog.ui.component.displayCategory
 
@@ -148,13 +149,43 @@ class ActivityTimerNotifier(private val context: Context) {
         NotificationManagerCompat.from(context).cancel(BRUSH_START_NOTIFICATION_ID)
     }
 
+    fun showFocusModeEnded() {
+        if (!canPostNotifications()) return
+        ensureDingNotificationChannel()
+
+        val openPendingIntent = PendingIntent.getActivity(
+            context,
+            FOCUS_MODE_END_NOTIFICATION_ID,
+            Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(context, ToothbrushReminderReceiver.DING_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(NOTIFICATION_ICON_COLOR)
+            .setContentTitle("집중 시간이 끝났어요!")
+            .setContentText("정말 잘했어요 👏 이제 휴식을 취해볼까요?")
+            .setContentIntent(openPendingIntent)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setTimeoutAfter(ALERT_NOTIFICATION_TIMEOUT_MILLIS * 10)
+            .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
+            .setSound(KakaoStyleAlertPlayer.soundUri(context))
+            .setVibrate(longArrayOf(0L, 500L, 250L, 500L))
+
+        notifySafely(FOCUS_MODE_END_NOTIFICATION_ID, builder.build())
+    }
+
     fun showRoutineGoalAlert(title: String, category: String) {
         if (!canPostNotifications()) return
         ensureDingNotificationChannel()
 
         // SLEEP 카테고리 루틴은 수면 타이머 본인의 알람이므로 SleepAlarmGuard를 우회
         val shouldSilence = if (category == "SLEEP") false
-                            else SleepAlarmGuard.shouldSilenceAlerts(context)
+                            else !FocusModeStore.shouldPlayRegularSound(context) ||
+                                 SleepAlarmGuard.shouldSilenceAlerts(context)
         if (shouldSilence) SleepAlarmGuard.ensureSilentNotificationChannel(context)
 
         val openPendingIntent = PendingIntent.getActivity(
@@ -287,7 +318,8 @@ class ActivityTimerNotifier(private val context: Context) {
         playSound: Boolean = false
     ) {
         if (!canPostNotifications()) return
-        if (playSound) {
+        val effectivePlaySound = playSound && FocusModeStore.shouldPlayRegularSound(context)
+        if (effectivePlaySound) {
             ensureDingNotificationChannel()
         } else {
             ensureNotificationChannel()
@@ -300,7 +332,7 @@ class ActivityTimerNotifier(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val channelId = if (playSound) ToothbrushReminderReceiver.DING_CHANNEL_ID else CHANNEL_ID
+        val channelId = if (effectivePlaySound) ToothbrushReminderReceiver.DING_CHANNEL_ID else CHANNEL_ID
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(notificationIcon(category))
             .setColor(NOTIFICATION_ICON_COLOR)
@@ -310,9 +342,9 @@ class ActivityTimerNotifier(private val context: Context) {
             .setContentIntent(openPendingIntent)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .setPriority(if (playSound) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
-            .setDefaults(if (playSound) NotificationCompat.DEFAULT_VIBRATE else 0)
-        if (playSound && Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            .setPriority(if (effectivePlaySound) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
+            .setDefaults(if (effectivePlaySound) NotificationCompat.DEFAULT_VIBRATE else 0)
+        if (effectivePlaySound && Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             builder.setSound(KakaoStyleAlertPlayer.soundUri(context))
         }
         if (!undoSnapshotId.isNullOrBlank()) {
@@ -420,6 +452,7 @@ class ActivityTimerNotifier(private val context: Context) {
         private const val AUTO_BUTTON_UNDO_REQUEST_CODE = 2009
         private const val AUTO_BUTTON_UNDO_NOTIFICATION_ID = 2010
         private const val ROUTINE_GOAL_NOTIFICATION_ID = 2011
+        const val FOCUS_MODE_END_NOTIFICATION_ID = 2012
         private const val ALERT_NOTIFICATION_TIMEOUT_MILLIS = 3_000L
         private const val BRUSH_START_NOTIFICATION_TIMEOUT_MILLIS = 3_000L
         private val NOTIFICATION_ICON_COLOR = 0xFF4F5060.toInt()

@@ -45,6 +45,8 @@ import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.Home
@@ -109,6 +111,19 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.net.URL
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.DoNotDisturb
+import com.example.flowlog.notification.FocusDndController
 
 class MainActivity : ComponentActivity() {
     private var requestedScreen by mutableStateOf(SCREEN_HOME)
@@ -385,6 +400,10 @@ class MainActivity : ComponentActivity() {
                                                 val newMode = !isDeveloperMode
                                                 isDeveloperMode = newMode
                                                 userRoleStore.setDeveloperMode(newMode)
+                                            },
+                                            isNotificationSoundEnabled = activityUiState.isNotificationSoundEnabled,
+                                            onToggleNotificationSound = {
+                                                activityViewModel.toggleNotificationSound()
                                             }
                                         )
                                     },
@@ -545,9 +564,13 @@ private fun HeaderActions(
     onFirebaseUploadClick: () -> Unit = {},
     onRegenerateRecommendedTimePlanClick: () -> Unit = {},
     onRestoreTodosClick: () -> Unit = {},
-    onToggleDevMode: () -> Unit = {}
+    onToggleDevMode: () -> Unit = {},
+    isNotificationSoundEnabled: Boolean = true,
+    onToggleNotificationSound: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(
@@ -566,6 +589,27 @@ private fun HeaderActions(
                     imageVector = Icons.Filled.BarChart,
                     contentDescription = "통계",
                     tint = Color(0xFF5140D8),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+
+        IconButton(
+            onClick = onToggleNotificationSound,
+            modifier = Modifier.size(52.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFF0ECFF))
+                    .border(1.dp, Color(0xFFE0D7FF), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isNotificationSoundEnabled) Icons.Filled.Notifications else Icons.Filled.NotificationsOff,
+                    contentDescription = if (isNotificationSoundEnabled) "알림 소리 켜짐" else "알림 소리 꺼짐",
+                    tint = if (isNotificationSoundEnabled) Color(0xFF5140D8) else Color(0xFF9E9E9E),
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -598,6 +642,20 @@ private fun HeaderActions(
                     onClick = {
                         menuExpanded = false
                         onAccountClick()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("설정", color = Color(0xFF10182C)) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = null,
+                            tint = Color(0xFF5140D8)
+                        )
+                    },
+                    onClick = {
+                        menuExpanded = false
+                        showSettingsDialog = true
                     }
                 )
                 DropdownMenuItem(
@@ -678,6 +736,79 @@ private fun HeaderActions(
                 }
             }
         }
+    }
+
+    if (showSettingsDialog) {
+        var hasDndAccess by remember { mutableStateOf(FocusDndController.hasPolicyAccess(context)) }
+        AlertDialog(
+            onDismissRequest = { showSettingsDialog = false },
+            containerColor = Color.White,
+            title = {
+                Text(
+                    text = "설정",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 18.sp,
+                    color = Color(0xFF10182C)
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "집중 모드",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF5140D8)
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    androidx.compose.foundation.layout.Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.DoNotDisturb,
+                            contentDescription = null,
+                            tint = if (hasDndAccess) Color(0xFF5140D8) else Color(0xFF9E9E9E),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.size(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "방해금지 액세스 권한",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF10182C)
+                            )
+                            Text(
+                                text = if (hasDndAccess) "허용됨 · 시스템 설정에서 변경 가능" else "집중 모드 시 방해금지를 함께 켤 수 있어요",
+                                fontSize = 12.sp,
+                                color = Color(0xFF9E9E9E)
+                            )
+                        }
+                        Switch(
+                            checked = hasDndAccess,
+                            onCheckedChange = {
+                                // 특수 권한은 시스템 설정에서만 변경 가능
+                                hasDndAccess = FocusDndController.hasPolicyAccess(context)
+                                FocusDndController.openPolicyAccessSettings(context)
+                            }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showSettingsDialog = false },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF5140D8),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("닫기", fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        )
     }
 }
 

@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.flowlog.R
+import com.example.flowlog.data.local.FocusModeStore
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.model.TodoItem
 import kotlinx.coroutines.CoroutineScope
@@ -88,7 +89,8 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                 }
 
                 if (!canPostNotifications(context)) return@launch
-                val shouldSilence = SleepAlarmGuard.shouldSilenceAlerts(context)
+                val shouldSilence = SleepAlarmGuard.shouldSilenceAlerts(context) ||
+                    !FocusModeStore.shouldPlayRegularSound(context)
                 if (shouldSilence) {
                     SleepAlarmGuard.ensureSilentNotificationChannel(context)
                 }

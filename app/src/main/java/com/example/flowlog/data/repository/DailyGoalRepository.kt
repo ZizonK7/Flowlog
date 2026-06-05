@@ -676,11 +676,14 @@ class DailyGoalRepository(context: Context) {
         val start = plannedStartMillis ?: return null
         val end = plannedEndMillis ?: return null
         val legacyId = todoId.removePrefix("legacy_todo_").toLongOrNull() ?: return null
+        val todoSnapshot = decodedTodoSnapshot()
         return RecommendedTodoBlock(
             itemId = itemId,
             recommendationId = recommendationId,
             todoId = legacyId,
-            title = displayTitle(),
+            title = todoSnapshot?.title ?: displayTitle(),
+            category = todoSnapshot?.category,
+            selectedDate = todoSnapshot?.selectedDate,
             burdenLevel = burdenLevel ?: burdenLevel(this),
             reason = reason,
             plannedStartMillis = start,
@@ -692,9 +695,13 @@ class DailyGoalRepository(context: Context) {
     }
 
     private fun DailyGoalItemEntity.displayTitle(): String {
+        return decodedTodoSnapshot()?.title ?: todoId.removePrefix("legacy_todo_")
+    }
+
+    private fun DailyGoalItemEntity.decodedTodoSnapshot(): TodoItem? {
         return runCatching {
-            todoSnapshotJson?.let { json.decodeFromString<TodoItem>(it).title }
-        }.getOrNull() ?: todoId.removePrefix("legacy_todo_")
+            todoSnapshotJson?.let { json.decodeFromString<TodoItem>(it) }
+        }.getOrNull()
     }
 
     private suspend fun todayWorkplaceBlocks(dayStart: Long): List<TimeBlockSnapshot> {

@@ -59,6 +59,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -68,8 +69,11 @@ import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -123,7 +127,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.flowlog.data.constants.ActivitySourceType
+import com.example.flowlog.data.local.FocusModeStore
 import com.example.flowlog.data.local.TimerStateStore
+import com.example.flowlog.notification.FocusDndController
 import com.example.flowlog.debug.CityTimetablePreset
 import com.example.flowlog.debug.CityTimetableSamples
 import com.example.flowlog.debug.SampleTimetableData
@@ -451,7 +457,11 @@ fun HomeScreen(
                     if (!uiState.isRunning || category == "SNACK" || category == "TOOTHBRUSH") {
                         viewModel.startActivity(category)
                     }
-                }
+                },
+                isFocusModeActive = uiState.isFocusModeActive,
+                focusModeEndsAtMillis = uiState.focusModeEndsAtMillis,
+                onStartFocusMode = { enableDnd -> viewModel.startFocusMode(enableDnd) },
+                onStopFocusMode = { viewModel.stopFocusMode() }
             )
         }
 
@@ -620,7 +630,11 @@ private fun TodayFlowCard(
     pinnedQuickCategory: String?,
     onStop: (String) -> Unit,
     onApplyTitle: (String) -> Unit,
-    onStart: (String) -> Unit
+    onStart: (String) -> Unit,
+    isFocusModeActive: Boolean = false,
+    focusModeEndsAtMillis: Long = 0L,
+    onStartFocusMode: (enableDnd: Boolean) -> Unit = {},
+    onStopFocusMode: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier
@@ -661,7 +675,11 @@ private fun TodayFlowCard(
                     initialAppliedTitle = appliedTitle,
                     titleSuggestions = titleSuggestions,
                     onStop = onStop,
-                    onApplyTitle = onApplyTitle
+                    onApplyTitle = onApplyTitle,
+                    isFocusModeActive = isFocusModeActive,
+                    focusModeEndsAtMillis = focusModeEndsAtMillis,
+                    onStartFocusMode = onStartFocusMode,
+                    onStopFocusMode = onStopFocusMode
                 )
             } else {
                 FlowStartPage(
@@ -685,11 +703,28 @@ private fun TimerPage(
     initialAppliedTitle: String,
     titleSuggestions: List<String>,
     onStop: (String) -> Unit,
-    onApplyTitle: (String) -> Unit
+    onApplyTitle: (String) -> Unit,
+    isFocusModeActive: Boolean = false,
+    focusModeEndsAtMillis: Long = 0L,
+    onStartFocusMode: (enableDnd: Boolean) -> Unit = {},
+    onStopFocusMode: () -> Unit = {}
 ) {
     var title by remember(currentCategory) { mutableStateOf("") }
     var appliedTitle by remember(currentCategory) { mutableStateOf(initialAppliedTitle) }
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
+    val isFocusCategory = remember(currentCategory) {
+        currentCategory in setOf("STUDY", "DEVELOPMENT", "WORK", "TODO", "ETC")
+    }
+    var showFocusConfirmDialog by remember { mutableStateOf(false) }
+    var showFocusStartedDialog by remember { mutableStateOf(false) }
+    var showFocusStopConfirmDialog by remember { mutableStateOf(false) }
+    var showDndPermissionDialog by remember { mutableStateOf(false) }
+    var doNotShowAgain by remember { mutableStateOf(false) }
+    // DND 체크박스 상태: 저장된 선호값으로 초기화
+    var enableDnd by remember { mutableStateOf(FocusModeStore.getEnableSystemDndForFocus(context)) }
+    // 시작됩니다 다이얼로그에서 DND 활성 여부 표시용
+    var focusModeStartedWithDnd by remember { mutableStateOf(false) }
     val progressCycleMillis = if (currentCategory == "EXPERIMENT_3") {
         TimeUnit.SECONDS.toMillis(5)
     } else {
@@ -868,7 +903,76 @@ private fun TimerPage(
                 )
             }
         }
-        Spacer(modifier = Modifier.height(22.dp))
+        if (isFocusCategory) {
+            Spacer(modifier = Modifier.height(10.dp))
+            if (isFocusModeActive) {
+                val focusRemainingMillis = (focusModeEndsAtMillis - System.currentTimeMillis())
+                    .coerceAtLeast(0L)
+                OutlinedButton(
+                    onClick = { showFocusStopConfirmDialog = true },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = FlowPurpleSoft,
+                        contentColor = FlowPurple
+                    ),
+                    border = BorderStroke(1.dp, FlowPurple.copy(alpha = 0.4f)),
+                    contentPadding = PaddingValues(horizontal = 16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Bedtime,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "집중 중  ·  ${formatCountdown(focusRemainingMillis)}  남음",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            } else {
+                OutlinedButton(
+                    onClick = {
+                        if (FocusModeStore.isFocusConfirmAcknowledged(context)) {
+                            val dndPref = FocusModeStore.getEnableSystemDndForFocus(context)
+                            // 권한 만료 시 DND 없이 시작 (사용자 차단 방지)
+                            val effectiveDnd = dndPref && FocusDndController.hasPolicyAccess(context)
+                            focusModeStartedWithDnd = effectiveDnd
+                            onStartFocusMode(effectiveDnd)
+                            showFocusStartedDialog = true
+                        } else {
+                            enableDnd = FocusModeStore.getEnableSystemDndForFocus(context)
+                            doNotShowAgain = false
+                            showFocusConfirmDialog = true
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = Color.Transparent,
+                        contentColor = FlowPurple
+                    ),
+                    border = BorderStroke(1.dp, FlowPurple.copy(alpha = 0.4f)),
+                    contentPadding = PaddingValues(horizontal = 16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Bedtime,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "집중하기 (${FocusModeStore.FOCUS_DURATION_LABEL})",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        } else {
+            Spacer(modifier = Modifier.height(22.dp))
+        }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -898,6 +1002,243 @@ private fun TimerPage(
             )
         }
     }
+
+    if (showFocusConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showFocusConfirmDialog = false },
+            containerColor = Color.White,
+            title = {
+                Text(
+                    text = "${FocusModeStore.FOCUS_DURATION_LABEL} 집중할까요?",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 18.sp,
+                    color = FlowInk
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Flowlog의 알림 소리는 잠시 꺼지고,\n${FocusModeStore.FOCUS_DURATION_LABEL} 뒤에만 알림이 울려요.",
+                        fontSize = 14.sp,
+                        color = FlowMuted
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    // DND 체크박스
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = enableDnd,
+                            onCheckedChange = { checked ->
+                                if (checked && !FocusDndController.hasPolicyAccess(context)) {
+                                    showDndPermissionDialog = true
+                                    // 권한 없으면 체크 반영 안 함
+                                } else {
+                                    enableDnd = checked
+                                }
+                            },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = FlowPurple,
+                                uncheckedColor = FlowMuted
+                            )
+                        )
+                        Text(
+                            text = "시스템 방해금지도 함께 켜기",
+                            fontSize = 14.sp,
+                            color = FlowInk,
+                            modifier = Modifier.Companion.padding(start = 4.dp)
+                        )
+                    }
+                    // 다시 보지 않기 체크박스
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = doNotShowAgain,
+                            onCheckedChange = { doNotShowAgain = it },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = FlowPurple,
+                                uncheckedColor = FlowMuted
+                            )
+                        )
+                        Text(
+                            text = "다시 보지 않기",
+                            fontSize = 14.sp,
+                            color = FlowInk,
+                            modifier = Modifier.Companion.padding(start = 4.dp)
+                        )
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFocusConfirmDialog = false }) {
+                    Text("취소", color = FlowMuted, fontWeight = FontWeight.Bold)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (doNotShowAgain) FocusModeStore.setFocusConfirmAcknowledged(context)
+                        showFocusConfirmDialog = false
+                        focusModeStartedWithDnd = enableDnd
+                        onStartFocusMode(enableDnd)
+                        showFocusStartedDialog = true
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = FlowPurple,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("시작하기", fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        )
+    }
+
+    if (showFocusStartedDialog) {
+        AlertDialog(
+            onDismissRequest = { showFocusStartedDialog = false },
+            containerColor = Color.White,
+            title = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    Icon(
+                        imageVector = Icons.Filled.Bedtime,
+                        contentDescription = null,
+                        tint = FlowPurple,
+                        modifier = Modifier.size(40.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "집중 모드가 시작됩니다",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 18.sp,
+                        color = FlowInk,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            },
+            text = {
+                val startedText = if (focusModeStartedWithDnd) {
+                    "${FocusModeStore.FOCUS_DURATION_LABEL} 동안 알림음과 시스템 방해금지가 켜지고,\n${FocusModeStore.FOCUS_DURATION_LABEL} 뒤에 알람이 울립니다."
+                } else {
+                    "${FocusModeStore.FOCUS_DURATION_LABEL} 동안 알림음이 꺼지고,\n${FocusModeStore.FOCUS_DURATION_LABEL} 뒤에 알람이 울립니다."
+                }
+                Text(
+                    text = startedText,
+                    fontSize = 14.sp,
+                    color = FlowMuted,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showFocusStartedDialog = false },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = FlowPurple,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("확인", fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        )
+    }
+
+    if (showFocusStopConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showFocusStopConfirmDialog = false },
+            containerColor = Color.White,
+            title = {
+                Text(
+                    text = "집중 모드를 종료할까요?",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 18.sp,
+                    color = FlowInk
+                )
+            },
+            text = {
+                Text(
+                    text = "집중 모드를 종료하면 알림음이 다시 켜집니다.",
+                    fontSize = 14.sp,
+                    color = FlowMuted
+                )
+            },
+            dismissButton = {
+                TextButton(onClick = { showFocusStopConfirmDialog = false }) {
+                    Text("취소", color = FlowMuted, fontWeight = FontWeight.Bold)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onStopFocusMode()
+                        showFocusStopConfirmDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = FlowPurple,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("종료", fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        )
+    }
+
+    if (showDndPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { showDndPermissionDialog = false },
+            containerColor = Color.White,
+            title = {
+                Text(
+                    text = "방해금지 권한이 필요해요",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 18.sp,
+                    color = FlowInk
+                )
+            },
+            text = {
+                Text(
+                    text = "시스템 방해금지를 함께 켜려면\n'방해금지 액세스' 권한이 필요해요.\n설정에서 Flowlog를 허용해 주세요.",
+                    fontSize = 14.sp,
+                    color = FlowMuted
+                )
+            },
+            dismissButton = {
+                TextButton(onClick = { showDndPermissionDialog = false }) {
+                    Text("나중에", color = FlowMuted, fontWeight = FontWeight.Bold)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDndPermissionDialog = false
+                        FocusDndController.openPolicyAccessSettings(context)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = FlowPurple,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("설정 열기", fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        )
+    }
+}
+
+private fun formatCountdown(millis: Long): String {
+    val totalSeconds = (millis / 1000).coerceAtLeast(0L)
+    val h = totalSeconds / 3600
+    val m = (totalSeconds % 3600) / 60
+    val s = totalSeconds % 60
+    return "%d:%02d:%02d".format(h, m, s)
 }
 
 private fun buildTitleSuggestions(
@@ -3241,6 +3582,7 @@ private fun RecommendedTodoActionSheet(
     onReplaceItem: (TodoItem) -> Unit
 ) {
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val todoDateFormat = remember { SimpleDateFormat("M월 d일", Locale.KOREAN) }
     val initialHour = remember(block.plannedStartMillis) {
         val cal = java.util.Calendar.getInstance()
         cal.timeInMillis = block.plannedStartMillis
@@ -3467,6 +3809,9 @@ private fun RecommendedTodoActionSheet(
                 }
             }
             else -> {
+                val dateLabel = block.selectedDate?.let { todoDateFormat.format(Date(it)) } ?: "날짜 없음"
+                val categoryLabel = block.category?.let { recommendedTodoCategoryLabel(it) } ?: "일반"
+                val metaLabel = "$dateLabel / $categoryLabel / ${timeFormat.format(Date(block.plannedStartMillis))} 시작 추천"
                 Column(
                     modifier = Modifier
                         .background(Color.White)
@@ -3479,10 +3824,13 @@ private fun RecommendedTodoActionSheet(
                         color = FlowInk
                     )
                     Text(
-                        "${timeFormat.format(Date(block.plannedStartMillis))} 시작 추천",
-                        fontSize = 13.sp,
-                        color = FlowMuted,
-                        modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                        metaLabel,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = FlowPurpleDeep,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 5.dp, bottom = 12.dp)
                     )
                     Button(
                         onClick = onStart,
@@ -3519,6 +3867,16 @@ private fun RecommendedTodoActionSheet(
                 }
             }
         }
+    }
+}
+
+private fun recommendedTodoCategoryLabel(category: TodoCategory): String {
+    return when (category) {
+        TodoCategory.NORMAL -> "일반"
+        TodoCategory.TODAY -> "오늘"
+        TodoCategory.REVIEW -> "복습"
+        TodoCategory.ASSIGNMENT -> "과제"
+        TodoCategory.UNIVERSITY_EXAM -> "시험"
     }
 }
 

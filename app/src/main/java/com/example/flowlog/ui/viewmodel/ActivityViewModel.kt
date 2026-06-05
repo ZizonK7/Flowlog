@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.flowlog.data.constants.ActivitySourceType
+import com.example.flowlog.data.local.FocusModeStore
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
 import com.example.flowlog.data.model.AutoButtonSchedule
@@ -12,13 +13,18 @@ import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.ScheduledAutoButtonBlock
 import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.data.recommendation.ButtonRecommendationEngine
+import com.example.flowlog.data.constants.EntityType
+import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.repository.ActivityRepository
 import com.example.flowlog.data.repository.AutoButtonScheduleRepository
 import com.example.flowlog.data.repository.DailyGoalRepository
+import com.example.flowlog.data.repository.EventLogRepository
 import com.example.flowlog.data.repository.TodoRepository
 import com.example.flowlog.data.sync.FirebaseSyncCoordinator
 import com.example.flowlog.notification.ActivityTimerNotifier
 import com.example.flowlog.notification.AutoButtonScheduler
+import com.example.flowlog.notification.FocusDndController
+import com.example.flowlog.notification.FocusModeScheduler
 import com.example.flowlog.notification.ReminderScheduler
 import com.example.flowlog.widget.FlowStatusWidgetProvider
 import com.google.firebase.auth.FirebaseAuth
@@ -105,7 +111,10 @@ data class ActivityUiState(
     val scheduledAutoButtonBlocks: List<ScheduledAutoButtonBlock> = emptyList(),
     val recommendedTodoBlocks: List<RecommendedTodoBlock> = emptyList(),
     val incompleteTodos: List<TodoItem> = emptyList(),
-    val promotedButtons: List<String> = emptyList()
+    val promotedButtons: List<String> = emptyList(),
+    val isFocusModeActive: Boolean = false,
+    val focusModeEndsAtMillis: Long = 0L,
+    val isNotificationSoundEnabled: Boolean = true
 )
 
 class ActivityViewModel(
@@ -124,7 +133,10 @@ class ActivityViewModel(
     private var activeSessionWatcherJob: Job? = null
     private var brushTimerJob: Job? = null
     private var snackTimerJob: Job? = null
+    private var focusModeJob: Job? = null
     private val activityTimerNotifier = ActivityTimerNotifier(appContext)
+    private val focusModeScheduler = FocusModeScheduler(appContext)
+    private val eventLogRepository = EventLogRepository(appContext)
     private val autoButtonScheduleRepository = AutoButtonScheduleRepository(appContext)
     private val dailyGoalRepository = DailyGoalRepository(appContext)
     private val buttonRecommendationEngine = ButtonRecommendationEngine()
@@ -141,6 +153,7 @@ class ActivityViewModel(
         _uiState.update { it.copy(lastAddedActivity = loadLastAddedActivity()) }
         restoreBrushTimerState()
         restoreSnackButtonTimerState()
+        restoreFocusModeState()
         restoreActiveSession()
         seedMissingSleepRecord()
         observeAllActivities()
@@ -1353,12 +1366,99 @@ class ActivityViewModel(
         }
     }
 
+    fun startFocusMode(enableSystemDnd: Boolean = false) {
+        FocusModeStore.setEnableSystemDndForFocus(appContext, enableSystemDnd)
+        if (enableSystemDnd) {
+            FocusDndController.enableDnd(appContext)
+        }
+        val now = System.currentTimeMillis()
+        val endsAt = now + FocusModeStore.FOCUS_DURATION_MILLIS
+        FocusModeStore.saveFocusModeActive(appContext, startedAt = now, endsAt = endsAt)
+        focusModeScheduler.schedule(endsAt)
+        _uiState.update { it.copy(isFocusModeActive = true, focusModeEndsAtMillis = endsAt) }
+        startFocusModeCountdownJob(endsAt)
+        viewModelScope.launch {
+            runCatching {
+                eventLogRepository.log(
+                    eventType = EventType.FOCUS_MODE_STARTED,
+                    entityType = EntityType.FOCUS_MODE,
+                    metadataJson = """{"dnd_enabled":$enableSystemDnd}"""
+                )
+            }
+        }
+    }
+
+    fun stopFocusMode() {
+        val dndEnabled = FocusModeStore.getEnableSystemDndForFocus(appContext)
+        FocusDndController.restoreDnd(appContext)
+        FocusModeStore.clearFocusMode(appContext)
+        focusModeScheduler.cancel()
+        focusModeJob?.cancel()
+        _uiState.update { it.copy(isFocusModeActive = false, focusModeEndsAtMillis = 0L) }
+        viewModelScope.launch {
+            runCatching {
+                eventLogRepository.log(
+                    eventType = EventType.FOCUS_MODE_STOPPED,
+                    entityType = EntityType.FOCUS_MODE,
+                    metadataJson = """{"dnd_enabled":$dndEnabled,"reason":"manual"}"""
+                )
+            }
+        }
+    }
+
+    fun toggleNotificationSound() {
+        val next = !_uiState.value.isNotificationSoundEnabled
+        FocusModeStore.setNotificationSoundEnabled(appContext, next)
+        _uiState.update { it.copy(isNotificationSoundEnabled = next) }
+    }
+
+    private fun restoreFocusModeState() {
+        val soundEnabled = FocusModeStore.isNotificationSoundEnabled(appContext)
+        val state = FocusModeStore.getFocusModeState(appContext)
+        val now = System.currentTimeMillis()
+        if (state != null && state.endsAtMillis > now) {
+            _uiState.update {
+                it.copy(
+                    isFocusModeActive = true,
+                    focusModeEndsAtMillis = state.endsAtMillis,
+                    isNotificationSoundEnabled = soundEnabled
+                )
+            }
+            startFocusModeCountdownJob(state.endsAtMillis)
+        } else {
+            if (state != null) {
+                // 만료 상태: DND 복원 후 초기화
+                FocusDndController.restoreDnd(appContext)
+                FocusModeStore.clearFocusMode(appContext)
+            }
+            _uiState.update { it.copy(isNotificationSoundEnabled = soundEnabled) }
+        }
+    }
+
+    private fun startFocusModeCountdownJob(endsAtMillis: Long) {
+        focusModeJob?.cancel()
+        focusModeJob = viewModelScope.launch {
+            while (true) {
+                val remaining = endsAtMillis - System.currentTimeMillis()
+                if (remaining <= 0L) {
+                    // AlarmReceiver도 동시에 실행될 수 있으나 restoreDnd/clearDndState는 멱등
+                    FocusDndController.restoreDnd(appContext)
+                    FocusModeStore.clearFocusMode(appContext)
+                    _uiState.update { it.copy(isFocusModeActive = false, focusModeEndsAtMillis = 0L) }
+                    break
+                }
+                delay(1_000L)
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         timerJob?.cancel()
         activeSessionWatcherJob?.cancel()
         brushTimerJob?.cancel()
         snackTimerJob?.cancel()
+        focusModeJob?.cancel()
     }
 
     companion object {

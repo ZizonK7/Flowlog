@@ -10,4 +10,5 @@ object EntityType {
     const val USER = "USER"
     const val SETTING = "SETTING"
     const val SYNC_BATCH = "SYNC_BATCH"
+    const val FOCUS_MODE = "FOCUS_MODE"
 }
