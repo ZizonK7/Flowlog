@@ -161,11 +161,12 @@ class MainActivity : ComponentActivity() {
                         TodoViewModelFactory(this@MainActivity)
                     ).get(TodoViewModel::class.java)
                 }
-                val activityUiState by activityViewModel.uiState.collectAsState()
-                val routineTimerCategories = remember(activityUiState.promotedButtons) {
+                val promotedButtons by activityViewModel.promotedButtons.collectAsState()
+                val isNotificationSoundEnabled by activityViewModel.isNotificationSoundEnabled.collectAsState()
+                val routineTimerCategories = remember(promotedButtons) {
                     val base = listOf("SLEEP", "REST", "WORK", "STUDY", "EXERCISE", "WASH", "MEAL", "ETC")
-                    if (activityUiState.promotedButtons.isNotEmpty()) {
-                        base.take(6) + activityUiState.promotedButtons.asReversed() + base.drop(6)
+                    if (promotedButtons.isNotEmpty()) {
+                        base.take(6) + promotedButtons.asReversed() + base.drop(6)
                     } else {
                         base
                     }.distinct()
@@ -402,7 +403,7 @@ class MainActivity : ComponentActivity() {
                                                 isDeveloperMode = newMode
                                                 userRoleStore.setDeveloperMode(newMode)
                                             },
-                                            isNotificationSoundEnabled = activityUiState.isNotificationSoundEnabled,
+                                            isNotificationSoundEnabled = isNotificationSoundEnabled,
                                             onToggleNotificationSound = {
                                                 activityViewModel.toggleNotificationSound()
                                             }

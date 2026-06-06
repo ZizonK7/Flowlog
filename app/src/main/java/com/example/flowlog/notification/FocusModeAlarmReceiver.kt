@@ -7,6 +7,7 @@ import com.example.flowlog.data.constants.EntityType
 import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.local.FocusModeStore
 import com.example.flowlog.data.repository.EventLogRepository
+import com.example.flowlog.widget.FlowStatusWidgetProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -17,6 +18,7 @@ class FocusModeAlarmReceiver : BroadcastReceiver() {
         // DND 먼저 복원 → 그래야 종료 알림이 정상 DND 필터를 거쳐 울릴 수 있음
         FocusDndController.restoreDnd(context)
         FocusModeStore.clearFocusMode(context)
+        FlowStatusWidgetProvider.updateAll(context)
         ActivityTimerNotifier(context).showFocusModeEnded()
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {

@@ -117,6 +117,11 @@ data class ActivityUiState(
     val isNotificationSoundEnabled: Boolean = true
 )
 
+data class TimerDisplayState(
+    val elapsedTime: Long = 0L,
+    val timerGoalMillis: Long = TimerStateStore.DEFAULT_GOAL_MILLIS
+)
+
 class ActivityViewModel(
     private val repository: ActivityRepository,
     private val todoRepository: TodoRepository,
@@ -125,6 +130,12 @@ class ActivityViewModel(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ActivityUiState())
     val uiState: StateFlow<ActivityUiState> = _uiState.asStateFlow()
+    private val _timerDisplayState = MutableStateFlow(TimerDisplayState())
+    val timerDisplayState: StateFlow<TimerDisplayState> = _timerDisplayState.asStateFlow()
+    private val _promotedButtons = MutableStateFlow<List<String>>(emptyList())
+    val promotedButtons: StateFlow<List<String>> = _promotedButtons.asStateFlow()
+    private val _isNotificationSoundEnabled = MutableStateFlow(true)
+    val isNotificationSoundEnabled: StateFlow<Boolean> = _isNotificationSoundEnabled.asStateFlow()
     data class DailyCueGoalReachedEvent(val cueId: Long, val category: String, val title: String)
     private val _dailyCueGoalReachedEvents = MutableSharedFlow<DailyCueGoalReachedEvent>(extraBufferCapacity = 8)
     val dailyCueGoalReachedEvents: SharedFlow<DailyCueGoalReachedEvent> = _dailyCueGoalReachedEvents.asSharedFlow()
@@ -180,6 +191,10 @@ class ActivityViewModel(
 
         val startTime = System.currentTimeMillis()
         val goalMillis = goalMillisForTimer(category, startTime)
+        _timerDisplayState.value = TimerDisplayState(
+            elapsedTime = 0L,
+            timerGoalMillis = goalMillis
+        )
         _uiState.update {
             it.copy(
                 isRunning = true,
@@ -274,6 +289,10 @@ class ActivityViewModel(
 
         val startTime = System.currentTimeMillis()
         val goalMillis = TimerStateStore.DEFAULT_GOAL_MILLIS
+        _timerDisplayState.value = TimerDisplayState(
+            elapsedTime = 0L,
+            timerGoalMillis = goalMillis
+        )
         _uiState.update {
             it.copy(
                 isRunning = true,
@@ -309,6 +328,10 @@ class ActivityViewModel(
 
         val startTime = System.currentTimeMillis()
         val cleanGoalMillis = goalMillis.coerceAtLeast(1L)
+        _timerDisplayState.value = TimerDisplayState(
+            elapsedTime = 0L,
+            timerGoalMillis = cleanGoalMillis
+        )
         _uiState.update {
             it.copy(
                 isRunning = true,
@@ -342,6 +365,10 @@ class ActivityViewModel(
 
         val startTime = System.currentTimeMillis()
         val goalMillis = TimerStateStore.DEFAULT_GOAL_MILLIS
+        _timerDisplayState.value = TimerDisplayState(
+            elapsedTime = 0L,
+            timerGoalMillis = goalMillis
+        )
         _uiState.update {
             it.copy(
                 isRunning = true,
@@ -453,7 +480,7 @@ class ActivityViewModel(
         if (!_uiState.value.isRunning) return -1L
 
         timerJob?.cancel()
-        val elapsedTime = _uiState.value.elapsedTime
+        val elapsedTime = currentElapsedTime()
         _uiState.update { it.copy(isRunning = false) }
         TimerStateStore.pauseActiveTimer(appContext, elapsedTime)
         FlowStatusWidgetProvider.updateAll(appContext)
@@ -467,7 +494,8 @@ class ActivityViewModel(
 
         timerJob?.cancel()
         val endTime = System.currentTimeMillis()
-        val durationMillis = if (state.elapsedTime > 0L) state.elapsedTime else endTime - state.startTime
+        val elapsedTime = currentElapsedTime()
+        val durationMillis = if (elapsedTime > 0L) elapsedTime else endTime - state.startTime
         val cleanCategory = state.currentCategory
         val cleanTitle = titleOverride?.trim()
             ?.takeIf { it.isNotBlank() }
@@ -505,6 +533,7 @@ class ActivityViewModel(
                 dailyCueId = null
             )
         }
+        resetTimerDisplayState()
 
         viewModelScope.launch {
             val newId = repository.insertActivity(activity)
@@ -542,7 +571,8 @@ class ActivityViewModel(
         if (state.currentCategory.isEmpty() || state.startTime == 0L) return
 
         val endTime = System.currentTimeMillis()
-        val durationMillis = if (state.elapsedTime > 0L) state.elapsedTime else endTime - state.startTime
+        val elapsedTime = currentElapsedTime()
+        val durationMillis = if (elapsedTime > 0L) elapsedTime else endTime - state.startTime
         val cleanCategory = category.ifBlank { state.currentCategory }
         val cleanTitle = title.trim().ifBlank { state.pendingTitle ?: defaultTitle(cleanCategory) }
         val activity = ActivitySession(
@@ -713,26 +743,29 @@ class ActivityViewModel(
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
             while (_uiState.value.isRunning) {
-                _uiState.update {
-                    val elapsedTime = System.currentTimeMillis() - it.startTime
-                    val cueId = it.dailyCueId
-                    val shouldMarkCue = cueId != null &&
-                        it.timerGoalMillis > 0L &&
-                        elapsedTime >= it.timerGoalMillis &&
-                        cueId !in it.completedDailyCueGoalIds
-                    if (shouldMarkCue) {
-                        _dailyCueGoalReachedEvents.tryEmit(
-                            DailyCueGoalReachedEvent(cueId!!, it.currentCategory, it.pendingTitle ?: "")
-                        )
-                    }
-                    it.copy(
-                        elapsedTime = elapsedTime,
-                        completedDailyCueGoalIds = if (shouldMarkCue) {
-                            it.completedDailyCueGoalIds + cueId
-                        } else {
-                            it.completedDailyCueGoalIds
-                        }
+                val state = _uiState.value
+                val elapsedTime = System.currentTimeMillis() - state.startTime
+                _timerDisplayState.value = TimerDisplayState(
+                    elapsedTime = elapsedTime,
+                    timerGoalMillis = state.timerGoalMillis
+                )
+
+                val cueId = state.dailyCueId
+                val shouldMarkCue = cueId != null &&
+                    state.timerGoalMillis > 0L &&
+                    elapsedTime >= state.timerGoalMillis &&
+                    cueId !in state.completedDailyCueGoalIds
+                if (shouldMarkCue) {
+                    _dailyCueGoalReachedEvents.tryEmit(
+                        DailyCueGoalReachedEvent(cueId!!, state.currentCategory, state.pendingTitle ?: "")
                     )
+                    _uiState.update {
+                        if (cueId in it.completedDailyCueGoalIds) {
+                            it
+                        } else {
+                            it.copy(completedDailyCueGoalIds = it.completedDailyCueGoalIds + cueId)
+                        }
+                    }
                 }
                 delay(1_000L)
             }
@@ -746,6 +779,10 @@ class ActivityViewModel(
         val startTime = activeTimer.startTime
         val elapsedTime = (System.currentTimeMillis() - startTime).coerceAtLeast(0L)
         val goalMillis = activeTimer.goalMillis
+        _timerDisplayState.value = TimerDisplayState(
+            elapsedTime = elapsedTime,
+            timerGoalMillis = goalMillis
+        )
 
         _uiState.update {
             it.copy(
@@ -793,6 +830,7 @@ class ActivityViewModel(
             if (state.isRunning) {
                 timerJob?.cancel()
                 timerJob = null
+                resetTimerDisplayState()
                 _uiState.update {
                     it.copy(
                         isRunning = false,
@@ -820,6 +858,10 @@ class ActivityViewModel(
             state.sourceId != activeTimer.sourceId
 
         if (shouldUpdate) {
+            _timerDisplayState.value = TimerDisplayState(
+                elapsedTime = activeTimer.elapsedMillis,
+                timerGoalMillis = activeTimer.goalMillis
+            )
             _uiState.update {
                 it.copy(
                     isRunning = true,
@@ -923,6 +965,10 @@ class ActivityViewModel(
         val title = "$subjectTitle 시험 공부 $dLabel"
         val startTime = System.currentTimeMillis()
         val goalMillis = com.example.flowlog.data.local.TimerStateStore.DEFAULT_GOAL_MILLIS
+        _timerDisplayState.value = TimerDisplayState(
+            elapsedTime = 0L,
+            timerGoalMillis = goalMillis
+        )
         _uiState.update {
             it.copy(
                 isRunning = true,
@@ -1029,6 +1075,7 @@ class ActivityViewModel(
                 val promotedButtons = withContext(Dispatchers.Default) {
                     buttonRecommendationEngine.computePromotedCategories(activities)
                 }
+                _promotedButtons.value = promotedButtons
                 _uiState.update {
                     it.copy(
                         allActivities = activities,
@@ -1238,9 +1285,22 @@ class ActivityViewModel(
         return "${calendar.get(Calendar.MONTH) + 1}/${calendar.get(Calendar.DAY_OF_MONTH)}"
     }
 
+    private fun currentElapsedTime(): Long {
+        val state = _uiState.value
+        if (!state.isRunning || state.startTime == 0L) return _timerDisplayState.value.elapsedTime
+        return (System.currentTimeMillis() - state.startTime).coerceAtLeast(0L)
+    }
+
+    private fun resetTimerDisplayState() {
+        _timerDisplayState.value = TimerDisplayState()
+    }
+
     private fun clearPendingActivity() {
+        timerJob?.cancel()
+        timerJob = null
         activityTimerNotifier.clearRunningTimer()
         clearActiveSession()
+        resetTimerDisplayState()
         _uiState.update {
             it.copy(
                 isRunning = false,
@@ -1393,6 +1453,7 @@ class ActivityViewModel(
         FocusModeStore.saveFocusModeActive(appContext, startedAt = now, endsAt = endsAt)
         focusModeScheduler.schedule(endsAt)
         _uiState.update { it.copy(isFocusModeActive = true, focusModeEndsAtMillis = endsAt) }
+        FlowStatusWidgetProvider.updateAll(appContext)
         startFocusModeCountdownJob(endsAt)
         viewModelScope.launch {
             runCatching {
@@ -1412,6 +1473,7 @@ class ActivityViewModel(
         focusModeScheduler.cancel()
         focusModeJob?.cancel()
         _uiState.update { it.copy(isFocusModeActive = false, focusModeEndsAtMillis = 0L) }
+        FlowStatusWidgetProvider.updateAll(appContext)
         viewModelScope.launch {
             runCatching {
                 eventLogRepository.log(
@@ -1426,11 +1488,13 @@ class ActivityViewModel(
     fun toggleNotificationSound() {
         val next = !_uiState.value.isNotificationSoundEnabled
         FocusModeStore.setNotificationSoundEnabled(appContext, next)
+        _isNotificationSoundEnabled.value = next
         _uiState.update { it.copy(isNotificationSoundEnabled = next) }
     }
 
     private fun restoreFocusModeState() {
         val soundEnabled = FocusModeStore.isNotificationSoundEnabled(appContext)
+        _isNotificationSoundEnabled.value = soundEnabled
         val state = FocusModeStore.getFocusModeState(appContext)
         val now = System.currentTimeMillis()
         if (state != null && state.endsAtMillis > now) {
@@ -1462,6 +1526,7 @@ class ActivityViewModel(
                     FocusDndController.restoreDnd(appContext)
                     FocusModeStore.clearFocusMode(appContext)
                     _uiState.update { it.copy(isFocusModeActive = false, focusModeEndsAtMillis = 0L) }
+                    FlowStatusWidgetProvider.updateAll(appContext)
                     break
                 }
                 delay(1_000L)

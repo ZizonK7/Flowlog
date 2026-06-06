@@ -21,6 +21,7 @@ import android.widget.RemoteViews
 import com.example.flowlog.MainActivity
 import com.example.flowlog.R
 import com.example.flowlog.data.local.ActiveTimerState
+import com.example.flowlog.data.local.FocusModeStore
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
 import java.util.concurrent.TimeUnit
@@ -58,7 +59,8 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
     ) {
         val activeTimer = TimerStateStore.getActiveTimer(context)
             ?: TimerStateStore.getPinnedTimer(context)
-        val views = buildRemoteViews(context, activeTimer)
+        val isFocusModeActive = FocusModeStore.isFocusModeActive(context)
+        val views = buildRemoteViews(context, activeTimer, isFocusModeActive)
         appWidgetIds.forEach { id ->
             appWidgetManager.updateAppWidget(id, views)
         }
@@ -72,7 +74,8 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
 
     private fun buildRemoteViews(
         context: Context,
-        activeTimer: ActiveTimerState?
+        activeTimer: ActiveTimerState?,
+        isFocusModeActive: Boolean
     ): RemoteViews {
         val openIntent = PendingIntent.getActivity(
             context,
@@ -93,8 +96,14 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
                     FlowStatusWidgetRenderer.render(activeTimer)
                 )
                 setViewVisibility(R.id.flow_status_empty_container, View.GONE)
-                setViewVisibility(R.id.flow_status_widget_text_row, View.VISIBLE)
-                bindTimerText(activeTimer)
+                if (isFocusModeActive) {
+                    setViewVisibility(R.id.flow_status_widget_text_row, View.VISIBLE)
+                    bindFocusModeText(activeTimer)
+                    setViewVisibility(R.id.flow_status_widget_chronometer, View.GONE)
+                } else {
+                    setViewVisibility(R.id.flow_status_widget_text_row, View.VISIBLE)
+                    bindTimerText(activeTimer)
+                }
             } else {
                 val frame = getEmptyFrame(context)
                 setImageViewBitmap(
@@ -140,6 +149,14 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
             null,
             !isPaused
         )
+    }
+
+    private fun RemoteViews.bindFocusModeText(activeTimer: ActiveTimerState) {
+        setTextViewText(
+            R.id.flow_status_widget_label,
+            "${displayCategory(activeTimer.category)}에 집중하는 중 🔥"
+        )
+        setTextColor(R.id.flow_status_widget_label, Color.rgb(37, 28, 64))
     }
 
     private fun displayCategory(category: String): String = when (category) {

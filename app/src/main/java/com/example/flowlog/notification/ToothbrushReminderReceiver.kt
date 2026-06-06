@@ -13,6 +13,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.flowlog.MainActivity
 import com.example.flowlog.R
+import com.example.flowlog.data.local.FocusModeStore
 
 class ToothbrushReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -34,7 +35,8 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
         }
 
         if (!canPostNotifications(context)) return
-        val shouldSilence = SleepAlarmGuard.shouldSilenceAlerts(context)
+        val shouldSilence = !FocusModeStore.shouldPlayRegularSound(context) ||
+            SleepAlarmGuard.shouldSilenceAlerts(context)
         if (shouldSilence) {
             SleepAlarmGuard.ensureSilentNotificationChannel(context)
         }

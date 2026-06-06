@@ -1,7 +1,6 @@
 package com.example.flowlog.ui.screen
 
 import android.graphics.Paint
-import android.util.Log
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
@@ -149,6 +148,7 @@ import com.example.flowlog.ui.component.categoryColor
 import com.example.flowlog.ui.component.displayCategory
 import com.example.flowlog.ui.component.formatDuration
 import com.example.flowlog.ui.viewmodel.ActivityViewModel
+import com.example.flowlog.ui.viewmodel.TimerDisplayState
 import com.example.flowlog.ui.viewmodel.AnalyticsState
 import com.example.flowlog.ui.viewmodel.CategoryStat
 import com.example.flowlog.ui.viewmodel.TrendPoint
@@ -168,7 +168,6 @@ private val FlowPurpleSoft = Color(0xFFEDE9FF)
 private val FlowInk = Color(0xFF10182C)
 private val FlowMuted = Color(0xFF697386)
 private val FlowDivider = Color(0xFFE8E8EE)
-private const val TIMETABLE_TAG = "FlowlogTimetable"
 private const val MERGE_THRESHOLD_MILLIS = 10 * 60 * 1000L
 private const val RECOMMENDED_TODO_DISPLAY_DURATION_MILLIS = 60 * 60 * 1000L
 private val MERGEABLE_TIMETABLE_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK")
@@ -353,6 +352,7 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+    val timerDisplayState by viewModel.timerDisplayState.collectAsState()
     val restoredPinnedTimer = remember(context) {
         TimerStateStore.getPinnedTimer(context)
     }
@@ -434,8 +434,7 @@ fun HomeScreen(
             TodayFlowCard(
                 isRunning = uiState.isRunning,
                 currentCategory = uiState.currentCategory,
-                elapsedTime = uiState.elapsedTime,
-                timerGoalMillis = uiState.timerGoalMillis,
+                timerDisplayState = timerDisplayState,
                 statusMessage = uiState.statusMessage,
                 appliedTitle = uiState.pendingTitle.orEmpty(),
                 titleSuggestions = titleSuggestions,
@@ -623,8 +622,7 @@ private fun HomeHeader(
 private fun TodayFlowCard(
     isRunning: Boolean,
     currentCategory: String,
-    elapsedTime: Long,
-    timerGoalMillis: Long,
+    timerDisplayState: TimerDisplayState,
     statusMessage: String?,
     appliedTitle: String,
     titleSuggestions: List<String>,
@@ -673,8 +671,8 @@ private fun TodayFlowCard(
             if (it) {
                 TimerPage(
                     currentCategory = currentCategory,
-                    elapsedTime = elapsedTime,
-                    timerGoalMillis = timerGoalMillis,
+                    elapsedTime = timerDisplayState.elapsedTime,
+                    timerGoalMillis = timerDisplayState.timerGoalMillis,
                     initialAppliedTitle = appliedTitle,
                     titleSuggestions = titleSuggestions,
                     onStop = onStop,
@@ -2669,25 +2667,22 @@ private fun TimetableCard(
     var selectedRecommendedBlock by remember { mutableStateOf<RecommendedTodoBlock?>(null) }
     var pendingSleepRange by remember { mutableStateOf<EmptyRange?>(null) }
     val displayActivitySegments = remember(activities) {
-        buildDisplayActivitySegments(activities).also { segments ->
-            Log.d(
-                TIMETABLE_TAG,
-                "displaySegments original=${activities.size}, display=${segments.size}, hidden=${segments.sumOf { it.hiddenSegments.size }}"
-            )
-        }
+        buildDisplayActivitySegments(activities)
     }
     val visibleScheduledBlocks = remember(scheduledBlocks, activeCategory) {
         scheduledBlocks.filterNot { block -> block.category == activeCategory }
     }
     val timelineItems = remember(displayActivitySegments, visibleScheduledBlocks, recommendedBlocks) {
-        displayActivitySegments.map { TimelineBlock.ActualActivity(it) } +
-            visibleScheduledBlocks.map { TimelineBlock.ScheduledAutoButton(it) } +
-            recommendedBlocks.map { TimelineBlock.RecommendedTodo(it) }
-    }.sortedBy { block ->
-        when (block) {
-            is TimelineBlock.ActualActivity -> block.segment.startTime
-            is TimelineBlock.ScheduledAutoButton -> block.block.startTime
-            is TimelineBlock.RecommendedTodo -> block.block.plannedStartMillis
+        (
+            displayActivitySegments.map { TimelineBlock.ActualActivity(it) } +
+                visibleScheduledBlocks.map { TimelineBlock.ScheduledAutoButton(it) } +
+                recommendedBlocks.map { TimelineBlock.RecommendedTodo(it) }
+            ).sortedBy { block ->
+            when (block) {
+                is TimelineBlock.ActualActivity -> block.segment.startTime
+                is TimelineBlock.ScheduledAutoButton -> block.block.startTime
+                is TimelineBlock.RecommendedTodo -> block.block.plannedStartMillis
+            }
         }
     }
 
@@ -2769,18 +2764,14 @@ private fun TimetableCard(
                     onScheduledLongPress = { block -> selectedBlock = block },
                     onRecommendedClick = { block -> selectedRecommendedBlock = block },
                     onEmptySpaceLongPress = { pressedTimeMillis ->
-                        Log.d("SleepFill", "onEmptySpaceLongPress: pressedTimeMillis=$pressedTimeMillis")
                         val activitiesForRange = allActivities.ifEmpty { activities }
                         val range = findEmptyRangeAroundPressedTime(
                             pressedTimeMillis = pressedTimeMillis,
                             allActivities = activitiesForRange,
                             runningTimerStartMillis = timerStartMillis
                         )
-                        Log.d("SleepFill", "emptyRange=$range")
                         val isCandidate = range != null && isSleepCandidateRange(range.startMillis, range.endMillis)
-                        Log.d("SleepFill", "isSleepCandidate=$isCandidate")
                         if (isCandidate) {
-                            Log.d("SleepFill", "pendingSleepRange 설정: $range")
                             pendingSleepRange = range
                         }
                     }
@@ -3106,28 +3097,40 @@ private fun TimetableBar(
 ) {
     if (blocks.isEmpty()) return
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-    val windowBlocks = blocks.filter { it !is TimelineBlock.RecommendedTodo || !it.block.isBubbleOnly }
-        .ifEmpty { blocks }
-    val firstStart = windowBlocks.minOf {
-        when (it) {
-            is TimelineBlock.ActualActivity -> it.segment.startTime
-            is TimelineBlock.ScheduledAutoButton -> it.block.startTime
-            is TimelineBlock.RecommendedTodo -> it.block.plannedStartMillis
+    val windowBlocks = remember(blocks) {
+        blocks.filter { it !is TimelineBlock.RecommendedTodo || !it.block.isBubbleOnly }
+            .ifEmpty { blocks }
+    }
+    val firstStart = remember(windowBlocks) {
+        windowBlocks.minOf {
+            when (it) {
+                is TimelineBlock.ActualActivity -> it.segment.startTime
+                is TimelineBlock.ScheduledAutoButton -> it.block.startTime
+                is TimelineBlock.RecommendedTodo -> it.block.plannedStartMillis
+            }
         }
     }
-    val lastEnd = windowBlocks.maxOf {
-        when (it) {
-            is TimelineBlock.ActualActivity -> it.segment.endTime.coerceAtLeast(it.segment.startTime + 1L)
-            is TimelineBlock.ScheduledAutoButton -> it.block.endTime.coerceAtLeast(it.block.startTime + 1L)
-            is TimelineBlock.RecommendedTodo -> it.block.displayEndMillis()
+    val lastEnd = remember(windowBlocks) {
+        windowBlocks.maxOf {
+            when (it) {
+                is TimelineBlock.ActualActivity -> it.segment.endTime.coerceAtLeast(it.segment.startTime + 1L)
+                is TimelineBlock.ScheduledAutoButton -> it.block.endTime.coerceAtLeast(it.block.startTime + 1L)
+                is TimelineBlock.RecommendedTodo -> it.block.displayEndMillis()
+            }
         }
     }
     val paddingMillis = 15L * 60L * 1000L
-    val windowStart = (firstStart - paddingMillis).coerceAtLeast(0L)
-    val windowEnd = (lastEnd + paddingMillis).coerceAtLeast(windowStart + 60L * 60L * 1000L)
-    val windowDuration = (windowEnd - windowStart).coerceAtLeast(1L)
-    val scheduled = blocks.filterIsInstance<TimelineBlock.ScheduledAutoButton>().map { it.block }
-    val recommended = blocks.filterIsInstance<TimelineBlock.RecommendedTodo>().map { it.block }
+    val windowStart = remember(firstStart) { (firstStart - paddingMillis).coerceAtLeast(0L) }
+    val windowEnd = remember(lastEnd, windowStart) {
+        (lastEnd + paddingMillis).coerceAtLeast(windowStart + 60L * 60L * 1000L)
+    }
+    val windowDuration = remember(windowStart, windowEnd) { (windowEnd - windowStart).coerceAtLeast(1L) }
+    val scheduled = remember(blocks) {
+        blocks.filterIsInstance<TimelineBlock.ScheduledAutoButton>().map { it.block }
+    }
+    val recommended = remember(blocks) {
+        blocks.filterIsInstance<TimelineBlock.RecommendedTodo>().map { it.block }
+    }
     val categories = remember(blocks) {
         blocks.map {
             when (it) {
@@ -3138,7 +3141,9 @@ private fun TimetableBar(
         }.distinct()
     }
 
-    val actualSegments = blocks.filterIsInstance<TimelineBlock.ActualActivity>().map { it.segment }
+    val actualSegments = remember(blocks) {
+        blocks.filterIsInstance<TimelineBlock.ActualActivity>().map { it.segment }
+    }
 
     // pointerInput은 Canvas가 아닌 Box 컨테이너에 붙여
     // LazyColumn 스크롤과의 경합 없이 long press를 안정적으로 감지한다.
@@ -3174,8 +3179,6 @@ private fun TimetableBar(
                         if (hit != null) onRecommendedClick(hit)
                     },
                     onLongPress = { offset ->
-                        Log.d("SleepFill", "onLongPress 진입 offset=$offset size=${size.width}x${size.height}")
-
                         // 1) ScheduledAutoButton 히트 테스트
                         val scheduledHit = scheduled.firstOrNull { block ->
                             val startFraction = ((block.startTime - windowStart).toFloat() / windowDuration.toFloat())
@@ -3186,7 +3189,6 @@ private fun TimetableBar(
                             val endX = size.width * endFraction
                             offset.x in startX..endX
                         }
-                        Log.d("SleepFill", "scheduledHit=${scheduledHit?.category}")
                         if (scheduledHit != null) {
                             onScheduledLongPress(scheduledHit)
                             return@detectTapGestures
@@ -3202,7 +3204,6 @@ private fun TimetableBar(
                             val endX = size.width * endFraction
                             offset.x in startX..endX
                         }
-                        Log.d("SleepFill", "actualHit=${actualHit?.category}")
                         if (actualHit != null) return@detectTapGestures
 
                         // 3) RecommendedTodo 히트 테스트
@@ -3215,13 +3216,11 @@ private fun TimetableBar(
                             val endX = size.width * endFraction
                             offset.x in startX..endX
                         }
-                        Log.d("SleepFill", "recommendedHit=${recommendedHit?.title}")
                         if (recommendedHit != null) return@detectTapGestures
 
                         // 4) 빈 공간 — Canvas 전체 높이에서 받음 (Y 제한 없음)
                         val fraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
                         val pressedTimeMillis = windowStart + (fraction * windowDuration).toLong()
-                        Log.d("SleepFill", "빈 공간 long press: fraction=$fraction pressedTime=$pressedTimeMillis")
                         onEmptySpaceLongPress(pressedTimeMillis)
                     }
                 )
