@@ -23,6 +23,33 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Added **빈 타임테이블 구간 수면 채우기** (fill empty timetable gaps with sleep):
+  - Long-pressing an empty area of the home timetable bar now detects the
+    surrounding gap and, when the gap is at least 30 minutes, opens a sleep-fill
+    confirmation dialog.
+  - The dialog shows the full empty range label and two side-by-side wheel
+    pickers — start time and end time — so the user can narrow or expand the
+    sleep window before confirming.
+  - The wheel picker uses five visible items (`PICKER_HEIGHT = 200 dp`,
+    `ITEM_HEIGHT = 40 dp`, `CONTENT_PADDING = 80 dp`) so the centred item is
+    always unambiguous. Selection is committed only when scrolling stops, and a
+    `snapInFlight` flag prevents the snap animation from triggering a second
+    spurious commit.
+  - `rememberUpdatedState` ensures that `selectedValue` and `onSelect` inside
+    `LaunchedEffect(listState)` always reflect the latest recomposed values
+    rather than stale closures.
+  - Confirming saves a `SLEEP` `ActivitySession` (category `"SLEEP"`, title
+    `"수면"`, `sourceType = MANUAL`) via `ActivityViewModel.saveSleepActivity`.
+  - The long-press gesture is handled on a `Box` wrapper around the timetable
+    `Canvas` using `detectTapGestures`; existing `ActualActivity`,
+    `ScheduledAutoButton`, and `RecommendedTodo` hit regions absorb their own
+    taps/long-presses and leave the empty-space path untouched.
+  - Hit-testing and empty-range logic live in the new `SleepFillUtils.kt`
+    (`findEmptyRangeAroundPressedTime`, `isSleepCandidateRange`,
+    `validateSleepRange`).
+  - Developer mode bypasses the feature; `allActivities` and
+    `timerStartMillis` are not passed when sample timetable data is active.
+
 - Added the first foundation for the Todo tab **AI Organizer**:
   - A small `AI` button beside the Todo title runs a today organizer and reflects
     a lightweight loading state while it works.

@@ -244,6 +244,23 @@ class ActivityViewModel(
         }
     }
 
+    fun saveSleepActivity(startTime: Long, endTime: Long) {
+        if (startTime <= 0L || endTime <= startTime) return
+        val activity = ActivitySession(
+            category = "SLEEP",
+            title = "수면",
+            startTime = startTime,
+            endTime = endTime,
+            durationMillis = endTime - startTime,
+            sourceType = ActivitySourceType.MANUAL
+        )
+        viewModelScope.launch {
+            val newId = repository.insertActivity(activity)
+            rememberLastAddedActivity(activity.copy(id = newId))
+            attemptDeferredSync()
+        }
+    }
+
     fun setRunningActivityTitle(title: String) {
         if (!_uiState.value.isRunning) return
         val cleanTitle = title.trim().takeIf { cleanTitle -> cleanTitle.isNotBlank() }
