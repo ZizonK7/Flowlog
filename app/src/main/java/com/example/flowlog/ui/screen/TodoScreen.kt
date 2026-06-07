@@ -154,10 +154,9 @@ fun TodoScreen(
     val normalTodos   = remember(todos) {
         todos.filter { todo -> !todo.isCompleted && todo.category == TodoCategory.TODAY }
     }
-    val activeTodos   = remember(todos, focusIds, todayStart) {
+    val activeTodos   = remember(todos, todayStart) {
         todos.filter { todo ->
             !todo.isCompleted &&
-            todo.id !in focusIds &&
             todo.category != TodoCategory.TODAY &&
             !(todo.category == TodoCategory.UNIVERSITY_EXAM &&
               todo.selectedDate != null &&
