@@ -28,6 +28,8 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.min
 import kotlin.math.sin
 
+private val FOCUS_FIRE_CATEGORIES = setOf("STUDY", "TODO", "WORK", "DEVELOPMENT", "EXERCISE", "ETC")
+
 class FlowStatusWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(
         context: Context,
@@ -65,10 +67,11 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
             appWidgetManager.updateAppWidget(id, views)
         }
 
-        if (activeTimer == null || activeTimer.status == TimerStatus.PAUSED || appWidgetIds.isEmpty()) {
-            cancelNextRefresh(context)
-        } else {
-            scheduleNextRefresh(context)
+        when {
+            appWidgetIds.isEmpty() -> cancelNextRefresh(context)
+            activeTimer != null && activeTimer.status != TimerStatus.PAUSED -> scheduleNextRefresh(context)
+            activeTimer == null -> scheduleEmptyRefresh(context)
+            else -> cancelNextRefresh(context)
         }
     }
 
@@ -90,10 +93,11 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
             setOnClickPendingIntent(R.id.flow_status_widget_root, openIntent)
 
             if (activeTimer != null) {
+                val isFocusFireActive = activeTimer.category in FOCUS_FIRE_CATEGORIES && isFocusModeActive
                 resetEmptyTracker(context)
                 setImageViewBitmap(
                     R.id.flow_status_widget_image,
-                    FlowStatusWidgetRenderer.render(activeTimer)
+                    FlowStatusWidgetRenderer.render(activeTimer, isFocusFireActive)
                 )
                 setViewVisibility(R.id.flow_status_empty_container, View.GONE)
                 if (isFocusModeActive) {
@@ -102,7 +106,7 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
                     setViewVisibility(R.id.flow_status_widget_chronometer, View.GONE)
                 } else {
                     setViewVisibility(R.id.flow_status_widget_text_row, View.VISIBLE)
-                    bindTimerText(activeTimer)
+                    bindTimerText(activeTimer, isFocusFireActive)
                 }
             } else {
                 val frame = getEmptyFrame(context)
@@ -119,9 +123,9 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
         }
     }
 
-    private fun RemoteViews.bindTimerText(activeTimer: ActiveTimerState) {
+    private fun RemoteViews.bindTimerText(activeTimer: ActiveTimerState, isFocusFireActive: Boolean) {
         val elapsedMillis = activeTimer.elapsedMillis
-        val isOverGoal = elapsedMillis >= activeTimer.goalMillis
+        val isOverGoal = isFocusFireActive
         val isPaused = activeTimer.status == TimerStatus.PAUSED
         val textColor = when {
             isPaused -> Color.rgb(51, 47, 62)
@@ -165,10 +169,11 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
         "MEAL" -> "식사"
         "STUDY" -> "공부"
         "WORK" -> "업무"
-        "COMPANY" -> "회사"
-        "DEVELOPMENT" -> "개발"
-        "READING" -> "독서"
-        "WASH" -> "씻기"
+            "COMPANY" -> "회사"
+            "DEVELOPMENT" -> "개발"
+            "READING" -> "독서"
+            "MOVE" -> "이동"
+            "WASH" -> "씻기"
         "SCHOOL" -> "학교"
         "EXERCISE" -> "운동"
         "SLEEP" -> "수면"
@@ -241,6 +246,20 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
             )
         }
 
+        private fun scheduleEmptyRefresh(context: Context) {
+            val prefs = context.getSharedPreferences(PREFS_WIDGET, Context.MODE_PRIVATE)
+            val emptySince = prefs.getLong(KEY_EMPTY_SINCE, 0L).takeIf { it > 0L } ?: return
+            val emptyMinutes = (System.currentTimeMillis() - emptySince) / 60_000L
+            val nextTransitionAt = when {
+                emptyMinutes < 10L -> emptySince + 10L * 60_000L
+                emptyMinutes < 30L -> emptySince + 30L * 60_000L
+                emptyMinutes < 60L -> emptySince + 60L * 60_000L
+                else -> return  // 마지막 프레임, 더 이상 전환 없음
+            }
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            alarmManager.set(AlarmManager.RTC, nextTransitionAt, refreshIntent(context))
+        }
+
         private fun cancelNextRefresh(context: Context) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             alarmManager.cancel(refreshIntent(context))
@@ -264,7 +283,7 @@ private object FlowStatusWidgetRenderer {
     private const val HEIGHT = 180
     private const val WAVE_LOOP_MILLIS = 6_000L
 
-    fun render(activeTimer: ActiveTimerState?): Bitmap {
+    fun render(activeTimer: ActiveTimerState?, isFocusFireActive: Boolean = false): Bitmap {
         val bitmap = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val bounds = RectF(8f, 8f, WIDTH - 8f, HEIGHT - 8f)
@@ -272,7 +291,7 @@ private object FlowStatusWidgetRenderer {
 
         drawBase(canvas, bounds, radius)
         if (activeTimer != null) {
-            drawActiveState(canvas, bounds, radius, activeTimer)
+            drawActiveState(canvas, bounds, radius, activeTimer, isFocusFireActive)
         }
 
         return bitmap
@@ -296,12 +315,15 @@ private object FlowStatusWidgetRenderer {
         canvas: Canvas,
         bounds: RectF,
         radius: Float,
-        activeTimer: ActiveTimerState
+        activeTimer: ActiveTimerState,
+        isFocusFireActive: Boolean
     ) {
         val elapsedMillis = activeTimer.elapsedMillis
         val goalMillis = activeTimer.goalMillis.coerceAtLeast(1L)
         val progress = min(elapsedMillis.toFloat() / goalMillis.toFloat(), 1f)
-        val isOverGoal = elapsedMillis >= goalMillis
+        val isOverGoal = isFocusFireActive
+        val isComplete = !isFocusFireActive && progress >= 1f
+        val isFireComplete = isFocusFireActive && progress >= 1f
         val isPaused = activeTimer.status == TimerStatus.PAUSED
         val wavePhase = if (isPaused) 0f
         else (SystemClock.elapsedRealtime() % WAVE_LOOP_MILLIS).toFloat() / WAVE_LOOP_MILLIS
@@ -312,7 +334,7 @@ private object FlowStatusWidgetRenderer {
 
         canvas.save()
         canvas.clipPath(clip)
-        drawLiquidFill(canvas, fillBounds, isOverGoal, isPaused, wavePhase)
+        drawLiquidFill(canvas, fillBounds, isOverGoal, isComplete, isFireComplete, isPaused, wavePhase)
         canvas.restore()
     }
 
@@ -320,16 +342,22 @@ private object FlowStatusWidgetRenderer {
         canvas: Canvas,
         fillBounds: RectF,
         isOverGoal: Boolean,
+        isComplete: Boolean,
+        isFireComplete: Boolean,
         isPaused: Boolean,
         wavePhase: Float
     ) {
         val startColor = when {
             isPaused -> Color.rgb(158, 151, 177)
+            isFireComplete -> Color.rgb(0, 200, 120)
+            isComplete -> Color.rgb(255, 200, 50)
             isOverGoal -> Color.rgb(255, 82, 122)
             else -> Color.rgb(132, 100, 255)
         }
         val endColor = when {
             isPaused -> Color.rgb(203, 198, 216)
+            isFireComplete -> Color.rgb(80, 240, 180)
+            isComplete -> Color.rgb(255, 230, 110)
             isOverGoal -> Color.rgb(255, 132, 74)
             else -> Color.rgb(179, 139, 255)
         }

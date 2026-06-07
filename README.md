@@ -23,6 +23,14 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Added **timer completion color effects** for the donut progress ring and home-screen widget:
+  - Normal mode: when the progress ring reaches 100 % the arc and head highlight switch from purple to gold (`#FFCC00` / `#FFEE80`). The widget liquid fill shifts to a gold gradient (`rgb(255,200,50)` → `rgb(255,230,110)`).
+  - Fire (focus) mode: when the ring nears the end of a cycle (≥ 98 %) it switches from orange to emerald (`#00D97E` / `#80FFD0`). The widget fill shifts to an emerald gradient (`rgb(0,200,120)` → `rgb(80,240,180)`).
+
+- Improved **empty-state widget frame transitions**:
+  - The widget shows four character frames based on how long no timer has been running (0–10 min, 10–30 min, 30–60 min, 60 min+).
+  - Previously frames only updated on the system's 30-minute `onUpdate` cycle. The widget now schedules an `AlarmManager.set` (inexact, battery-friendly) to fire exactly at the next transition boundary (10 min, 30 min, or 60 min). After the 60-minute mark no further alarms are registered.
+
 - Added **빈 타임테이블 구간 수면 채우기** (fill empty timetable gaps with sleep):
   - Long-pressing an empty area of the home timetable bar now detects the
     surrounding gap and, when the gap is at least 30 minutes, opens a sleep-fill

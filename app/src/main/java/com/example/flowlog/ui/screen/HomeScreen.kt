@@ -181,6 +181,7 @@ private val PRECISE_TIMETABLE_CATEGORIES = setOf(
     "EXERCISE"
 )
 private val PRODUCTIVE_TIMETABLE_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK")
+private val FOCUS_FIRE_CATEGORIES = setOf("STUDY", "TODO", "WORK", "DEVELOPMENT", "EXERCISE", "ETC")
 
 @Composable
 fun DevTimetableScreen(modifier: Modifier = Modifier) {
@@ -366,6 +367,7 @@ fun HomeScreen(
             "WORK",
             "DEVELOPMENT",
             "READING",
+            "MOVE",
             "WASH",
             "SCHOOL",
             "COMPANY",
@@ -715,7 +717,7 @@ private fun TimerPage(
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
     val isFocusCategory = remember(currentCategory) {
-        currentCategory in setOf("STUDY", "DEVELOPMENT", "WORK", "TODO", "ETC")
+        currentCategory in FOCUS_FIRE_CATEGORIES
     }
     var showFocusConfirmDialog by remember { mutableStateOf(false) }
     var showFocusStartedDialog by remember { mutableStateOf(false) }
@@ -731,9 +733,15 @@ private fun TimerPage(
     } else {
         timerGoalMillis.coerceAtLeast(1L)
     }
-    val cycleProgress = (elapsedTime % progressCycleMillis).toFloat() / progressCycleMillis.toFloat()
-    val progress = if (elapsedTime > 0L) cycleProgress.coerceAtLeast(0.01f) else 0f
-    val isOnFire = elapsedTime >= progressCycleMillis
+    val usesFireCycle = currentCategory in FOCUS_FIRE_CATEGORIES && isFocusModeActive
+    val progress = if (elapsedTime <= 0L) {
+        0f
+    } else if (usesFireCycle) {
+        ((elapsedTime % progressCycleMillis).toFloat() / progressCycleMillis.toFloat()).coerceAtLeast(0.01f)
+    } else {
+        (elapsedTime.toFloat() / progressCycleMillis.toFloat()).coerceIn(0f, 1f)
+    }
+    val isOnFire = usesFireCycle
 
     Column(
         modifier = Modifier
@@ -1266,6 +1274,7 @@ private fun defaultActivityTitle(category: String): String {
         "COMPANY" -> "회사"
         "DEVELOPMENT" -> "개발"
         "READING" -> "독서"
+        "MOVE" -> "이동"
         "WASH" -> "씻기"
         "REST" -> "휴식"
         "SCHOOL" -> "학교"
@@ -1605,6 +1614,8 @@ private fun FlowProgressRing(
             val sweepAngle = 360f * progress.coerceIn(0f, 1f)
             val startAngle = -90f
             val headAngle = startAngle + sweepAngle
+            val isComplete = !isOnFire && progress >= 1f
+            val isFireComplete = isOnFire && progress >= 0.98f
 
             drawArc(
                 color = Color(0xFFE9E9F1),
@@ -1625,7 +1636,12 @@ private fun FlowProgressRing(
                 )
             }
             drawArc(
-                color = if (isOnFire) Color(0xFFFF7A2F) else FlowPurple,
+                color = when {
+                    isFireComplete -> Color(0xFF00D97E)
+                    isComplete -> Color(0xFFFFCC00)
+                    isOnFire -> Color(0xFFFF7A2F)
+                    else -> FlowPurple
+                },
                 startAngle = startAngle,
                 sweepAngle = sweepAngle,
                 useCenter = false,
@@ -1634,7 +1650,12 @@ private fun FlowProgressRing(
                 style = stroke
             )
             drawArc(
-                color = if (isOnFire) Color(0xFFFFE18A) else FlowPurple.copy(alpha = 0.38f),
+                color = when {
+                    isFireComplete -> Color(0xFF80FFD0)
+                    isComplete -> Color(0xFFFFEE80)
+                    isOnFire -> Color(0xFFFFE18A)
+                    else -> FlowPurple.copy(alpha = 0.38f)
+                },
                 startAngle = headAngle - 12f,
                 sweepAngle = 18f,
                 useCenter = false,
