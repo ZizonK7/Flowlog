@@ -23,6 +23,16 @@ Google account can view the data from the pfkfks website.
 
 ## Recent Updates
 
+- Optimized the home timetable calculation path with low-risk Compose memoization:
+  - `TimetableCard` now caches derived activity display segments, visible
+    routine blocks, and combined timeline items with `remember` /
+    `derivedStateOf`, so sorting and merge loops rerun only when their actual
+    inputs change.
+  - Sleep empty-range input selection is memoized while preserving the existing
+    long-press behavior and running-timer boundary checks.
+  - Timetable legend rows now use stable lazy-list keys without changing the
+    visual design or timetable rendering rules.
+
 - Added **timer completion color effects** for the donut progress ring and home-screen widget:
   - Normal mode: when the progress ring reaches 100 % the arc and head highlight switch from purple to gold (`#FFCC00` / `#FFEE80`). The widget liquid fill shifts to a gold gradient (`rgb(255,200,50)` → `rgb(255,230,110)`).
   - Fire (focus) mode: when the ring nears the end of a cycle (≥ 98 %) it switches from orange to emerald (`#00D97E` / `#80FFD0`). The widget fill shifts to an emerald gradient (`rgb(0,200,120)` → `rgb(80,240,180)`).

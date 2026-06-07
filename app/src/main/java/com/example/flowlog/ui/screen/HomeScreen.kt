@@ -2626,8 +2626,10 @@ private fun CategoryLegend(categories: List<String>) {
             .padding(top = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        items(categories.size) { index ->
-            val category = categories[index]
+        items(
+            items = categories,
+            key = { category -> category }
+        ) { category ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
@@ -2687,22 +2689,31 @@ private fun TimetableCard(
     var selectedBlock by remember { mutableStateOf<ScheduledAutoButtonBlock?>(null) }
     var selectedRecommendedBlock by remember { mutableStateOf<RecommendedTodoBlock?>(null) }
     var pendingSleepRange by remember { mutableStateOf<EmptyRange?>(null) }
-    val displayActivitySegments = remember(activities) {
-        buildDisplayActivitySegments(activities)
+    val activitiesForSleepRange = remember(allActivities, activities) {
+        allActivities.ifEmpty { activities }
     }
-    val visibleScheduledBlocks = remember(scheduledBlocks, activeCategory) {
-        scheduledBlocks.filterNot { block -> block.category == activeCategory }
+    val displayActivitySegments by remember(activities) {
+        derivedStateOf {
+            buildDisplayActivitySegments(activities)
+        }
     }
-    val timelineItems = remember(displayActivitySegments, visibleScheduledBlocks, recommendedBlocks) {
-        (
-            displayActivitySegments.map { TimelineBlock.ActualActivity(it) } +
-                visibleScheduledBlocks.map { TimelineBlock.ScheduledAutoButton(it) } +
-                recommendedBlocks.map { TimelineBlock.RecommendedTodo(it) }
-            ).sortedBy { block ->
-            when (block) {
-                is TimelineBlock.ActualActivity -> block.segment.startTime
-                is TimelineBlock.ScheduledAutoButton -> block.block.startTime
-                is TimelineBlock.RecommendedTodo -> block.block.plannedStartMillis
+    val visibleScheduledBlocks by remember(scheduledBlocks, activeCategory) {
+        derivedStateOf {
+            scheduledBlocks.filterNot { block -> block.category == activeCategory }
+        }
+    }
+    val timelineItems by remember(displayActivitySegments, visibleScheduledBlocks, recommendedBlocks) {
+        derivedStateOf {
+            (
+                displayActivitySegments.map { TimelineBlock.ActualActivity(it) } +
+                    visibleScheduledBlocks.map { TimelineBlock.ScheduledAutoButton(it) } +
+                    recommendedBlocks.map { TimelineBlock.RecommendedTodo(it) }
+                ).sortedBy { block ->
+                when (block) {
+                    is TimelineBlock.ActualActivity -> block.segment.startTime
+                    is TimelineBlock.ScheduledAutoButton -> block.block.startTime
+                    is TimelineBlock.RecommendedTodo -> block.block.plannedStartMillis
+                }
             }
         }
     }
@@ -2785,10 +2796,9 @@ private fun TimetableCard(
                     onScheduledLongPress = { block -> selectedBlock = block },
                     onRecommendedClick = { block -> selectedRecommendedBlock = block },
                     onEmptySpaceLongPress = { pressedTimeMillis ->
-                        val activitiesForRange = allActivities.ifEmpty { activities }
                         val range = findEmptyRangeAroundPressedTime(
                             pressedTimeMillis = pressedTimeMillis,
-                            allActivities = activitiesForRange,
+                            allActivities = activitiesForSleepRange,
                             runningTimerStartMillis = timerStartMillis
                         )
                         val isCandidate = range != null && isSleepCandidateRange(range.startMillis, range.endMillis)
@@ -2839,7 +2849,7 @@ private fun TimetableCard(
     pendingSleepRange?.let { range ->
         SleepFillConfirmDialog(
             emptyRange = range,
-            allActivities = allActivities.ifEmpty { activities },
+            allActivities = activitiesForSleepRange,
             onDismiss = { pendingSleepRange = null },
             onConfirm = { start, end ->
                 onSaveSleep(start, end)
@@ -3386,8 +3396,10 @@ private fun TimetableBar(
         modifier = Modifier.padding(top = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        items(categories.size) { index ->
-            val category = categories[index]
+        items(
+            items = categories,
+            key = { category -> category }
+        ) { category ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
