@@ -1,5 +1,6 @@
 package com.example.flowlog.data.recommendation
 
+import com.example.flowlog.data.constants.ActivitySourceType
 import com.example.flowlog.data.model.ActivitySession
 import java.util.Calendar
 
@@ -14,7 +15,7 @@ class ButtonRecommendationEngine {
 
     companion object {
         // 직접 카테고리 버튼을 눌렀을 때 후보로 인정되는 카테고리
-        private val CANDIDATE_CATEGORIES = setOf("DEVELOPMENT", "READING", "SCHOOL", "COMPANY")
+        private val CANDIDATE_CATEGORIES = setOf("DEVELOPMENT", "READING", "SCHOOL", "COMPANY", "MOVE")
 
         // 활동 제목(정규화)으로 후보 카테고리를 추론하는 매핑
         // 사용자가 다른 버튼(예: 공부)을 눌러도 제목이 "개발"이면 DEVELOPMENT로 집계
@@ -29,13 +30,20 @@ class ButtonRecommendationEngine {
             "read" to "READING",
             "학교" to "SCHOOL",
             "회사" to "COMPANY",
-            "출근" to "COMPANY"
+            "출근" to "COMPANY",
+            "이동" to "MOVE",
+            "이동시간" to "MOVE",
+            "통학" to "MOVE",
+            "퇴근" to "MOVE",
+            "버스" to "MOVE",
+            "지하철" to "MOVE"
         )
         private val TEXT_KEYWORDS_TO_CATEGORY = listOf(
             listOf("개발", "코딩", "프로그래밍") to "DEVELOPMENT",
             listOf("독서", "책", "읽기", "reading", "read") to "READING",
             listOf("학교") to "SCHOOL",
-            listOf("회사", "출근") to "COMPANY"
+            listOf("회사", "출근") to "COMPANY",
+            listOf("이동", "이동시간", "통학", "퇴근", "버스", "지하철") to "MOVE"
         )
 
         // SCHOOL과 COMPANY는 같은 슬롯을 공유 — 점수 높은 쪽 하나만 승격
@@ -62,6 +70,7 @@ class ButtonRecommendationEngine {
         //   2순위: 제목이 매핑 테이블에 있는 경우 (공부 버튼 + 제목 "개발")
         val candidateSessions: List<Pair<String, ActivitySession>> = activities
             .filter { it.startTime >= windowStart }
+            .filter { it.sourceType != ActivitySourceType.DAILY_CUE_ROUTINE }
             .mapNotNull { session ->
                 val candidateCategory = when {
                     session.category in CANDIDATE_CATEGORIES -> session.category

@@ -26,6 +26,7 @@ fun categoryAppIcon(category: String): ImageVector? = when (category) {
     "COMPANY"     -> Icons.Filled.Apartment
     "DEVELOPMENT" -> Icons.Filled.Code
     "READING"     -> Icons.AutoMirrored.Filled.ChromeReaderMode
+    "MOVE"        -> Icons.AutoMirrored.Filled.DirectionsRun
     "WASH"        -> Icons.Filled.Shower
     "SCHOOL"      -> Icons.Filled.School
     "EXERCISE"    -> Icons.AutoMirrored.Filled.DirectionsRun
@@ -45,6 +46,7 @@ fun categoryNotificationIconRes(category: String): Int = when (category) {
     "COMPANY"     -> R.drawable.ic_activity_work
     "DEVELOPMENT" -> R.drawable.ic_activity_development
     "READING"     -> R.drawable.ic_activity_reading
+    "MOVE"        -> R.drawable.ic_activity_exercise
     "WASH"        -> R.drawable.ic_activity_wash
     "SCHOOL"      -> R.drawable.ic_activity_school
     "EXERCISE"    -> R.drawable.ic_activity_exercise

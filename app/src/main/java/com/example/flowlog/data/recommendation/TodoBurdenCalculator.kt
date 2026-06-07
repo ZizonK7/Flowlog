@@ -22,6 +22,15 @@ object TodoBurdenCalculator {
         "todo", "study", "review", "assignment", "homework", "quiz", "test"
     )
 
+    private val topicDevelopmentKeywords = listOf(
+        "개발", "코딩", "프로그래밍", "앱", "사이트", "아이콘", "버그", "고치",
+        "수정", "로직", "추천", "에이전트", "기록", "버튼", "firestore", "firebase"
+    )
+
+    private val topicStudyKeywords = listOf(
+        "파이썬", "python", "강의", "인강", "수업", "공부", "학습", "문제", "기출"
+    )
+
     private val defaultBurdenByCategory = mapOf(
         TodoCategory.ASSIGNMENT to BurdenLevel.MEDIUM,
         TodoCategory.REVIEW to BurdenLevel.LIGHT,
@@ -85,9 +94,15 @@ object TodoBurdenCalculator {
         if (text.isEmpty()) return "unknown"
 
         text = text
-            .replace(Regex("""[\s#\-]*(\d+)(주차|차|회|번|강|장|단원|th|st|nd|rd)?$""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""[~_#\-\s]*(\d+)(주차|차|회|번|강|장|단원|th|st|nd|rd)?$""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("""[\s#\-]*(part|chapter|ch|week)\s*\d+$""", RegexOption.IGNORE_CASE), "")
             .trim()
+
+        val compact = text.lowercase(Locale.getDefault()).replace(Regex("""\s+"""), " ")
+        val noSpace = compact.replace(Regex("""\s+"""), "")
+        if ("과외준비" in noSpace) return "과외_준비"
+        if (topicStudyKeywords.any { it in compact }) return "공부"
+        if (topicDevelopmentKeywords.any { it in compact }) return "개발"
 
         val tokens = text
             .split(Regex("""[\s\-/.:·_|,]+"""))

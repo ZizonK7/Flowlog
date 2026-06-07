@@ -136,6 +136,7 @@ private fun categoryPastelColor(category: String): Color {
         "COMPANY" -> Color(0xFFE6EEF2)
         "DEVELOPMENT" -> Color(0xFFE9E7FF)
         "READING" -> Color(0xFFE0F2F1)
+        "MOVE" -> Color(0xFFE0F7FA)
         "WASH" -> Color(0xFFE4F5FF)
         "SCHOOL" -> Color(0xFFFCE4ED)
         "EXERCISE" -> Color(0xFFE4F1FF)

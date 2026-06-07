@@ -288,7 +288,7 @@ class ActivityViewModel(
         if (_uiState.value.isRunning) return
 
         val startTime = System.currentTimeMillis()
-        val goalMillis = TimerStateStore.DEFAULT_GOAL_MILLIS
+        val goalMillis = defaultGoalMillisForCategory("TODO")
         _timerDisplayState.value = TimerDisplayState(
             elapsedTime = 0L,
             timerGoalMillis = goalMillis
@@ -340,8 +340,8 @@ class ActivityViewModel(
                 timerGoalMillis = cleanGoalMillis,
                 startTime = startTime,
                 linkedTodoId = null,
-                sourceType = ActivitySourceType.MANUAL,
-                sourceId = null,
+                sourceType = ActivitySourceType.DAILY_CUE_ROUTINE,
+                sourceId = cueId.toString(),
                 pendingTitle = cleanTitle,
                 pendingNote = null,
                 dailyCueId = cueId,
@@ -354,7 +354,9 @@ class ActivityViewModel(
             startTime = startTime,
             goalMillis = cleanGoalMillis,
             linkedTodoTitle = cleanTitle,
-            dailyCueId = cueId
+            dailyCueId = cueId,
+            sourceType = ActivitySourceType.DAILY_CUE_ROUTINE,
+            sourceId = cueId.toString()
         )
         activityTimerNotifier.showRunningTimer(cleanCategory, startTime)
         startTimer()
@@ -364,7 +366,7 @@ class ActivityViewModel(
         if (_uiState.value.isRunning) return
 
         val startTime = System.currentTimeMillis()
-        val goalMillis = TimerStateStore.DEFAULT_GOAL_MILLIS
+        val goalMillis = defaultGoalMillisForCategory("TODO")
         _timerDisplayState.value = TimerDisplayState(
             elapsedTime = 0L,
             timerGoalMillis = goalMillis
@@ -516,6 +518,7 @@ class ActivityViewModel(
 
         clearActiveSession()
         activityTimerNotifier.clearRunningTimer()
+        finishFocusMode(reason = "activity_finished")
 
         // UI를 즉시 종료 상태로 전환 — Firebase sync 완료를 기다리지 않음
         _uiState.update {
@@ -530,7 +533,9 @@ class ActivityViewModel(
                 sourceId = null,
                 pendingTitle = null,
                 pendingNote = null,
-                dailyCueId = null
+                dailyCueId = null,
+                isFocusModeActive = false,
+                focusModeEndsAtMillis = 0L
             )
         }
         resetTimerDisplayState()
@@ -964,7 +969,7 @@ class ActivityViewModel(
         val dLabel = if (dValue == 0) "D-Day" else "D-$dValue"
         val title = "$subjectTitle 시험 공부 $dLabel"
         val startTime = System.currentTimeMillis()
-        val goalMillis = com.example.flowlog.data.local.TimerStateStore.DEFAULT_GOAL_MILLIS
+        val goalMillis = defaultGoalMillisForCategory("STUDY")
         _timerDisplayState.value = TimerDisplayState(
             elapsedTime = 0L,
             timerGoalMillis = goalMillis
@@ -1300,6 +1305,7 @@ class ActivityViewModel(
         timerJob = null
         activityTimerNotifier.clearRunningTimer()
         clearActiveSession()
+        finishFocusMode(reason = "activity_cleared")
         resetTimerDisplayState()
         _uiState.update {
             it.copy(
@@ -1314,6 +1320,8 @@ class ActivityViewModel(
                 pendingTitle = null,
                 pendingNote = null,
                 dailyCueId = null,
+                isFocusModeActive = false,
+                focusModeEndsAtMillis = 0L,
                 statusMessage = null
             )
         }
@@ -1402,7 +1410,7 @@ class ActivityViewModel(
 
     private fun goalMillisForTimer(category: String, startTime: Long): Long {
         if (category != "SCHOOL" && category != "COMPANY") {
-            return TimerStateStore.DEFAULT_GOAL_MILLIS
+            return defaultGoalMillisForCategory(category)
         }
 
         val lastWeekStart = startOfDay(Calendar.getInstance().apply {
@@ -1426,6 +1434,14 @@ class ActivityViewModel(
         }.coerceAtLeast(1L)
     }
 
+    private fun defaultGoalMillisForCategory(category: String): Long {
+        return if (category in SEVENTY_FIVE_MINUTE_GOAL_CATEGORIES) {
+            SEVENTY_FIVE_MINUTE_GOAL_MILLIS
+        } else {
+            TimerStateStore.DEFAULT_GOAL_MILLIS
+        }
+    }
+
     private fun defaultTitle(category: String): String {
         return when (category) {
             "MEAL" -> "\uC2DD\uC0AC"
@@ -1436,6 +1452,7 @@ class ActivityViewModel(
             "COMPANY" -> "\uD68C\uC0AC"
             "DEVELOPMENT" -> "\uAC1C\uBC1C"
             "READING" -> "\uB3C5\uC11C"
+            "MOVE" -> "\uC774\uB3D9"
             "WASH" -> "\uC53B\uAE30"
             "REST" -> "\uD734\uC2DD"
             "SCHOOL" -> "\uD559\uAD50"
@@ -1467,6 +1484,12 @@ class ActivityViewModel(
     }
 
     fun stopFocusMode() {
+        finishFocusMode(reason = "manual")
+    }
+
+    private fun finishFocusMode(reason: String) {
+        val wasActive = _uiState.value.isFocusModeActive || FocusModeStore.isFocusModeActive(appContext)
+        if (!wasActive) return
         val dndEnabled = FocusModeStore.getEnableSystemDndForFocus(appContext)
         FocusDndController.restoreDnd(appContext)
         FocusModeStore.clearFocusMode(appContext)
@@ -1479,7 +1502,7 @@ class ActivityViewModel(
                 eventLogRepository.log(
                     eventType = EventType.FOCUS_MODE_STOPPED,
                     entityType = EntityType.FOCUS_MODE,
-                    metadataJson = """{"dnd_enabled":$dndEnabled,"reason":"manual"}"""
+                    metadataJson = """{"dnd_enabled":$dndEnabled,"reason":"$reason"}"""
                 )
             }
         }
@@ -1554,5 +1577,7 @@ class ActivityViewModel(
         private val undoJson = Json { ignoreUnknownKeys = true }
         private const val KEY_SLEEP_RECORD_2026_05_19 = "sleep_record_2026_05_19_212957"
         private val DEFAULT_SCHOOL_COMPANY_GOAL_MILLIS = TimeUnit.HOURS.toMillis(10)
+        private val SEVENTY_FIVE_MINUTE_GOAL_MILLIS = TimeUnit.MINUTES.toMillis(75)
+        private val SEVENTY_FIVE_MINUTE_GOAL_CATEGORIES = setOf("STUDY", "TODO", "WORK", "DEVELOPMENT", "EXERCISE", "ETC")
     }
 }
