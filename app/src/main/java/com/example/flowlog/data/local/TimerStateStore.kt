@@ -61,7 +61,7 @@ object TimerStateStore {
         val startTime = preferences.getLong(KEY_ACTIVE_START_TIME, 0L)
         if (startTime == 0L) return null
         val goalMillis = preferences.getLong(KEY_ACTIVE_GOAL_MILLIS, DEFAULT_GOAL_MILLIS)
-            .coerceAtLeast(1L)
+            .coerceAtLeast(0L)
 
         val status = runCatching {
             TimerStatus.valueOf(preferences.getString(KEY_ACTIVE_STATUS, TimerStatus.RUNNING.name).orEmpty())
@@ -108,7 +108,7 @@ object TimerStateStore {
             .edit()
             .putString(KEY_ACTIVE_CATEGORY, category)
             .putLong(KEY_ACTIVE_START_TIME, startTime)
-            .putLong(KEY_ACTIVE_GOAL_MILLIS, goalMillis.coerceAtLeast(1L))
+            .putLong(KEY_ACTIVE_GOAL_MILLIS, goalMillis.coerceAtLeast(0L))
             .putString(KEY_ACTIVE_STATUS, TimerStatus.RUNNING.name)
             .remove(KEY_PAUSED_ELAPSED_MILLIS)
             .putLong(KEY_ACTIVE_TODO_ID, linkedTodoId ?: NO_TODO_ID)

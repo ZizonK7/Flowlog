@@ -442,15 +442,25 @@ class DailyGoalRepository(context: Context) {
         )
     }
 
-    suspend fun markPlannedItemCompleted(itemId: String, todoLegacyId: Long, activityLegacyId: Long) {
+    suspend fun markPlannedItemCompleted(itemId: String, todoLegacyId: Long, activityLegacyId: Long?) {
         dao.markPlannedItemCompleted(
             userId = userId,
             itemId = itemId,
             actualCompletedAt = System.currentTimeMillis(),
-            linkedActivityId = activityLegacyId.toString(),
+            linkedActivityId = activityLegacyId?.toString(),
             completedTodoId = "legacy_todo_$todoLegacyId"
         )
         plannedTodoReminderScheduler.cancel(itemId)
+    }
+
+    suspend fun revertPlannedItemCompleted(itemId: String, restoredStatus: String) {
+        dao.revertPlannedItemCompleted(
+            userId = userId,
+            itemId = itemId,
+            restoredStatus = restoredStatus,
+            updatedAt = System.currentTimeMillis()
+        )
+        plannedTodoReminderScheduler.reschedule(itemId)
     }
 
     /**

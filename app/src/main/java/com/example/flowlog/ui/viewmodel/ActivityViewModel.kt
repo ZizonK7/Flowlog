@@ -11,6 +11,7 @@ import com.example.flowlog.data.model.AutoButtonSchedule
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.ScheduledAutoButtonBlock
+import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.data.recommendation.ButtonRecommendationEngine
 import com.example.flowlog.data.constants.EntityType
@@ -80,6 +81,11 @@ data class AnalyticsState(
     val weeklyTrend: List<TrendPoint> = emptyList()
 )
 
+data class RecommendedTodoCompletionEvent(
+    val block: RecommendedTodoBlock,
+    val previousTodo: TodoItem?
+)
+
 data class ActivityUiState(
     val isRunning: Boolean = false,
     val currentCategory: String = "",
@@ -139,6 +145,8 @@ class ActivityViewModel(
     data class DailyCueGoalReachedEvent(val cueId: Long, val category: String, val title: String)
     private val _dailyCueGoalReachedEvents = MutableSharedFlow<DailyCueGoalReachedEvent>(extraBufferCapacity = 8)
     val dailyCueGoalReachedEvents: SharedFlow<DailyCueGoalReachedEvent> = _dailyCueGoalReachedEvents.asSharedFlow()
+    private val _recommendedTodoCompletionEvents = MutableSharedFlow<RecommendedTodoCompletionEvent>(extraBufferCapacity = 4)
+    val recommendedTodoCompletionEvents: SharedFlow<RecommendedTodoCompletionEvent> = _recommendedTodoCompletionEvents.asSharedFlow()
 
     private var timerJob: Job? = null
     private var activeSessionWatcherJob: Job? = null
@@ -327,7 +335,7 @@ class ActivityViewModel(
         val cleanCategory = category.takeIf { isTimedCategory(it) } ?: "TODO"
 
         val startTime = System.currentTimeMillis()
-        val cleanGoalMillis = goalMillis.coerceAtLeast(1L)
+        val cleanGoalMillis = goalMillis.coerceAtLeast(0L)
         _timerDisplayState.value = TimerDisplayState(
             elapsedTime = 0L,
             timerGoalMillis = cleanGoalMillis
@@ -490,7 +498,7 @@ class ActivityViewModel(
         return elapsedTime
     }
 
-    fun stopActivityAndSave(titleOverride: String? = null) {
+    fun stopActivityAndSave(titleOverride: String? = null, noteOverride: String? = null) {
         val state = _uiState.value
         if (!state.isRunning || state.currentCategory.isEmpty() || state.startTime == 0L) return
 
@@ -513,7 +521,8 @@ class ActivityViewModel(
             linkedTodoId = state.linkedTodoId,
             sourceType = state.sourceType,
             sourceId = state.sourceId,
-            note = state.pendingNote?.takeIf { it.isNotBlank() }
+            note = noteOverride?.takeIf { it.isNotBlank() }
+                ?: state.pendingNote?.takeIf { it.isNotBlank() }
         )
 
         clearActiveSession()
@@ -954,11 +963,50 @@ class ActivityViewModel(
         }
     }
 
+    fun completeRecommendedTodo(block: RecommendedTodoBlock) {
+        Log.d(TAG, "user completeRecommendedTodo: itemId=${block.itemId} todoId=${block.todoId} title=${block.title}")
+        viewModelScope.launch {
+            val todo = _uiState.value.incompleteTodos.firstOrNull { it.id == block.todoId }
+            if (todo?.category == TodoCategory.REVIEW && todo.reviewStage < 2) {
+                todoRepository.completeReviewTodo(todo)
+            } else {
+                todoRepository.updateCompleted(block.todoId, true, System.currentTimeMillis())
+            }
+            dailyGoalRepository.markPlannedItemCompleted(
+                itemId = block.itemId,
+                todoLegacyId = block.todoId,
+                activityLegacyId = null
+            )
+            _recommendedTodoCompletionEvents.emit(
+                RecommendedTodoCompletionEvent(
+                    block = block,
+                    previousTodo = todo
+                )
+            )
+        }
+    }
+
+    fun undoRecommendedTodoCompletion(event: RecommendedTodoCompletionEvent) {
+        Log.d(TAG, "user undoRecommendedTodoCompletion: itemId=${event.block.itemId} todoId=${event.block.todoId}")
+        viewModelScope.launch {
+            val previousTodo = event.previousTodo
+            if (previousTodo != null) {
+                todoRepository.updateTodo(previousTodo.copy(updatedAt = System.currentTimeMillis()))
+            } else {
+                todoRepository.updateCompleted(event.block.todoId, false, null)
+            }
+            dailyGoalRepository.revertPlannedItemCompleted(
+                itemId = event.block.itemId,
+                restoredStatus = event.block.userActionStatus
+            )
+        }
+    }
+
     private fun observeIncompleteTodos() {
         viewModelScope.launch {
             todoRepository.getIncompleteTodos().collect { todos ->
                 _uiState.update {
-                    it.copy(incompleteTodos = todos.filter { t -> t.category != com.example.flowlog.data.model.TodoCategory.UNIVERSITY_EXAM })
+                    it.copy(incompleteTodos = todos.filter { t -> t.category != TodoCategory.UNIVERSITY_EXAM })
                 }
             }
         }
@@ -1181,9 +1229,6 @@ class ActivityViewModel(
             timeInMillis = todayStart
             add(Calendar.DAY_OF_YEAR, -7)
         }).timeInMillis
-        val weekActivities = activities.filter { activity ->
-            activity.startTime >= weekStart && activity.startTime < todayStart
-        }
         val tomorrowStart = startOfDay(Calendar.getInstance().apply {
             timeInMillis = todayStart
             add(Calendar.DAY_OF_YEAR, 1)
@@ -1192,10 +1237,16 @@ class ActivityViewModel(
             timeInMillis = todayStart
             add(Calendar.DAY_OF_YEAR, -1)
         }).timeInMillis
-        val todayActivities = activities.filter { activity ->
+        val analyticsActivities = activities.filter { activity ->
+            activity.startTime >= weekStart && activity.startTime < tomorrowStart
+        }
+        val weekActivities = analyticsActivities.filter { activity ->
+            activity.startTime >= weekStart && activity.startTime < todayStart
+        }
+        val todayActivities = analyticsActivities.filter { activity ->
             activity.startTime >= todayStart && activity.startTime < tomorrowStart
         }
-        val yesterdayActivities = activities.filter { activity ->
+        val yesterdayActivities = analyticsActivities.filter { activity ->
             activity.startTime >= yesterdayStart && activity.startTime < todayStart
         }
 

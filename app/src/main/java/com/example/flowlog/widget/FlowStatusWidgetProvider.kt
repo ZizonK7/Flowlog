@@ -319,8 +319,9 @@ private object FlowStatusWidgetRenderer {
         isFocusFireActive: Boolean
     ) {
         val elapsedMillis = activeTimer.elapsedMillis
+        val hasTimerGoal = activeTimer.goalMillis > 0L
         val goalMillis = activeTimer.goalMillis.coerceAtLeast(1L)
-        val progress = min(elapsedMillis.toFloat() / goalMillis.toFloat(), 1f)
+        val progress = if (hasTimerGoal) min(elapsedMillis.toFloat() / goalMillis.toFloat(), 1f) else 0f
         val isOverGoal = isFocusFireActive
         val isComplete = !isFocusFireActive && progress >= 1f
         val isFireComplete = isFocusFireActive && progress >= 1f
