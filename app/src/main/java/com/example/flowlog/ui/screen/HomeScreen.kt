@@ -453,11 +453,13 @@ fun HomeScreen(
         }
 
         item {
-            val titleSuggestions = remember(uiState.currentCategory, uiState.allActivities) {
-                buildTitleSuggestions(
-                    category = uiState.currentCategory,
-                    activities = uiState.allActivities
-                )
+            val titleSuggestions by remember(uiState.currentCategory, uiState.allActivities) {
+                derivedStateOf {
+                    buildTitleSuggestions(
+                        category = uiState.currentCategory,
+                        activities = uiState.allActivities
+                    )
+                }
             }
             TodayFlowCard(
                 isRunning = uiState.isRunning,
@@ -888,12 +890,15 @@ private fun TimerPage(
                 contentPadding = PaddingValues(end = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(titleSuggestions.size) { index ->
+                items(
+                    items = titleSuggestions,
+                    key = { suggestion -> suggestion }
+                ) { suggestion ->
                     SuggestionChip(
-                        onClick = { title = titleSuggestions[index] },
+                        onClick = { title = suggestion },
                         label = {
                             Text(
-                                text = titleSuggestions[index],
+                                text = suggestion,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -2403,6 +2408,7 @@ private fun RecentRecordRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .combinedClickable(onClick = { onEdit(activity.id) })
             .padding(vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -2456,20 +2462,24 @@ private fun RecentRecordRow(
                 modifier = Modifier.size(19.dp)
             )
         }
+        if (false) {
         IconButton(
             onClick = { onEdit(activity.id) },
-            modifier = Modifier.size(34.dp)
+            modifier = Modifier.size(0.dp)
         ) {
             Icon(
                 imageVector = Icons.Filled.Edit,
                 contentDescription = "수정",
                 tint = Color(0xFF697386),
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(0.dp)
             )
+        }
         }
         IconButton(
             onClick = { onDelete(activity) },
-            modifier = Modifier.size(34.dp)
+            modifier = Modifier
+                .size(36.dp)
+                .background(Color(0xFFFFEEF1), CircleShape)
         ) {
             Icon(
                 imageVector = Icons.Filled.Delete,
