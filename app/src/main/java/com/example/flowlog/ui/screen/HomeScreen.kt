@@ -4,6 +4,7 @@ import android.graphics.Paint
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.RepeatMode
@@ -171,6 +172,10 @@ import kotlin.math.sin
 private val FlowPurple = Color(0xFF5140D8)
 private val FlowPurpleDeep = Color(0xFF2F238F)
 private val FlowPurpleSoft = Color(0xFFEDE9FF)
+private val FocusFire = Color(0xFFFF7A2F)
+private val FocusFireSoft = Color(0xFFFFE8D8)
+private val FocusFireSurface = Color(0xFFFFF5EE)
+private val FocusFireBackground = Color(0xFFFFF0E6)
 private val FlowInk = Color(0xFF10182C)
 private val FlowMuted = Color(0xFF697386)
 private val FlowDivider = Color(0xFFE8E8EE)
@@ -434,6 +439,15 @@ fun HomeScreen(
         displayActivities.size - visibleActivities.size
     }
 
+    val isFocusFireActive = uiState.isRunning &&
+        uiState.isFocusModeActive &&
+        uiState.currentCategory in FOCUS_FIRE_CATEGORIES
+    val homeBackgroundColor by animateColorAsState(
+        targetValue = if (isFocusFireActive) FocusFireBackground else Color(0xFFF8F8F9),
+        animationSpec = tween(durationMillis = 420),
+        label = "home-background-color"
+    )
+
     val todayText = remember {
         SimpleDateFormat("M월 d일 (E)", Locale.KOREAN).format(Date())
     }
@@ -442,7 +456,7 @@ fun HomeScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFF8F8F9)),
+                .background(homeBackgroundColor),
             contentPadding = PaddingValues(bottom = 20.dp)
         ) {
             item {
@@ -490,7 +504,8 @@ fun HomeScreen(
                 isFocusModeActive = uiState.isFocusModeActive,
                 focusModeEndsAtMillis = uiState.focusModeEndsAtMillis,
                 onStartFocusMode = { enableDnd -> viewModel.startFocusMode(enableDnd) },
-                onStopFocusMode = { viewModel.stopFocusMode() }
+                onStopFocusMode = { viewModel.stopFocusMode() },
+                isFocusFireActive = isFocusFireActive
             )
         }
 
@@ -682,13 +697,19 @@ private fun TodayFlowCard(
     isFocusModeActive: Boolean = false,
     focusModeEndsAtMillis: Long = 0L,
     onStartFocusMode: (enableDnd: Boolean) -> Unit = {},
-    onStopFocusMode: () -> Unit = {}
+    onStopFocusMode: () -> Unit = {},
+    isFocusFireActive: Boolean = false
 ) {
+    val cardColor by animateColorAsState(
+        targetValue = if (isFocusFireActive) FocusFireSurface else Color.White,
+        animationSpec = tween(durationMillis = 420),
+        label = "today-flow-card-color"
+    )
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = cardColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 9.dp),
         shape = RoundedCornerShape(24.dp)
     ) {
@@ -728,7 +749,8 @@ private fun TodayFlowCard(
                     isFocusModeActive = isFocusModeActive,
                     focusModeEndsAtMillis = focusModeEndsAtMillis,
                     onStartFocusMode = onStartFocusMode,
-                    onStopFocusMode = onStopFocusMode
+                    onStopFocusMode = onStopFocusMode,
+                    isFocusFireActive = isFocusFireActive
                 )
             } else {
                 FlowStartPage(
@@ -756,7 +778,8 @@ private fun TimerPage(
     isFocusModeActive: Boolean = false,
     focusModeEndsAtMillis: Long = 0L,
     onStartFocusMode: (enableDnd: Boolean) -> Unit = {},
-    onStopFocusMode: () -> Unit = {}
+    onStopFocusMode: () -> Unit = {},
+    isFocusFireActive: Boolean = false
 ) {
     var title by remember(currentCategory) { mutableStateOf("") }
     var appliedTitle by remember(currentCategory) { mutableStateOf(initialAppliedTitle) }
@@ -798,6 +821,16 @@ private fun TimerPage(
         (elapsedTime.toFloat() / progressCycleMillis.toFloat()).coerceIn(0f, 1f)
     }
     val isOnFire = usesFireCycle
+    val accentColor by animateColorAsState(
+        targetValue = if (isFocusFireActive) FocusFire else FlowPurple,
+        animationSpec = tween(durationMillis = 420),
+        label = "timer-accent-color"
+    )
+    val accentSoftColor by animateColorAsState(
+        targetValue = if (isFocusFireActive) FocusFireSoft else FlowPurpleSoft,
+        animationSpec = tween(durationMillis = 420),
+        label = "timer-accent-soft-color"
+    )
 
     Column(
         modifier = Modifier
@@ -813,13 +846,13 @@ private fun TimerPage(
                     text = "진행 중",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
-                    color = FlowPurple
+                    color = accentColor
                 )
                 Text(
                     text = displayCategory(currentCategory),
                     fontSize = 27.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = FlowPurple,
+                    color = accentColor,
                     modifier = Modifier.padding(top = 14.dp)
                 )
                 val formattedTime = formatTime(elapsedTime)
@@ -904,8 +937,8 @@ private fun TimerPage(
                             )
                         },
                         colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = FlowPurpleSoft,
-                            labelColor = FlowPurple
+                            containerColor = accentSoftColor,
+                            labelColor = accentColor
                         ),
                         border = null
                     )
@@ -934,7 +967,7 @@ private fun TimerPage(
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold
                 ),
-                cursorBrush = SolidColor(FlowPurple),
+                cursorBrush = SolidColor(accentColor),
                 decorationBox = { innerTextField ->
                     Row(
                         modifier = Modifier.fillMaxSize(),
@@ -943,7 +976,7 @@ private fun TimerPage(
                         Icon(
                             imageVector = Icons.Filled.Edit,
                             contentDescription = null,
-                            tint = FlowPurple.copy(alpha = 0.58f),
+                            tint = accentColor.copy(alpha = 0.58f),
                             modifier = Modifier.size(19.dp)
                         )
                         Spacer(modifier = Modifier.width(9.dp))
@@ -977,7 +1010,7 @@ private fun TimerPage(
                     .height(46.dp),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = FlowPurple,
+                    containerColor = accentColor,
                     contentColor = Color.White
                 ),
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
@@ -1002,10 +1035,10 @@ private fun TimerPage(
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = FlowPurpleSoft,
-                        contentColor = FlowPurple
+                        containerColor = accentSoftColor,
+                        contentColor = accentColor
                     ),
-                    border = BorderStroke(1.dp, FlowPurple.copy(alpha = 0.4f)),
+                    border = BorderStroke(1.dp, accentColor.copy(alpha = 0.4f)),
                     contentPadding = PaddingValues(horizontal = 16.dp)
                 ) {
                     Icon(
@@ -1040,9 +1073,9 @@ private fun TimerPage(
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.outlinedButtonColors(
                         containerColor = Color.Transparent,
-                        contentColor = FlowPurple
+                        contentColor = accentColor
                     ),
-                    border = BorderStroke(1.dp, FlowPurple.copy(alpha = 0.4f)),
+                    border = BorderStroke(1.dp, accentColor.copy(alpha = 0.4f)),
                     contentPadding = PaddingValues(horizontal = 16.dp)
                 ) {
                     Icon(
@@ -1181,7 +1214,7 @@ private fun TimerPage(
                                 }
                             },
                             colors = CheckboxDefaults.colors(
-                                checkedColor = FlowPurple,
+                                checkedColor = accentColor,
                                 uncheckedColor = FlowMuted
                             )
                         )
@@ -1200,7 +1233,7 @@ private fun TimerPage(
                             checked = doNotShowAgain,
                             onCheckedChange = { doNotShowAgain = it },
                             colors = CheckboxDefaults.colors(
-                                checkedColor = FlowPurple,
+                                checkedColor = accentColor,
                                 uncheckedColor = FlowMuted
                             )
                         )
@@ -1228,7 +1261,7 @@ private fun TimerPage(
                         showFocusStartedDialog = true
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = FlowPurple,
+                        containerColor = accentColor,
                         contentColor = Color.White
                     ),
                     shape = RoundedCornerShape(12.dp)
@@ -1248,7 +1281,7 @@ private fun TimerPage(
                     Icon(
                         imageVector = Icons.Filled.Bedtime,
                         contentDescription = null,
-                        tint = FlowPurple,
+                        tint = accentColor,
                         modifier = Modifier.size(40.dp)
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -2443,7 +2476,15 @@ private fun RecentRecordRow(
                 color = FlowMuted,
                 modifier = Modifier.padding(top = 2.dp)
             )
+            Text(
+                text = "${durationMinutes}\uBD84",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = FlowMuted,
+                modifier = Modifier.padding(top = 1.dp)
+            )
         }
+        if (false) {
         Text(
             text = "${durationMinutes}분",
             fontSize = 17.sp,
@@ -2451,6 +2492,7 @@ private fun RecentRecordRow(
             color = FlowMuted,
             modifier = Modifier.padding(end = 2.dp)
         )
+        }
         IconButton(
             onClick = { onToggleFavorite(activity) },
             modifier = Modifier.size(34.dp)
@@ -2462,6 +2504,7 @@ private fun RecentRecordRow(
                 modifier = Modifier.size(19.dp)
             )
         }
+        Spacer(modifier = Modifier.width(10.dp))
         if (false) {
         IconButton(
             onClick = { onEdit(activity.id) },
