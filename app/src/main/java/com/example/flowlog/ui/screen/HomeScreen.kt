@@ -205,6 +205,7 @@ private val PRECISE_TIMETABLE_CATEGORIES = setOf(
     "EXERCISE"
 )
 private val PRODUCTIVE_TIMETABLE_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK")
+private val PRIORITY_TIMETABLE_CATEGORIES = setOf("SCHOOL", "COMPANY")
 private val FOCUS_FIRE_CATEGORIES = setOf("STUDY", "TODO", "WORK", "DEVELOPMENT", "EXERCISE", "ETC")
 
 @Composable
@@ -3469,7 +3470,7 @@ private fun TimetableCard(
     }
     val displayActivitySegments by remember(activities) {
         derivedStateOf {
-            buildDisplayActivitySegments(activities)
+            buildDisplayActivitySegments(prioritizeSchoolCompanyTimelineActivities(activities))
         }
     }
     val visibleScheduledBlocks by remember(scheduledBlocks, activeCategory) {
@@ -3687,6 +3688,66 @@ private fun buildDisplayActivitySegments(
     }
 
     return mergeAdjacentProductiveSegments(smoothMicroDisplaySegments(segments))
+}
+
+private fun prioritizeSchoolCompanyTimelineActivities(
+    activities: List<ActivitySession>
+): List<ActivitySession> {
+    val priorityRanges = activities
+        .filter { activity -> activity.category in PRIORITY_TIMETABLE_CATEGORIES }
+        .map { activity ->
+            activity.startTime to activity.endTime.coerceAtLeast(activity.startTime + 1L)
+        }
+        .sortedBy { it.first }
+
+    if (priorityRanges.isEmpty()) return activities
+
+    return activities.flatMap { activity ->
+        if (activity.category in PRIORITY_TIMETABLE_CATEGORIES) {
+            listOf(activity)
+        } else {
+            subtractPriorityRanges(activity, priorityRanges)
+        }
+    }.sortedBy { it.startTime }
+}
+
+private fun subtractPriorityRanges(
+    activity: ActivitySession,
+    priorityRanges: List<Pair<Long, Long>>
+): List<ActivitySession> {
+    val activityStart = activity.startTime
+    val activityEnd = activity.endTime.coerceAtLeast(activity.startTime + 1L)
+    val remainingRanges = mutableListOf(activityStart to activityEnd)
+
+    priorityRanges.forEach { (priorityStart, priorityEnd) ->
+        var index = 0
+        while (index < remainingRanges.size) {
+            val (rangeStart, rangeEnd) = remainingRanges[index]
+            if (priorityEnd <= rangeStart || priorityStart >= rangeEnd) {
+                index += 1
+                continue
+            }
+
+            remainingRanges.removeAt(index)
+            val splitRanges = listOf(
+                rangeStart to priorityStart.coerceAtMost(rangeEnd),
+                priorityEnd.coerceAtLeast(rangeStart) to rangeEnd
+            ).filter { (start, end) -> end > start }
+
+            if (splitRanges.isNotEmpty()) {
+                remainingRanges.addAll(index, splitRanges)
+                index += splitRanges.size
+            }
+        }
+    }
+
+    return remainingRanges.map { (start, end) ->
+        activity.copy(
+            startTime = start,
+            endTime = end,
+            durationMillis = end - start
+        )
+    }
 }
 
 private fun ActivitySession.toDisplaySegment(): DisplayActivitySegment {
