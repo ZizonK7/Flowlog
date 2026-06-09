@@ -133,6 +133,16 @@ class FirebaseRestoreDataSource(context: Context) {
 
                 val tags = (doc.get("tags") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
                 val tagsJson = if (tags.isNotEmpty()) json.encodeToString(tags) else null
+                val exerciseSets = (doc.get("exerciseSets") as? List<*>)?.mapNotNull { raw ->
+                    val map = raw as? Map<*, *> ?: return@mapNotNull null
+                    val name = map["name"] as? String ?: return@mapNotNull null
+                    val reps = (map["reps"] as? Number)?.toInt() ?: return@mapNotNull null
+                    val intensity = map["intensity"] as? String ?: return@mapNotNull null
+                    val mode = map["mode"] as? String ?: "COUNT"
+                    val durationMillis = (map["durationMillis"] as? Number)?.toLong()
+                    com.example.flowlog.data.model.ExerciseSetRecord(name, reps, intensity, mode, durationMillis)
+                } ?: emptyList()
+                val exerciseSetsJson = if (exerciseSets.isNotEmpty()) json.encodeToString(exerciseSets) else null
                 val linkedTodoLegacyId = doc.getLong("linkedTodoId")
 
                 activityDao.insertActivity(
@@ -150,6 +160,7 @@ class FirebaseRestoreDataSource(context: Context) {
                         legacyId = legacyId,
                         legacyLinkedTodoId = linkedTodoLegacyId,
                         tagsJson = tagsJson,
+                        exerciseSetsJson = exerciseSetsJson,
                         sourceType = doc.getString("sourceType") ?: "MANUAL",
                         sourceId = doc.getString("sourceId"),
                         createdAt = doc.getLong("startTime") ?: System.currentTimeMillis(),

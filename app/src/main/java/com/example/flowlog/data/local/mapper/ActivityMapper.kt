@@ -35,6 +35,7 @@ fun ActivitySession.toActivityEntity(userId: String): ActivityEntity {
         legacyLinkedTodoId = linkedTodoId,
         legacyId = if (id != 0L) id else null,
         tagsJson = if (tags.isNotEmpty()) mapperJson.encodeToString(tags) else null,
+        exerciseSetsJson = if (exerciseSets.isNotEmpty()) mapperJson.encodeToString(exerciseSets) else null,
         sourceType = sourceType,
         sourceId = sourceId,
         createdAt = startTime,
@@ -69,6 +70,11 @@ fun ActivityEntity.toActivitySession(): ActivitySession {
         note = note,
         tags = tagsJson?.let {
             runCatching { mapperJson.decodeFromString<List<String>>(it) }.getOrDefault(emptyList())
+        } ?: emptyList(),
+        exerciseSets = exerciseSetsJson?.let {
+            runCatching {
+                mapperJson.decodeFromString<List<com.example.flowlog.data.model.ExerciseSetRecord>>(it)
+            }.getOrDefault(emptyList())
         } ?: emptyList(),
         isFavorite = isFavorite,
         linkedTodoId = legacyLinkedTodoId,

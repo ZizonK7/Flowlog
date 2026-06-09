@@ -31,6 +31,7 @@ data class ActivityEntity(
     val legacyId: Long? = null,
     val legacyLinkedTodoId: Long? = null,   // 원본 Long linkedTodoId 보존용
     val tagsJson: String? = null,           // ActivitySession.tags → JSON 문자열로 보존
+    val exerciseSetsJson: String? = null,
     @ColumnInfo(defaultValue = "'MANUAL'")
     val sourceType: String = ActivitySourceType.MANUAL,
     val sourceId: String? = null,

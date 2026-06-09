@@ -256,6 +256,15 @@ class FirestoreSyncRepository(
         "durationMillis" to durationMillis,
         "note" to note,
         "tags" to tags,
+        "exerciseSets" to exerciseSets.map {
+            mapOf(
+                "name" to it.name,
+                "reps" to it.reps,
+                "intensity" to it.intensity,
+                "mode" to it.mode,
+                "durationMillis" to it.durationMillis
+            )
+        },
         "isFavorite" to isFavorite,
         "linkedTodoId" to linkedTodoId,
         "sourceType" to sourceType,

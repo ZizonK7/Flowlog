@@ -79,6 +79,19 @@ fun ActivityItem(
                     color = Color.Gray,
                     modifier = Modifier.padding(top = 2.dp)
                 )
+                if (activity.category == "EXERCISE" && activity.exerciseSets.isNotEmpty()) {
+                    val setSummary = activity.exerciseSets
+                        .take(3)
+                        .joinToString(" · ") { "${it.name} ${formatExerciseSetItemValue(it)} ${it.intensity}" }
+                    val moreText = if (activity.exerciseSets.size > 3) " 외 ${activity.exerciseSets.size - 3}세트" else ""
+                    Text(
+                        text = setSummary + moreText,
+                        fontSize = 12.sp,
+                        color = Color(0xFF5E6AD2),
+                        modifier = Modifier.padding(top = 4.dp),
+                        maxLines = 2
+                    )
+                }
                 if (!activity.note.isNullOrBlank()) {
                     Text(
                         text = activity.note,
@@ -115,6 +128,14 @@ fun ActivityItem(
             }
         }
     }
+}
+
+private fun formatExerciseSetItemValue(record: com.example.flowlog.data.model.ExerciseSetRecord): String {
+    if (record.mode != "TIME") return "${record.reps}개"
+    val totalSeconds = ((record.durationMillis ?: 0L) / 1000L).coerceAtLeast(0L)
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    return "%02d:%02d".format(minutes, seconds)
 }
 
 fun formatDuration(durationMillis: Long): String {

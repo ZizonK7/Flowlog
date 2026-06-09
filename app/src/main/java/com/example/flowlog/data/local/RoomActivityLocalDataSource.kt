@@ -50,6 +50,7 @@ class RoomActivityLocalDataSource(context: Context) {
                 durationMillis = activity.durationMillis,
                 isFavorite = activity.isFavorite,
                 tagsJson = activity.toActivityEntity(userId).tagsJson,
+                exerciseSetsJson = activity.toActivityEntity(userId).exerciseSetsJson,
                 sourceType = activity.sourceType,
                 sourceId = activity.sourceId,
                 updatedAt = System.currentTimeMillis(),

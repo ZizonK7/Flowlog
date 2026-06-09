@@ -20,6 +20,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -134,11 +135,13 @@ import androidx.compose.ui.unit.sp
 import com.example.flowlog.data.constants.ActivitySourceType
 import com.example.flowlog.data.local.FocusModeStore
 import com.example.flowlog.data.local.TimerStateStore
+import com.example.flowlog.notification.KakaoStyleAlertPlayer
 import com.example.flowlog.notification.FocusDndController
 import com.example.flowlog.debug.CityTimetablePreset
 import com.example.flowlog.debug.CityTimetableSamples
 import com.example.flowlog.debug.SampleTimetableData
 import com.example.flowlog.data.model.ActivitySession
+import com.example.flowlog.data.model.ExerciseSetRecord
 import com.example.flowlog.ui.city.CityTimetableCard
 import com.example.flowlog.data.model.AutoButtonSchedule
 import com.example.flowlog.data.model.RecommendedTodoBlock
@@ -183,6 +186,14 @@ private const val MERGE_THRESHOLD_MILLIS = 10 * 60 * 1000L
 private const val RECOMMENDED_TODO_DISPLAY_DURATION_MILLIS = 60 * 60 * 1000L
 private const val RECENT_RECORD_COLLAPSED_LIMIT = 3
 private const val RECENT_RECORD_EXPANDED_LIMIT = 30
+
+private data class ExerciseTimedSetState(
+    val setIndex: Int,
+    val record: ExerciseSetRecord,
+    val startsAtMillis: Long,
+    val endsAtMillis: Long,
+    val token: Long = System.currentTimeMillis()
+)
 private val MERGEABLE_TIMETABLE_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK")
 private val HIDEABLE_TIMETABLE_BRIDGE_CATEGORIES = setOf("REST", "ETC", "MOVE")
 private val PRECISE_TIMETABLE_CATEGORIES = setOf(
@@ -414,6 +425,21 @@ fun HomeScreen(
     var pinnedQuickStartedAt by remember(restoredPinnedTimer) {
         mutableStateOf(restoredPinnedTimer?.startTime ?: 0L)
     }
+    var autoButtonPinned by remember { mutableStateOf(false) }
+    LaunchedEffect(uiState.activeAutoButtonCategory) {
+        val autoCategory = uiState.activeAutoButtonCategory
+        if (autoCategory != null) {
+            if (pinnedQuickCategory == null) {
+                pinnedQuickCategory = autoCategory
+                pinnedQuickStartedAt = uiState.activeAutoButtonStartedAt
+                autoButtonPinned = true
+            }
+        } else if (autoButtonPinned) {
+            pinnedQuickCategory = null
+            pinnedQuickStartedAt = 0L
+            autoButtonPinned = false
+        }
+    }
     val recommendedUndoSnackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(viewModel) {
         viewModel.recommendedTodoCompletionEvents.collect { event ->
@@ -490,8 +516,8 @@ fun HomeScreen(
                     viewModel.startOverlappingActivity(category, startedAt)
                 },
                 pinnedQuickCategory = pinnedQuickCategory,
-                onStop = { title, note ->
-                    viewModel.stopActivityAndSave(title, note)
+                onStop = { title, note, exerciseSets ->
+                    viewModel.stopActivityAndSave(title, note, exerciseSets)
                 },
                 onApplyTitle = { title ->
                     viewModel.setRunningActivityTitle(title)
@@ -605,8 +631,8 @@ fun HomeScreen(
             activity = editingActivity,
             categories = activityCategories,
             isVisible = true,
-            onSave = { category, title, note ->
-                viewModel.saveEditedActivity(category, title, note)
+            onSave = { category, title, note, exerciseSets ->
+                viewModel.saveEditedActivity(category, title, note, exerciseSets)
             },
             onDismiss = {
                 viewModel.cancelEditActivity()
@@ -691,7 +717,7 @@ private fun TodayFlowCard(
     promotedButtons: List<String>,
     onPinQuickCategory: (String) -> Unit,
     pinnedQuickCategory: String?,
-    onStop: (String, String?) -> Unit,
+    onStop: (String, String?, List<ExerciseSetRecord>) -> Unit,
     onApplyTitle: (String) -> Unit,
     onStart: (String) -> Unit,
     isFocusModeActive: Boolean = false,
@@ -773,7 +799,7 @@ private fun TimerPage(
     timerGoalMillis: Long,
     initialAppliedTitle: String,
     titleSuggestions: List<String>,
-    onStop: (String, String?) -> Unit,
+    onStop: (String, String?, List<ExerciseSetRecord>) -> Unit,
     onApplyTitle: (String) -> Unit,
     isFocusModeActive: Boolean = false,
     focusModeEndsAtMillis: Long = 0L,
@@ -798,6 +824,7 @@ private fun TimerPage(
     var exerciseSheetName by remember { mutableStateOf("팔굽혀펴기") }
     var exercisePrefillRecord by remember { mutableStateOf<ExerciseSetRecord?>(null) }
     var editingExerciseSetIndex by remember { mutableStateOf<Int?>(null) }
+    var activeTimedExerciseSet by remember { mutableStateOf<ExerciseTimedSetState?>(null) }
     var showExerciseSummaryDialog by remember { mutableStateOf(false) }
     var exerciseMemo by remember { mutableStateOf("") }
     // DND 체크박스 상태: 저장된 선호값으로 초기화
@@ -821,6 +848,20 @@ private fun TimerPage(
         (elapsedTime.toFloat() / progressCycleMillis.toFloat()).coerceIn(0f, 1f)
     }
     val isOnFire = usesFireCycle
+
+    activeTimedExerciseSet?.let { timedState ->
+        LaunchedEffect(timedState.token) {
+            val startDelay = (timedState.startsAtMillis - System.currentTimeMillis()).coerceAtLeast(0L)
+            kotlinx.coroutines.delay(startDelay)
+            KakaoStyleAlertPlayer.play(context)
+            val endDelay = (timedState.endsAtMillis - System.currentTimeMillis()).coerceAtLeast(0L)
+            kotlinx.coroutines.delay(endDelay)
+            KakaoStyleAlertPlayer.play(context)
+            if (activeTimedExerciseSet?.token == timedState.token) {
+                activeTimedExerciseSet = null
+            }
+        }
+    }
     val accentColor by animateColorAsState(
         targetValue = if (isFocusFireActive) FocusFire else FlowPurple,
         animationSpec = tween(durationMillis = 420),
@@ -901,6 +942,7 @@ private fun TimerPage(
         if (currentCategory == "EXERCISE") {
             ExerciseSetControls(
                 sets = exerciseSets,
+                timedSetState = activeTimedExerciseSet,
                 onAddSameExercise = {
                     val recentSet = exerciseSets.lastOrNull()
                     exercisePrefillRecord = recentSet
@@ -914,6 +956,21 @@ private fun TimerPage(
                 },
                 onEditSet = { index ->
                     editingExerciseSetIndex = index
+                },
+                onCompleteTimedSet = {
+                    val timedState = activeTimedExerciseSet
+                    if (timedState != null && timedState.setIndex in exerciseSets.indices) {
+                        val plannedDuration = timedState.record.durationMillis ?: 0L
+                        val actualDuration = (System.currentTimeMillis() - timedState.startsAtMillis)
+                            .coerceAtLeast(0L)
+                            .coerceAtMost(plannedDuration)
+                        exerciseSets = exerciseSets.toMutableList().also { sets ->
+                            sets[timedState.setIndex] = sets[timedState.setIndex].copy(
+                                durationMillis = actualDuration
+                            )
+                        }
+                    }
+                    activeTimedExerciseSet = null
                 }
             )
             Spacer(modifier = Modifier.height(16.dp))
@@ -1108,7 +1165,7 @@ private fun TimerPage(
                 if (currentCategory == "EXERCISE") {
                     showExerciseSummaryDialog = true
                 } else {
-                    onStop(finalTitle, null)
+                    onStop(finalTitle, null, emptyList())
                 }
             },
             modifier = Modifier
@@ -1142,19 +1199,35 @@ private fun TimerPage(
                 exercisePrefillRecord = null
             },
             onSave = { record ->
-                exerciseSets = if (editingIndex != null && editingIndex in exerciseSets.indices) {
+                val timedSetIndex = if (editingIndex != null && editingIndex in exerciseSets.indices) {
+                    editingIndex
+                } else {
+                    exerciseSets.size
+                }
+                val updatedExerciseSets = if (editingIndex != null && editingIndex in exerciseSets.indices) {
                     exerciseSets.toMutableList().also { it[editingIndex] = record }
                 } else {
                     exerciseSets + record
                 }
+                exerciseSets = updatedExerciseSets
                 val nextTitle = when {
                     editingIndex == 0 -> record.name
-                    exerciseSets.isNotEmpty() -> exerciseSets.first().name
+                    updatedExerciseSets.isNotEmpty() -> updatedExerciseSets.first().name
                     else -> record.name
                 }
                 title = nextTitle
                 appliedTitle = nextTitle
                 onApplyTitle(nextTitle)
+                val isAddingNewSet = editingIndex == null || editingIndex !in exerciseSets.indices
+                if (isAddingNewSet && record.mode == "TIME" && record.durationMillis != null) {
+                    val startsAt = System.currentTimeMillis() + 5_000L
+                    activeTimedExerciseSet = ExerciseTimedSetState(
+                        setIndex = timedSetIndex,
+                        record = record,
+                        startsAtMillis = startsAt,
+                        endsAtMillis = startsAt + record.durationMillis
+                    )
+                }
                 showExerciseAddSheet = false
                 editingExerciseSetIndex = null
                 exercisePrefillRecord = null
@@ -1173,7 +1246,7 @@ private fun TimerPage(
                 val finalTitle = exerciseSets.firstOrNull()?.name
                     ?: appliedTitle.ifBlank { title }.ifBlank { "운동" }
                 onApplyTitle(finalTitle)
-                onStop(finalTitle, buildExerciseNote(exerciseSets, exerciseMemo))
+                onStop(finalTitle, exerciseMemo.trim().ifBlank { null }, exerciseSets)
                 showExerciseSummaryDialog = false
             }
         )
@@ -1409,20 +1482,23 @@ private fun TimerPage(
     }
 }
 
-private data class ExerciseSetRecord(
-    val name: String,
-    val reps: Int,
-    val intensity: String
-)
-
 @Composable
 private fun ExerciseSetControls(
     sets: List<ExerciseSetRecord>,
+    timedSetState: ExerciseTimedSetState?,
     onAddSameExercise: () -> Unit,
     onAddOtherExercise: () -> Unit,
-    onEditSet: (Int) -> Unit
+    onEditSet: (Int) -> Unit,
+    onCompleteTimedSet: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
+        timedSetState?.let {
+            ExerciseTimedSetCard(
+                state = it,
+                onComplete = onCompleteTimedSet
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
         Text(
             text = "최근 기록",
             fontSize = 13.sp,
@@ -1456,7 +1532,7 @@ private fun ExerciseSetControls(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "${index + 1}세트 · ${set.reps}개 · ${set.intensity}",
+                                text = "${index + 1}세트 · ${formatExerciseSetValue(set)} · ${set.intensity}",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = FlowInk.copy(alpha = 0.62f),
@@ -1511,6 +1587,53 @@ private fun ExerciseSetControls(
     }
 }
 
+@Composable
+private fun ExerciseTimedSetCard(
+    state: ExerciseTimedSetState,
+    onComplete: () -> Unit
+) {
+    var now by remember(state.token) { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(state.token) {
+        while (now < state.endsAtMillis + 1_000L) {
+            kotlinx.coroutines.delay(250L)
+            now = System.currentTimeMillis()
+        }
+    }
+    val remainingToStart = (state.startsAtMillis - now).coerceAtLeast(0L)
+    val elapsedAfterStart = (now - state.startsAtMillis).coerceAtLeast(0L)
+    val duration = (state.endsAtMillis - state.startsAtMillis).coerceAtLeast(1L)
+    val progress = if (remainingToStart > 0L) 0f else (elapsedAfterStart.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+    val label = when {
+        remainingToStart > 0L -> "${formatExerciseSetTime(remainingToStart)} 뒤 시작"
+        now < state.endsAtMillis -> "${formatExerciseSetTime(state.endsAtMillis - now)} 남음"
+        else -> "시간 완료"
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(FlowPurpleSoft.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        FlowProgressRing(
+            progress = progress,
+            isOnFire = false,
+            isRunning = false,
+            showCenterLabel = false,
+            modifier = Modifier.size(64.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(state.record.name, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = FlowPurple, modifier = Modifier.padding(top = 3.dp))
+        }
+        TextButton(onClick = onComplete) {
+            Text("완료", color = FlowPurple, fontWeight = FontWeight.ExtraBold)
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ExerciseAddSetSheet(
@@ -1529,13 +1652,21 @@ private fun ExerciseAddSetSheet(
     var reps by remember(initialRecord, prefillRecord) {
         mutableStateOf(initialRecord?.reps ?: prefillRecord?.reps ?: 12)
     }
+    var recordMode by remember(initialRecord, prefillRecord) {
+        mutableStateOf(initialRecord?.mode ?: prefillRecord?.mode ?: "COUNT")
+    }
+    var durationMillis by remember(initialRecord, prefillRecord) {
+        mutableStateOf(initialRecord?.durationMillis ?: prefillRecord?.durationMillis ?: 40_000L)
+    }
     var intensity by remember(initialRecord, prefillRecord) {
         mutableStateOf(initialRecord?.intensity ?: prefillRecord?.intensity ?: "힘듦")
     }
+    val defaultExerciseOptions = remember { listOf("팔굽혀펴기", "스쿼트", "플랭크") }
     var exerciseOptions by remember(initialName, initialRecord, prefillRecord) {
-        mutableStateOf((listOf("팔굽혀펴기", "스쿼트", "플랭크") + seededExercise).distinct())
+        mutableStateOf((defaultExerciseOptions + seededExercise).distinct())
     }
     var customExercise by remember { mutableStateOf("") }
+    var showExerciseAddCard by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1563,45 +1694,92 @@ private fun ExerciseAddSetSheet(
             Spacer(modifier = Modifier.height(8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(exerciseOptions) { option ->
+                    val canDelete = option !in defaultExerciseOptions
                     FilterChip(
                         selected = selectedExercise == option,
                         onClick = { selectedExercise = option },
-                        label = { Text(option, fontWeight = FontWeight.Bold) }
+                        label = { Text(option, fontWeight = FontWeight.Bold) },
+                        trailingIcon = if (canDelete) {
+                            {
+                                Icon(
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = "운동 삭제",
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clickable {
+                                            exerciseOptions = exerciseOptions - option
+                                            if (selectedExercise == option) {
+                                                selectedExercise = exerciseOptions.firstOrNull { it != option } ?: "팔굽혀펴기"
+                                            }
+                                        }
+                                )
+                            }
+                        } else {
+                            null
+                        }
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = customExercise,
-                    onValueChange = { customExercise = it },
-                    placeholder = { Text("운동 추가") },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
-                )
-                Button(
-                    onClick = {
-                        val cleanExercise = customExercise.trim()
-                        if (cleanExercise.isNotBlank()) {
-                            exerciseOptions = (exerciseOptions + cleanExercise).distinct()
-                            selectedExercise = cleanExercise
-                            customExercise = ""
-                        }
-                    },
-                    modifier = Modifier.height(56.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = FlowPurple,
-                        contentColor = Color.White
-                    ),
-                    contentPadding = PaddingValues(horizontal = 14.dp)
+            Spacer(modifier = Modifier.height(8.dp))
+            if (showExerciseAddCard) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFF7F6FC), RoundedCornerShape(12.dp))
+                        .border(1.dp, FlowDivider, RoundedCornerShape(12.dp))
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    OutlinedTextField(
+                        value = customExercise,
+                        onValueChange = { customExercise = it },
+                        placeholder = { Text("운동 이름") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = {
+                                customExercise = ""
+                                showExerciseAddCard = false
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("취소", fontWeight = FontWeight.Bold)
+                        }
+                        Button(
+                            onClick = {
+                                val cleanExercise = customExercise.trim()
+                                if (cleanExercise.isNotBlank()) {
+                                    exerciseOptions = (exerciseOptions + cleanExercise).distinct()
+                                    selectedExercise = cleanExercise
+                                    customExercise = ""
+                                    showExerciseAddCard = false
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = FlowPurple,
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text("추가", fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+                }
+            } else {
+                OutlinedButton(
+                    onClick = { showExerciseAddCard = true },
+                    modifier = Modifier.height(38.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, FlowDivider)
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp), tint = FlowPurple)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("운동 추가", color = FlowPurple, fontWeight = FontWeight.Bold)
                 }
             }
             Spacer(modifier = Modifier.height(18.dp))
@@ -1609,33 +1787,53 @@ private fun ExerciseAddSetSheet(
             Spacer(modifier = Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Button(
-                    onClick = {},
+                    onClick = { recordMode = "COUNT" },
                     modifier = Modifier.weight(1f).height(44.dp),
                     shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = FlowPurple, contentColor = Color.White)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (recordMode == "COUNT") FlowPurple else Color(0xFFF1F0F7),
+                        contentColor = if (recordMode == "COUNT") Color.White else FlowInk
+                    )
                 ) {
                     Text("개수 (반복)", fontWeight = FontWeight.ExtraBold)
                 }
                 Button(
-                    onClick = {},
+                    onClick = { recordMode = "TIME" },
                     modifier = Modifier.weight(1f).height(44.dp),
                     shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF1F0F7), contentColor = FlowInk)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (recordMode == "TIME") FlowPurple else Color(0xFFF1F0F7),
+                        contentColor = if (recordMode == "TIME") Color.White else FlowInk
+                    )
                 ) {
                     Text("시간", fontWeight = FontWeight.Bold)
                 }
             }
             Spacer(modifier = Modifier.height(18.dp))
-            Text("개수", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ExerciseStepButton(label = "-", onClick = { reps = (reps - 1).coerceAtLeast(1) })
-                Text(reps.toString(), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
-                ExerciseStepButton(label = "+", onClick = { reps += 1 })
+            if (recordMode == "TIME") {
+                Text("시간", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ExerciseStepButton(label = "-", onClick = { durationMillis = (durationMillis - 5_000L).coerceAtLeast(5_000L) })
+                    Text(formatExerciseSetTime(durationMillis), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
+                    ExerciseStepButton(label = "+", onClick = { durationMillis += 5_000L })
+                }
+            } else {
+                Text("개수", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ExerciseStepButton(label = "-", onClick = { reps = (reps - 1).coerceAtLeast(1) })
+                    Text(reps.toString(), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
+                    ExerciseStepButton(label = "+", onClick = { reps += 1 })
+                }
             }
             Spacer(modifier = Modifier.height(18.dp))
             Text("강도 (RPE 느낌)", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = FlowInk)
@@ -1657,7 +1855,9 @@ private fun ExerciseAddSetSheet(
                         ExerciseSetRecord(
                             name = selectedExercise.trim().ifBlank { "운동" },
                             reps = reps,
-                            intensity = intensity
+                            intensity = intensity,
+                            mode = recordMode,
+                            durationMillis = if (recordMode == "TIME") durationMillis else null
                         )
                     )
                 },
@@ -1746,7 +1946,7 @@ private fun ExerciseFinishDialog(
                                 modifier = Modifier.weight(1f)
                             )
                             Text(
-                                text = "${record.reps}개",
+                                text = formatExerciseSetValue(record),
                                 fontSize = 12.sp,
                                 color = FlowInk,
                                 fontWeight = FontWeight.Bold
@@ -1785,24 +1985,27 @@ private fun ExerciseFinishDialog(
     )
 }
 
-private fun buildExerciseNote(sets: List<ExerciseSetRecord>, memo: String): String? {
-    val setLines = sets.groupBy { it.name }.flatMap { (name, records) ->
-        listOf(name) + records.mapIndexed { index, record ->
-            "${index + 1}세트 ${record.reps}개 ${record.intensity}"
-        }
-    }
-    return (setLines + memo.trim().takeIf { it.isNotBlank() }.orEmpty())
-        .filter { it.isNotBlank() }
-        .takeIf { it.isNotEmpty() }
-        ?.joinToString("\n")
-}
-
 private fun formatCountdown(millis: Long): String {
     val totalSeconds = (millis / 1000).coerceAtLeast(0L)
     val h = totalSeconds / 3600
     val m = (totalSeconds % 3600) / 60
     val s = totalSeconds % 60
     return "%d:%02d:%02d".format(h, m, s)
+}
+
+private fun formatExerciseSetValue(record: ExerciseSetRecord): String {
+    return if (record.mode == "TIME") {
+        formatExerciseSetTime(record.durationMillis ?: 0L)
+    } else {
+        "${record.reps}개"
+    }
+}
+
+private fun formatExerciseSetTime(millis: Long): String {
+    val totalSeconds = (millis / 1000L).coerceAtLeast(0L)
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    return "%02d:%02d".format(minutes, seconds)
 }
 
 private fun buildTitleSuggestions(
@@ -2133,7 +2336,8 @@ private fun FlowProgressRing(
     progress: Float,
     isOnFire: Boolean,
     isRunning: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showCenterLabel: Boolean = true
 ) {
     val fireTransition = rememberInfiniteTransition(label = "flow-fire")
     val firePhase by fireTransition.animateFloat(
@@ -2235,7 +2439,7 @@ private fun FlowProgressRing(
                 tint = FlowPurple,
                 modifier = Modifier.size(58.dp)
             )
-        } else {
+        } else if (showCenterLabel) {
             Text(
                 text = "Flow",
                 fontSize = 18.sp,

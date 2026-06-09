@@ -9,6 +9,7 @@ import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
 import com.example.flowlog.data.model.AutoButtonSchedule
 import com.example.flowlog.data.model.ActivitySession
+import com.example.flowlog.data.model.ExerciseSetRecord
 import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.ScheduledAutoButtonBlock
 import com.example.flowlog.data.model.TodoCategory
@@ -120,7 +121,9 @@ data class ActivityUiState(
     val promotedButtons: List<String> = emptyList(),
     val isFocusModeActive: Boolean = false,
     val focusModeEndsAtMillis: Long = 0L,
-    val isNotificationSoundEnabled: Boolean = true
+    val isNotificationSoundEnabled: Boolean = true,
+    val activeAutoButtonCategory: String? = null,
+    val activeAutoButtonStartedAt: Long = 0L
 )
 
 data class TimerDisplayState(
@@ -498,7 +501,11 @@ class ActivityViewModel(
         return elapsedTime
     }
 
-    fun stopActivityAndSave(titleOverride: String? = null, noteOverride: String? = null) {
+    fun stopActivityAndSave(
+        titleOverride: String? = null,
+        noteOverride: String? = null,
+        exerciseSets: List<ExerciseSetRecord> = emptyList()
+    ) {
         val state = _uiState.value
         if (!state.isRunning || state.currentCategory.isEmpty() || state.startTime == 0L) return
 
@@ -522,7 +529,8 @@ class ActivityViewModel(
             sourceType = state.sourceType,
             sourceId = state.sourceId,
             note = noteOverride?.takeIf { it.isNotBlank() }
-                ?: state.pendingNote?.takeIf { it.isNotBlank() }
+                ?: state.pendingNote?.takeIf { it.isNotBlank() },
+            exerciseSets = exerciseSets
         )
 
         clearActiveSession()
@@ -737,7 +745,12 @@ class ActivityViewModel(
         _uiState.update { it.copy(editingActivity = null) }
     }
 
-    fun saveEditedActivity(category: String, title: String, note: String?) {
+    fun saveEditedActivity(
+        category: String,
+        title: String,
+        note: String?,
+        exerciseSets: List<ExerciseSetRecord> = emptyList()
+    ) {
         viewModelScope.launch {
             val currentEditing = _uiState.value.editingActivity ?: return@launch
             val cleanCategory = category.ifBlank { currentEditing.category }
@@ -746,6 +759,7 @@ class ActivityViewModel(
                 title = title.trim().ifBlank { defaultTitle(cleanCategory) },
                 tags = emptyList(),
                 note = note?.takeIf { it.isNotBlank() },
+                exerciseSets = if (cleanCategory == "EXERCISE") exerciseSets else emptyList(),
                 modifiedTime = System.currentTimeMillis()
             )
             repository.updateActivity(updatedActivity)
@@ -789,6 +803,17 @@ class ActivityViewModel(
     private fun restoreActiveSession() {
         val activeTimer = TimerStateStore.getActiveTimer(appContext) ?: return
         if (activeTimer.status != TimerStatus.RUNNING) return
+
+        if (activeTimer.sourceType == ActivitySourceType.AUTO_BUTTON) {
+            _uiState.update {
+                it.copy(
+                    activeAutoButtonCategory = activeTimer.category,
+                    activeAutoButtonStartedAt = activeTimer.startTime
+                )
+            }
+            return
+        }
+
         val category = activeTimer.category
         val startTime = activeTimer.startTime
         val elapsedTime = (System.currentTimeMillis() - startTime).coerceAtLeast(0L)
@@ -840,7 +865,11 @@ class ActivityViewModel(
     private fun syncActiveSessionFromStore() {
         val activeTimer = TimerStateStore.getActiveTimer(appContext)
         val state = _uiState.value
+
         if (activeTimer == null) {
+            if (state.activeAutoButtonCategory != null) {
+                _uiState.update { it.copy(activeAutoButtonCategory = null, activeAutoButtonStartedAt = 0L) }
+            }
             if (state.isRunning) {
                 timerJob?.cancel()
                 timerJob = null
@@ -862,6 +891,24 @@ class ActivityViewModel(
                 }
             }
             return
+        }
+
+        if (activeTimer.sourceType == ActivitySourceType.AUTO_BUTTON) {
+            val changed = state.activeAutoButtonCategory != activeTimer.category ||
+                state.activeAutoButtonStartedAt != activeTimer.startTime
+            if (changed) {
+                _uiState.update {
+                    it.copy(
+                        activeAutoButtonCategory = activeTimer.category,
+                        activeAutoButtonStartedAt = activeTimer.startTime
+                    )
+                }
+            }
+            return
+        }
+
+        if (state.activeAutoButtonCategory != null) {
+            _uiState.update { it.copy(activeAutoButtonCategory = null, activeAutoButtonStartedAt = 0L) }
         }
 
         val shouldUpdate = !state.isRunning ||
