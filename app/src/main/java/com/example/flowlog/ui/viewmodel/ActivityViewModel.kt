@@ -131,7 +131,10 @@ data class ActivityUiState(
     val exerciseMemo: String = "",
     val mainButtonConfig: MainButtonConfig = MainButtonConfig.DEFAULT,
     val showMainButtonSetup: Boolean = false,
-    val mainButtonSetupTarget: String? = null
+    val mainButtonSetupTarget: String? = null,
+    val isMainButtonReorderMode: Boolean = false,
+    val selectedMainButtonForSwapId: String? = null,
+    val temporaryMainButtons: List<MainButtonItem>? = null
 )
 
 data class TimerDisplayState(
@@ -185,7 +188,12 @@ class ActivityViewModel(
     )
     init {
         _uiState.update { it.copy(lastAddedActivity = loadLastAddedActivity()) }
-        _uiState.update { it.copy(mainButtonConfig = loadMainButtonConfig()) }
+        _uiState.update { it.copy(
+            mainButtonConfig = loadMainButtonConfig(),
+            isMainButtonReorderMode = false,
+            selectedMainButtonForSwapId = null,
+            temporaryMainButtons = null
+        ) }
         restoreBrushTimerState()
         restoreSnackButtonTimerState()
         restoreFocusModeState()
@@ -1238,6 +1246,59 @@ class ActivityViewModel(
         _uiState.update { it.copy(showMainButtonSetup = false, mainButtonSetupTarget = null) }
     }
 
+    fun enterMainButtonReorderMode(selectedButtonId: String) {
+        _uiState.update { it.copy(
+            isMainButtonReorderMode = true,
+            selectedMainButtonForSwapId = selectedButtonId,
+            temporaryMainButtons = it.mainButtonConfig.buttons,
+            showMainButtonSetup = false,
+            mainButtonSetupTarget = null
+        ) }
+    }
+
+    fun exitMainButtonReorderMode() {
+        _uiState.update { it.copy(
+            isMainButtonReorderMode = false,
+            selectedMainButtonForSwapId = null,
+            temporaryMainButtons = null
+        ) }
+    }
+
+    fun selectMainButtonForSwap(buttonId: String) {
+        val current = _uiState.value.selectedMainButtonForSwapId
+        when {
+            current == null -> _uiState.update { it.copy(selectedMainButtonForSwapId = buttonId) }
+            current == buttonId -> _uiState.update { it.copy(selectedMainButtonForSwapId = null) }
+            else -> {
+                swapTemporaryMainButtonPositions(current, buttonId)
+                _uiState.update { it.copy(selectedMainButtonForSwapId = null) }
+            }
+        }
+    }
+
+    private fun swapTemporaryMainButtonPositions(firstButtonId: String, secondButtonId: String) {
+        val tempButtons = _uiState.value.temporaryMainButtons ?: return
+        val sorted = tempButtons.sortedBy { it.order }.toMutableList()
+        val idxA = sorted.indexOfFirst { it.category == firstButtonId }
+        val idxB = sorted.indexOfFirst { it.category == secondButtonId }
+        if (idxA < 0 || idxB < 0) return
+        val orderA = sorted[idxA].order
+        sorted[idxA] = sorted[idxA].copy(order = sorted[idxB].order)
+        sorted[idxB] = sorted[idxB].copy(order = orderA)
+        _uiState.update { it.copy(temporaryMainButtons = sorted.sortedBy { it.order }) }
+    }
+
+    fun confirmMainButtonReorder() {
+        val tempButtons = _uiState.value.temporaryMainButtons ?: return
+        val renormalized = tempButtons.sortedBy { it.order }.mapIndexed { i, btn -> btn.copy(order = i) }
+        persistMainButtonConfig(_uiState.value.mainButtonConfig.copy(buttons = renormalized))
+        _uiState.update { it.copy(
+            isMainButtonReorderMode = false,
+            selectedMainButtonForSwapId = null,
+            temporaryMainButtons = null
+        ) }
+    }
+
     fun hideMainButton(category: String) {
         val config = _uiState.value.mainButtonConfig
         if (config.buttons.size <= MainButtonConfig.MIN_BUTTONS) return
@@ -1274,13 +1335,7 @@ class ActivityViewModel(
         dismissMainButtonSetup()
     }
 
-    fun togglePinMainButton(category: String) {
-        val config = _uiState.value.mainButtonConfig
-        val newButtons = config.buttons.map { btn ->
-            if (btn.category == category) btn.copy(isPinned = !btn.isPinned) else btn
-        }
-        persistMainButtonConfig(config.copy(buttons = newButtons))
-    }
+
 
     // endregion
 

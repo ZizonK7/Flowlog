@@ -507,6 +507,10 @@ fun HomeScreen(
                     )
                 }
             }
+            val effectiveMainButtonConfig = if (uiState.isMainButtonReorderMode && uiState.temporaryMainButtons != null)
+                uiState.mainButtonConfig.copy(buttons = uiState.temporaryMainButtons!!)
+            else
+                uiState.mainButtonConfig
             TodayFlowCard(
                 isRunning = uiState.isRunning,
                 currentCategory = uiState.currentCategory,
@@ -514,7 +518,7 @@ fun HomeScreen(
                 statusMessage = uiState.statusMessage,
                 appliedTitle = uiState.pendingTitle.orEmpty(),
                 titleSuggestions = titleSuggestions,
-                mainButtonConfig = uiState.mainButtonConfig,
+                mainButtonConfig = effectiveMainButtonConfig,
                 onLongClickButton = { category -> viewModel.showMainButtonSetup(category) },
                 onPinQuickCategory = { category ->
                     val startedAt = System.currentTimeMillis()
@@ -542,7 +546,12 @@ fun HomeScreen(
                 focusModeEndsAtMillis = uiState.focusModeEndsAtMillis,
                 onStartFocusMode = { enableDnd -> viewModel.startFocusMode(enableDnd) },
                 onStopFocusMode = { viewModel.stopFocusMode() },
-                isFocusFireActive = isFocusFireActive
+                isFocusFireActive = isFocusFireActive,
+                isMainButtonReorderMode = uiState.isMainButtonReorderMode,
+                selectedMainButtonForSwapId = uiState.selectedMainButtonForSwapId,
+                onExitReorderMode = { viewModel.exitMainButtonReorderMode() },
+                onConfirmReorderMode = { viewModel.confirmMainButtonReorder() },
+                onSelectButtonForSwap = { cat -> viewModel.selectMainButtonForSwap(cat) }
             )
         }
 
@@ -690,9 +699,8 @@ fun HomeScreen(
             config = uiState.mainButtonConfig,
             onDismiss = { viewModel.dismissMainButtonSetup() },
             onHide = { viewModel.hideMainButton(it) },
-            onSwap = { cat, dir -> viewModel.swapMainButton(cat, dir) },
-            onReplace = { old, new -> viewModel.replaceMainButton(old, new) },
-            onTogglePin = { viewModel.togglePinMainButton(it) }
+            onEnterReorderMode = { cat -> viewModel.enterMainButtonReorderMode(cat) },
+            onReplace = { old, new -> viewModel.replaceMainButton(old, new) }
         )
     }
 
@@ -753,7 +761,12 @@ private fun TodayFlowCard(
     focusModeEndsAtMillis: Long = 0L,
     onStartFocusMode: (enableDnd: Boolean) -> Unit = {},
     onStopFocusMode: () -> Unit = {},
-    isFocusFireActive: Boolean = false
+    isFocusFireActive: Boolean = false,
+    isMainButtonReorderMode: Boolean = false,
+    selectedMainButtonForSwapId: String? = null,
+    onExitReorderMode: () -> Unit = {},
+    onConfirmReorderMode: () -> Unit = {},
+    onSelectButtonForSwap: (String) -> Unit = {}
 ) {
     val cardColor by animateColorAsState(
         targetValue = if (isFocusFireActive) FocusFireSurface else Color.White,
@@ -819,7 +832,12 @@ private fun TodayFlowCard(
                     onPinQuickCategory = onPinQuickCategory,
                     pinnedQuickCategory = pinnedQuickCategory,
                     statusMessage = statusMessage,
-                    onStart = onStart
+                    onStart = onStart,
+                    isMainButtonReorderMode = isMainButtonReorderMode,
+                    selectedMainButtonForSwapId = selectedMainButtonForSwapId,
+                    onExitReorderMode = onExitReorderMode,
+                    onConfirmReorderMode = onConfirmReorderMode,
+                    onSelectButtonForSwap = onSelectButtonForSwap
                 )
             }
         }
@@ -2268,7 +2286,12 @@ private fun FlowStartPage(
     onPinQuickCategory: (String) -> Unit,
     pinnedQuickCategory: String?,
     statusMessage: String?,
-    onStart: (String) -> Unit
+    onStart: (String) -> Unit,
+    isMainButtonReorderMode: Boolean = false,
+    selectedMainButtonForSwapId: String? = null,
+    onExitReorderMode: () -> Unit = {},
+    onConfirmReorderMode: () -> Unit = {},
+    onSelectButtonForSwap: (String) -> Unit = {}
 ) {
     val displayCategories = remember(mainButtonConfig) {
         mainButtonConfig.buttons.sortedBy { it.order }.map { it.category }
@@ -2280,8 +2303,8 @@ private fun FlowStartPage(
         }
     }
 
-    // n행 × 84dp + (n-1) × 12dp 간격 + 8dp 여유(카드 그림자 클리핑 방지)
-    val rowCount = (visibleCategories.size + 1) / 2
+    val gridCategories = if (isMainButtonReorderMode) displayCategories else visibleCategories
+    val rowCount = (gridCategories.size + 1) / 2
     val gridHeight = (rowCount * 84 + (rowCount - 1) * 12 + 8).dp
 
     Column(
@@ -2295,7 +2318,7 @@ private fun FlowStartPage(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "활동 시작",
+                    text = if (isMainButtonReorderMode) "자리 바꾸기" else "활동 시작",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = FlowInk
@@ -2308,7 +2331,18 @@ private fun FlowStartPage(
                     modifier = Modifier.padding(top = 6.dp)
                 )
             }
-            FlowPageDots(activePage = 1)
+            if (isMainButtonReorderMode) {
+                TextButton(onClick = onConfirmReorderMode) {
+                    Text(
+                        text = "완료",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = FlowPurple
+                    )
+                }
+            } else {
+                FlowPageDots(activePage = 1)
+            }
         }
 
         Text(
@@ -2329,25 +2363,36 @@ private fun FlowStartPage(
             userScrollEnabled = false
         ) {
             items(
-                items = visibleCategories,
+                items = gridCategories,
                 key = { category -> category }
             ) { category ->
-                CategoryButton(
-                    category = category,
-                    label = displayCategory(category),
-                    onClick = {
-                        when {
-                            category == "SCHOOL" || category == "COMPANY" -> {
-                                if (pinnedQuickCategory == null) {
-                                    onPinQuickCategory(category)
+                if (isMainButtonReorderMode) {
+                    CategoryButton(
+                        category = category,
+                        label = displayCategory(category),
+                        isSelected = category == selectedMainButtonForSwapId,
+                        onClick = { onSelectButtonForSwap(category) },
+                        onLongClick = null,
+                        modifier = Modifier.animateItem()
+                    )
+                } else {
+                    CategoryButton(
+                        category = category,
+                        label = displayCategory(category),
+                        onClick = {
+                            when {
+                                category == "SCHOOL" || category == "COMPANY" -> {
+                                    if (pinnedQuickCategory == null) {
+                                        onPinQuickCategory(category)
+                                    }
                                 }
+                                category != activeCategory -> onStart(category)
                             }
-                            category != activeCategory -> onStart(category)
-                        }
-                    },
-                    onLongClick = { onLongClickButton(category) },
-                    modifier = Modifier.animateItem()
-                )
+                        },
+                        onLongClick = { onLongClickButton(category) },
+                        modifier = Modifier.animateItem()
+                    )
+                }
             }
         }
     }
@@ -5030,17 +5075,11 @@ private fun MainButtonEditBottomSheet(
     config: MainButtonConfig,
     onDismiss: () -> Unit,
     onHide: (String) -> Unit,
-    onSwap: (String, Int) -> Unit,
-    onReplace: (String, String) -> Unit,
-    onTogglePin: (String) -> Unit
+    onEnterReorderMode: (String) -> Unit,
+    onReplace: (String, String) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val sorted = remember(config) { config.buttons.sortedBy { it.order } }
-    val currentIndex = sorted.indexOfFirst { it.category == category }
-    val isPinned = sorted.getOrNull(currentIndex)?.isPinned == true
     val canHide = config.buttons.size > MainButtonConfig.MIN_BUTTONS
-    val canMoveLeft = currentIndex > 0
-    val canMoveRight = currentIndex < sorted.size - 1
 
     var showCategoryPicker by remember { mutableStateOf(false) }
 
@@ -5136,52 +5175,11 @@ private fun MainButtonEditBottomSheet(
                     enabled = true,
                     onClick = { showCategoryPicker = true }
                 )
-                // 자리 바꾸기
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = null,
-                        tint = FlowMuted,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(14.dp))
-                    Text(
-                        text = "자리 바꾸기",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = FlowInk,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = { onSwap(category, -1) },
-                            enabled = canMoveLeft,
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = FlowPurple),
-                            border = BorderStroke(1.dp, if (canMoveLeft) FlowPurple else Color(0xFFE0E0E0))
-                        ) { Text("← 이전", fontSize = 13.sp) }
-                        OutlinedButton(
-                            onClick = { onSwap(category, 1) },
-                            enabled = canMoveRight,
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = FlowPurple),
-                            border = BorderStroke(1.dp, if (canMoveRight) FlowPurple else Color(0xFFE0E0E0))
-                        ) { Text("다음 →", fontSize = 13.sp) }
-                    }
-                }
                 MainButtonMenuRow(
-                    label = if (isPinned) "고정 해제하기" else "버튼 고정하기",
-                    icon = if (isPinned) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                    label = "자리 바꾸기",
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
                     enabled = true,
-                    onClick = {
-                        onTogglePin(category)
-                        onDismiss()
-                    }
+                    onClick = { onEnterReorderMode(category) }
                 )
                 MainButtonMenuRow(
                     label = "메인에서 숨기기",
