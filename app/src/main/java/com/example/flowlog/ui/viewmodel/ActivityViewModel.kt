@@ -10,9 +10,11 @@ import com.example.flowlog.data.local.TimerStatus
 import com.example.flowlog.data.model.AutoButtonSchedule
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.ExerciseSetRecord
+import com.example.flowlog.data.model.AiMessage
 import com.example.flowlog.data.model.MainButtonConfig
 import com.example.flowlog.data.model.MainButtonItem
 import com.example.flowlog.data.model.MainButtonSource
+import com.example.flowlog.data.model.RecommendationStatus
 import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.ScheduledAutoButtonBlock
 import com.example.flowlog.data.model.TodoCategory
@@ -91,6 +93,12 @@ data class RecommendedTodoCompletionEvent(
     val previousTodo: TodoItem?
 )
 
+data class AiMessengerUiState(
+    val messages: List<AiMessage> = emptyList(),
+    val showSheet: Boolean = false,
+    val hasUnread: Boolean = false
+)
+
 data class ActivityUiState(
     val isRunning: Boolean = false,
     val currentCategory: String = "",
@@ -164,6 +172,8 @@ class ActivityViewModel(
     val dailyCueGoalReachedEvents: SharedFlow<DailyCueGoalReachedEvent> = _dailyCueGoalReachedEvents.asSharedFlow()
     private val _recommendedTodoCompletionEvents = MutableSharedFlow<RecommendedTodoCompletionEvent>(extraBufferCapacity = 4)
     val recommendedTodoCompletionEvents: SharedFlow<RecommendedTodoCompletionEvent> = _recommendedTodoCompletionEvents.asSharedFlow()
+    private val _aiMessengerUiState = MutableStateFlow(AiMessengerUiState())
+    val aiMessengerUiState: StateFlow<AiMessengerUiState> = _aiMessengerUiState.asStateFlow()
 
     private var timerJob: Job? = null
     private var activeSessionWatcherJob: Job? = null
@@ -188,6 +198,10 @@ class ActivityViewModel(
     )
     private val mainButtonPrefs = appContext.getSharedPreferences(
         PREFS_MAIN_BUTTON_CONFIG,
+        Context.MODE_PRIVATE
+    )
+    private val aiMessengerPrefs = appContext.getSharedPreferences(
+        PREFS_AI_MESSENGER,
         Context.MODE_PRIVATE
     )
     init {
@@ -1288,9 +1302,14 @@ class ActivityViewModel(
                         firestoreSyncRepository.uploadMainButtonConfig(localConfig)
                     }
                     !localConfig.configured && remoteConfig != null && remoteConfig.configured -> {
-                        val toSave = remoteConfig.copy(version = MainButtonConfig.CURRENT_VERSION)
-                        persistMainButtonConfig(toSave)
-                        _uiState.update { it.copy(showMainButtonSetup = false) }
+                        // 로컬 설정이 없는 상태이므로 자동 복원하지 않고,
+                        // 원격 설정을 pending에만 보관한 채 셋업 화면을 유지한다.
+                        // 사용자가 MainButtonSetup을 완료하거나 추후 UI에서 승인해야 적용된다.
+                        _uiState.update {
+                            it.copy(
+                                pendingRemoteMainButtonConfig = remoteConfig.copy(version = MainButtonConfig.CURRENT_VERSION)
+                            )
+                        }
                     }
                     localConfig.configured && remoteConfig != null && remoteConfig.configured -> {
                         if (!configsAreEquivalent(localConfig, remoteConfig)) {
@@ -1337,6 +1356,103 @@ class ActivityViewModel(
         val aSet = a.buttons.map { Triple(it.category, it.order, it.isPinned) }.toSet()
         val bSet = b.buttons.map { Triple(it.category, it.order, it.isPinned) }.toSet()
         return aSet == bSet
+    }
+
+    fun openAiMessenger() {
+        _aiMessengerUiState.update { it.copy(showSheet = true, hasUnread = false) }
+        maybeGenerateMainButtonRecommendationMessage()
+    }
+
+    fun closeAiMessenger() {
+        _aiMessengerUiState.update { it.copy(showSheet = false) }
+    }
+
+    fun maybeGenerateMainButtonRecommendationMessage() {
+        viewModelScope.launch(Dispatchers.Default) {
+            val configuredCategories = _uiState.value.mainButtonConfig.buttons
+                .map { it.category }.toSet()
+            val dismissedMap = loadDismissedCategories()
+            val now = System.currentTimeMillis()
+            val pendingCategories = _aiMessengerUiState.value.messages
+                .filterIsInstance<AiMessage.MainButtonRecommendation>()
+                .filter { it.status == RecommendationStatus.PENDING }
+                .map { it.category }
+                .toSet()
+            val newRecommendations = _uiState.value.promotedButtons.filter { category ->
+                category !in configuredCategories &&
+                    category !in pendingCategories &&
+                    (dismissedMap[category] ?: 0L) < now
+            }
+            if (newRecommendations.isEmpty()) return@launch
+            val newMessages = newRecommendations.map { category ->
+                AiMessage.MainButtonRecommendation(category = category)
+            }
+            _aiMessengerUiState.update { s ->
+                s.copy(
+                    messages = s.messages + newMessages,
+                    hasUnread = s.hasUnread || !s.showSheet
+                )
+            }
+        }
+    }
+
+    fun acceptMainButtonRecommendation(messageId: String) {
+        val message = _aiMessengerUiState.value.messages
+            .filterIsInstance<AiMessage.MainButtonRecommendation>()
+            .find { it.id == messageId } ?: return
+        val config = _uiState.value.mainButtonConfig
+        if (config.buttons.size >= MainButtonConfig.MAX_BUTTONS) {
+            _uiState.update { it.copy(statusMessage = "버튼이 10개예요. 기존 버튼을 정리한 후 추가해 보세요.") }
+            return
+        }
+        val nextOrder = (config.buttons.maxOfOrNull { it.order } ?: -1) + 1
+        persistMainButtonConfig(
+            config.copy(
+                buttons = config.buttons + MainButtonItem(
+                    category = message.category,
+                    order = nextOrder,
+                    source = MainButtonSource.USER_ADDED
+                )
+            )
+        )
+        _aiMessengerUiState.update { s ->
+            s.copy(messages = s.messages.map { msg ->
+                if (msg.id == messageId && msg is AiMessage.MainButtonRecommendation)
+                    msg.copy(status = RecommendationStatus.ACCEPTED)
+                else msg
+            })
+        }
+    }
+
+    fun dismissMainButtonRecommendation(messageId: String) {
+        val message = _aiMessengerUiState.value.messages
+            .filterIsInstance<AiMessage.MainButtonRecommendation>()
+            .find { it.id == messageId } ?: return
+        val dismissedMap = loadDismissedCategories().toMutableMap()
+        dismissedMap[message.category] = System.currentTimeMillis() + RECOMMENDATION_COOLDOWN_MILLIS
+        saveDismissedCategories(dismissedMap)
+        _aiMessengerUiState.update { s ->
+            s.copy(messages = s.messages.map { msg ->
+                if (msg.id == messageId && msg is AiMessage.MainButtonRecommendation)
+                    msg.copy(status = RecommendationStatus.DISMISSED)
+                else msg
+            })
+        }
+    }
+
+    private fun loadDismissedCategories(): Map<String, Long> {
+        val json = aiMessengerPrefs.getString(KEY_DISMISSED_CATEGORIES, null) ?: return emptyMap()
+        return try {
+            undoJson.decodeFromString<Map<String, Long>>(json)
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    private fun saveDismissedCategories(map: Map<String, Long>) {
+        aiMessengerPrefs.edit()
+            .putString(KEY_DISMISSED_CATEGORIES, undoJson.encodeToString(map))
+            .apply()
     }
 
     fun enterMainButtonReorderMode(selectedButtonId: String) {
@@ -1942,6 +2058,9 @@ class ActivityViewModel(
         private const val PREFS_TIMER_STATE = "timer_state"
         private const val PREFS_MAIN_BUTTON_CONFIG = "main_button_config"
         private const val KEY_MAIN_BUTTON_CONFIG = "config"
+        private const val PREFS_AI_MESSENGER = "ai_messenger"
+        private const val KEY_DISMISSED_CATEGORIES = "dismissed_categories"
+        private const val RECOMMENDATION_COOLDOWN_MILLIS = 14L * 24 * 60 * 60 * 1000L
         private const val KEY_LAST_ADDED_ACTIVITY = "last_added_activity"
         private const val KEY_BRUSH_TIMER_ENDS_AT = "brush_timer_ends_at"
         private const val KEY_SNACK_BUTTON_TIMER_ENDS_AT = "snack_button_timer_ends_at"

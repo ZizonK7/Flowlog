@@ -137,7 +137,10 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.DoNotDisturb
 import com.example.flowlog.notification.FocusDndController
+import com.example.flowlog.data.model.AiMessage
+import com.example.flowlog.data.model.RecommendationStatus
 import com.example.flowlog.ui.component.displayCategory
+import com.example.flowlog.ui.viewmodel.AiMessengerUiState
 
 class MainActivity : ComponentActivity() {
     private var requestedScreen by mutableStateOf(SCREEN_HOME)
@@ -196,8 +199,7 @@ class MainActivity : ComponentActivity() {
                 var signedInUser by remember { mutableStateOf(auth.currentUser) }
                 var syncStatus by remember { mutableStateOf<String?>(null) }
                 val scope = rememberCoroutineScope()
-                var showAiMessenger by remember { mutableStateOf(false) }
-                var aiMessengerSuggestions by remember { mutableStateOf<List<String>>(emptyList()) }
+                val aiMessengerUiState by activityViewModel.aiMessengerUiState.collectAsState()
 
                 val userRoleStore = remember { UserRoleStore(this@MainActivity) }
                 val isDeveloper = remember(signedInUser) {
@@ -409,11 +411,9 @@ class MainActivity : ComponentActivity() {
                                             onBlogClick = openDeveloperBlog,
                                             onAccountClick = runAccountSync,
                                             onAiMessengerClick = {
-                                                val currentCategories = activityViewModel.uiState.value
-                                                    .mainButtonConfig.buttons.map { it.category }.toSet()
-                                                aiMessengerSuggestions = promotedButtons.filter { it !in currentCategories }
-                                                showAiMessenger = true
+                                                activityViewModel.openAiMessenger()
                                             },
+                                            hasUnreadAiMessages = aiMessengerUiState.hasUnread,
                                             isDeveloper = isDeveloper,
                                             isDeveloperMode = isDeveloperMode,
                                             onFirebaseUploadClick = runFirebaseUpload,
@@ -445,10 +445,12 @@ class MainActivity : ComponentActivity() {
                             onTodoClick = { currentScreen = "todo" }
                         )
                     }
-                if (showAiMessenger) {
+                if (aiMessengerUiState.showSheet) {
                     AiMessengerSheet(
-                        suggestions = aiMessengerSuggestions,
-                        onDismiss = { showAiMessenger = false }
+                        uiState = aiMessengerUiState,
+                        onAccept = { id -> activityViewModel.acceptMainButtonRecommendation(id) },
+                        onDismiss = { id -> activityViewModel.dismissMainButtonRecommendation(id) },
+                        onClose = { activityViewModel.closeAiMessenger() }
                     )
                 }
                 }
@@ -591,6 +593,7 @@ private fun HeaderActions(
     onBlogClick: () -> Unit,
     onAccountClick: () -> Unit,
     onAiMessengerClick: () -> Unit = {},
+    hasUnreadAiMessages: Boolean = false,
     isDeveloper: Boolean = false,
     isDeveloperMode: Boolean = false,
     onFirebaseUploadClick: () -> Unit = {},
@@ -635,15 +638,25 @@ private fun HeaderActions(
                     .size(44.dp)
                     .clip(CircleShape)
                     .background(Color(0xFFF0ECFF))
-                    .border(1.dp, Color(0xFFE0D7FF), CircleShape),
-                contentAlignment = Alignment.Center
+                    .border(1.dp, Color(0xFFE0D7FF), CircleShape)
             ) {
                 Icon(
                     imageVector = Icons.Filled.AutoAwesome,
                     contentDescription = "AI 메신저",
                     tint = Color(0xFF5140D8),
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier
+                        .size(24.dp)
+                        .align(Alignment.Center)
                 )
+                if (hasUnreadAiMessages) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .align(Alignment.TopEnd)
+                            .clip(CircleShape)
+                            .background(Color(0xFFE53935))
+                    )
+                }
             }
         }
 
@@ -933,16 +946,21 @@ private fun ProfileAvatar(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AiMessengerSheet(
-    suggestions: List<String>,
-    onDismiss: () -> Unit
+    uiState: AiMessengerUiState,
+    onAccept: (messageId: String) -> Unit,
+    onDismiss: (messageId: String) -> Unit,
+    onClose: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val pendingRecommendations = uiState.messages
+        .filterIsInstance<AiMessage.MainButtonRecommendation>()
+        .filter { it.status == RecommendationStatus.PENDING }
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = onClose,
         sheetState = sheetState,
         containerColor = Color.White,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     ) {
         Column(
             modifier = Modifier
@@ -985,7 +1003,7 @@ private fun AiMessengerSheet(
                 }
             }
 
-            if (suggestions.isEmpty()) {
+            if (pendingRecommendations.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1000,9 +1018,11 @@ private fun AiMessengerSheet(
                     )
                 }
             } else {
-                suggestions.forEach { category ->
+                pendingRecommendations.forEach { recommendation ->
                     AiSuggestionCard(
-                        category = category,
+                        recommendation = recommendation,
+                        onAccept = { onAccept(recommendation.id) },
+                        onDismiss = { onDismiss(recommendation.id) },
                         modifier = Modifier.padding(bottom = 12.dp)
                     )
                 }
@@ -1013,10 +1033,12 @@ private fun AiMessengerSheet(
 
 @Composable
 private fun AiSuggestionCard(
-    category: String,
+    recommendation: AiMessage.MainButtonRecommendation,
+    onAccept: () -> Unit,
+    onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val name = displayCategory(category)
+    val name = displayCategory(recommendation.category)
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -1033,15 +1055,15 @@ private fun AiSuggestionCard(
             Spacer(modifier = Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
-                    onClick = { /* TODO: 추천 거절 */ },
+                    onClick = onDismiss,
                     shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(1.dp, Color(0xFFE8E8EE)),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF697386))
                 ) {
-                    Text("괜찮아요", fontSize = 13.sp)
+                    Text("나중에", fontSize = 13.sp)
                 }
                 Button(
-                    onClick = { /* TODO: MainButtonSetup 연결 */ },
+                    onClick = onAccept,
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF5140D8),
