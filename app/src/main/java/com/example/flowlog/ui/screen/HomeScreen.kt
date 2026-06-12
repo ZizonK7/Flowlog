@@ -519,7 +519,7 @@ fun HomeScreen(
                 appliedTitle = uiState.pendingTitle.orEmpty(),
                 titleSuggestions = titleSuggestions,
                 mainButtonConfig = effectiveMainButtonConfig,
-                onLongClickButton = { category -> viewModel.showMainButtonSetup(category) },
+                onLongClickButton = { category -> viewModel.openMainButtonReplacePicker(category) },
                 onPinQuickCategory = { category ->
                     val startedAt = System.currentTimeMillis()
                     pinnedQuickCategory = category
@@ -699,7 +699,7 @@ fun HomeScreen(
         MainButtonEditBottomSheet(
             category = mainButtonSetupTarget,
             config = uiState.mainButtonConfig,
-            onDismiss = { viewModel.dismissMainButtonSetup() },
+            onDismiss = { viewModel.dismissMainButtonReplacePicker() },
             onHide = { viewModel.hideMainButton(it) },
             onEnterReorderMode = { cat -> viewModel.enterMainButtonReorderMode(cat) },
             onReplace = { old, new -> viewModel.replaceMainButton(old, new) }

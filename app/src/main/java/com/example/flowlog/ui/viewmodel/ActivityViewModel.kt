@@ -191,7 +191,7 @@ class ActivityViewModel(
         val initialConfig = loadMainButtonConfig()
         _uiState.update { it.copy(
             mainButtonConfig = initialConfig,
-            showMainButtonSetup = !initialConfig.configured,
+            showMainButtonSetup = !initialConfig.configured || initialConfig.version < MainButtonConfig.CURRENT_VERSION,
             isMainButtonReorderMode = false,
             selectedMainButtonForSwapId = null,
             temporaryMainButtons = null
@@ -1227,13 +1227,7 @@ class ActivityViewModel(
         val json = mainButtonPrefs.getString(KEY_MAIN_BUTTON_CONFIG, null)
             ?: return MainButtonConfig.DEFAULT
         return try {
-            val config = undoJson.decodeFromString<MainButtonConfig>(json)
-            // 기존 사용자 마이그레이션: 버튼이 있으면 이미 설정된 것으로 간주
-            if (config.buttons.isNotEmpty() && !config.configured) {
-                config.copy(configured = true, version = MainButtonConfig.CURRENT_VERSION)
-            } else {
-                config
-            }
+            undoJson.decodeFromString(json)
         } catch (_: Exception) {
             MainButtonConfig.DEFAULT
         }
@@ -1246,11 +1240,11 @@ class ActivityViewModel(
         _uiState.update { it.copy(mainButtonConfig = config) }
     }
 
-    fun showMainButtonSetup(category: String) {
+    fun openMainButtonReplacePicker(category: String) {
         _uiState.update { it.copy(mainButtonSetupTarget = category) }
     }
 
-    fun dismissMainButtonSetup() {
+    fun dismissMainButtonReplacePicker() {
         _uiState.update { it.copy(mainButtonSetupTarget = null) }
     }
 
@@ -1333,7 +1327,7 @@ class ActivityViewModel(
             .filter { it.category != category }
             .mapIndexed { i, btn -> btn.copy(order = i) }
         persistMainButtonConfig(config.copy(buttons = newButtons))
-        dismissMainButtonSetup()
+        dismissMainButtonReplacePicker()
     }
 
     fun swapMainButton(category: String, direction: Int) {
@@ -1359,7 +1353,7 @@ class ActivityViewModel(
             else btn
         }
         persistMainButtonConfig(config.copy(buttons = newButtons))
-        dismissMainButtonSetup()
+        dismissMainButtonReplacePicker()
     }
 
 
