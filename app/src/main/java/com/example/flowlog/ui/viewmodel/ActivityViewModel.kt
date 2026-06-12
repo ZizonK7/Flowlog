@@ -123,7 +123,9 @@ data class ActivityUiState(
     val focusModeEndsAtMillis: Long = 0L,
     val isNotificationSoundEnabled: Boolean = true,
     val activeAutoButtonCategory: String? = null,
-    val activeAutoButtonStartedAt: Long = 0L
+    val activeAutoButtonStartedAt: Long = 0L,
+    val exerciseSets: List<ExerciseSetRecord> = emptyList(),
+    val exerciseMemo: String = ""
 )
 
 data class TimerDisplayState(
@@ -219,7 +221,9 @@ class ActivityViewModel(
                 pendingTitle = null,
                 pendingNote = null,
                 dailyCueId = null,
-                statusMessage = null
+                statusMessage = null,
+                exerciseSets = emptyList(),
+                exerciseMemo = ""
             )
         }
         saveActiveSession(category = category, startTime = startTime, goalMillis = goalMillis)
@@ -231,6 +235,16 @@ class ActivityViewModel(
 
     fun restartActivity(activity: ActivitySession) {
         startActivity(activity.category)
+    }
+
+    fun updateExerciseSets(sets: List<ExerciseSetRecord>) {
+        _uiState.update { it.copy(exerciseSets = sets) }
+        val json = if (sets.isEmpty()) null else undoJson.encodeToString(sets)
+        TimerStateStore.saveExerciseSetsJson(appContext, json)
+    }
+
+    fun updateExerciseMemo(memo: String) {
+        _uiState.update { it.copy(exerciseMemo = memo) }
     }
 
     fun startOverlappingActivity(category: String, startTime: Long) {
@@ -289,10 +303,22 @@ class ActivityViewModel(
 
     fun setRunningActivityTitle(title: String) {
         if (!_uiState.value.isRunning) return
-        val cleanTitle = title.trim().takeIf { cleanTitle -> cleanTitle.isNotBlank() }
+        val cleanTitle = title.trim().takeIf { it.isNotBlank() }
+        val state = _uiState.value
         _uiState.update {
             it.copy(pendingTitle = cleanTitle)
         }
+        saveActiveSession(
+            category = state.currentCategory,
+            startTime = state.startTime,
+            goalMillis = state.timerGoalMillis,
+            linkedTodoId = state.linkedTodoId,
+            pendingNote = state.pendingNote,
+            pendingTitle = cleanTitle,
+            dailyCueId = state.dailyCueId,
+            sourceType = state.sourceType,
+            sourceId = state.sourceId
+        )
     }
 
     fun startTodoActivity(todoId: Long, title: String) {
@@ -552,7 +578,9 @@ class ActivityViewModel(
                 pendingNote = null,
                 dailyCueId = null,
                 isFocusModeActive = false,
-                focusModeEndsAtMillis = 0L
+                focusModeEndsAtMillis = 0L,
+                exerciseSets = emptyList(),
+                exerciseMemo = ""
             )
         }
         resetTimerDisplayState()
@@ -823,6 +851,12 @@ class ActivityViewModel(
             timerGoalMillis = goalMillis
         )
 
+        val restoredExerciseSets = if (category == "EXERCISE") {
+            TimerStateStore.loadExerciseSetsJson(appContext)?.let { json ->
+                runCatching { undoJson.decodeFromString<List<ExerciseSetRecord>>(json) }.getOrDefault(emptyList())
+            } ?: emptyList()
+        } else emptyList()
+
         _uiState.update {
             it.copy(
                 isRunning = true,
@@ -833,10 +867,11 @@ class ActivityViewModel(
                 linkedTodoId = activeTimer.linkedTodoId,
                 sourceType = activeTimer.sourceType,
                 sourceId = activeTimer.sourceId,
-                pendingTitle = activeTimer.linkedTodoTitle,
+                pendingTitle = activeTimer.pendingTitle ?: activeTimer.linkedTodoTitle,
                 pendingNote = activeTimer.pendingNote,
                 dailyCueId = activeTimer.dailyCueId,
-                statusMessage = null
+                statusMessage = null,
+                exerciseSets = restoredExerciseSets
             )
         }
         if (category != "SLEEP") {
@@ -933,7 +968,7 @@ class ActivityViewModel(
                     linkedTodoId = activeTimer.linkedTodoId,
                     sourceType = activeTimer.sourceType,
                     sourceId = activeTimer.sourceId,
-                    pendingTitle = activeTimer.linkedTodoTitle,
+                    pendingTitle = activeTimer.pendingTitle ?: activeTimer.linkedTodoTitle,
                     pendingNote = activeTimer.pendingNote,
                     dailyCueId = activeTimer.dailyCueId,
                     statusMessage = null
@@ -1437,6 +1472,7 @@ class ActivityViewModel(
         linkedTodoId: Long? = null,
         linkedTodoTitle: String? = null,
         pendingNote: String? = null,
+        pendingTitle: String? = null,
         dailyCueId: Long? = null,
         sourceType: String = ActivitySourceType.MANUAL,
         sourceId: String? = null
@@ -1449,6 +1485,7 @@ class ActivityViewModel(
             linkedTodoId = linkedTodoId,
             linkedTodoTitle = linkedTodoTitle,
             pendingNote = pendingNote,
+            pendingTitle = pendingTitle,
             dailyCueId = dailyCueId,
             sourceType = sourceType,
             sourceId = sourceId

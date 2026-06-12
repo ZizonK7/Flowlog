@@ -13,6 +13,7 @@ data class ActiveTimerState(
     val linkedTodoId: Long? = null,
     val linkedTodoTitle: String? = null,
     val pendingNote: String? = null,
+    val pendingTitle: String? = null,
     val dailyCueId: Long? = null,
     val sourceType: String = ActivitySourceType.MANUAL,
     val sourceId: String? = null
@@ -43,9 +44,11 @@ object TimerStateStore {
     private const val KEY_ACTIVE_TODO_ID = "active_todo_id"
     private const val KEY_ACTIVE_TODO_TITLE = "active_todo_title"
     private const val KEY_ACTIVE_PENDING_NOTE = "active_pending_note"
+    private const val KEY_ACTIVE_PENDING_TITLE = "active_pending_title"
     private const val KEY_ACTIVE_DAILY_CUE_ID = "active_daily_cue_id"
     private const val KEY_ACTIVE_SOURCE_TYPE = "active_source_type"
     private const val KEY_ACTIVE_SOURCE_ID = "active_source_id"
+    private const val KEY_ACTIVE_EXERCISE_SETS_JSON = "active_exercise_sets_json"
     private const val KEY_PINNED_CATEGORY = "pinned_category"
     private const val KEY_PINNED_START_TIME = "pinned_start_time"
     private const val KEY_PINNED_GOAL_MILLIS = "pinned_goal_millis"
@@ -71,6 +74,7 @@ object TimerStateStore {
             .takeUnless { it == NO_TODO_ID }
         val linkedTodoTitle = preferences.getString(KEY_ACTIVE_TODO_TITLE, null)
         val pendingNote = preferences.getString(KEY_ACTIVE_PENDING_NOTE, null)
+        val pendingTitle = preferences.getString(KEY_ACTIVE_PENDING_TITLE, null)
         val dailyCueId = preferences.getLong(KEY_ACTIVE_DAILY_CUE_ID, NO_TODO_ID)
             .takeUnless { it == NO_TODO_ID }
         val sourceType = preferences.getString(KEY_ACTIVE_SOURCE_TYPE, ActivitySourceType.MANUAL)
@@ -86,6 +90,7 @@ object TimerStateStore {
             linkedTodoId = linkedTodoId,
             linkedTodoTitle = linkedTodoTitle,
             pendingNote = pendingNote,
+            pendingTitle = pendingTitle,
             dailyCueId = dailyCueId,
             sourceType = sourceType,
             sourceId = sourceId
@@ -100,6 +105,7 @@ object TimerStateStore {
         linkedTodoId: Long? = null,
         linkedTodoTitle: String? = null,
         pendingNote: String? = null,
+        pendingTitle: String? = null,
         dailyCueId: Long? = null,
         sourceType: String = ActivitySourceType.MANUAL,
         sourceId: String? = null
@@ -114,6 +120,7 @@ object TimerStateStore {
             .putLong(KEY_ACTIVE_TODO_ID, linkedTodoId ?: NO_TODO_ID)
             .putString(KEY_ACTIVE_TODO_TITLE, linkedTodoTitle)
             .putString(KEY_ACTIVE_PENDING_NOTE, pendingNote)
+            .putString(KEY_ACTIVE_PENDING_TITLE, pendingTitle)
             .putLong(KEY_ACTIVE_DAILY_CUE_ID, dailyCueId ?: NO_TODO_ID)
             .putString(KEY_ACTIVE_SOURCE_TYPE, sourceType)
             .putString(KEY_ACTIVE_SOURCE_ID, sourceId)
@@ -181,9 +188,23 @@ object TimerStateStore {
             .remove(KEY_ACTIVE_TODO_ID)
             .remove(KEY_ACTIVE_TODO_TITLE)
             .remove(KEY_ACTIVE_PENDING_NOTE)
+            .remove(KEY_ACTIVE_PENDING_TITLE)
             .remove(KEY_ACTIVE_DAILY_CUE_ID)
             .remove(KEY_ACTIVE_SOURCE_TYPE)
             .remove(KEY_ACTIVE_SOURCE_ID)
+            .remove(KEY_ACTIVE_EXERCISE_SETS_JSON)
             .apply()
+    }
+
+    fun saveExerciseSetsJson(context: Context, json: String?) {
+        context.applicationContext.getSharedPreferences(PREFS_TIMER_STATE, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_ACTIVE_EXERCISE_SETS_JSON, json)
+            .apply()
+    }
+
+    fun loadExerciseSetsJson(context: Context): String? {
+        return context.applicationContext.getSharedPreferences(PREFS_TIMER_STATE, Context.MODE_PRIVATE)
+            .getString(KEY_ACTIVE_EXERCISE_SETS_JSON, null)
     }
 }
