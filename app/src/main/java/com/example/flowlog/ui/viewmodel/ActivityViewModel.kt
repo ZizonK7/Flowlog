@@ -25,6 +25,7 @@ import com.example.flowlog.data.repository.AutoButtonScheduleRepository
 import com.example.flowlog.data.repository.DailyGoalRepository
 import com.example.flowlog.data.repository.EventLogRepository
 import com.example.flowlog.data.repository.TodoRepository
+import com.example.flowlog.data.remote.FirestoreSyncRepository
 import com.example.flowlog.data.sync.FirebaseSyncCoordinator
 import com.example.flowlog.notification.ActivityTimerNotifier
 import com.example.flowlog.notification.AutoButtonScheduler
@@ -131,6 +132,8 @@ data class ActivityUiState(
     val exerciseMemo: String = "",
     val mainButtonConfig: MainButtonConfig = MainButtonConfig.DEFAULT,
     val showMainButtonSetup: Boolean = false,
+    val showMainButtonConflict: Boolean = false,
+    val pendingRemoteMainButtonConfig: MainButtonConfig? = null,
     val mainButtonSetupTarget: String? = null,
     val isMainButtonReorderMode: Boolean = false,
     val selectedMainButtonForSwapId: String? = null,
@@ -174,6 +177,7 @@ class ActivityViewModel(
     private val dailyGoalRepository = DailyGoalRepository(appContext)
     private val buttonRecommendationEngine = ButtonRecommendationEngine()
     private val autoButtonScheduler = AutoButtonScheduler(appContext)
+    private val firestoreSyncRepository = FirestoreSyncRepository()
     private val undoPreferences = appContext.getSharedPreferences(
         PREFS_ACTIVITY_UNDO,
         Context.MODE_PRIVATE
@@ -1265,6 +1269,74 @@ class ActivityViewModel(
             .putString(KEY_MAIN_BUTTON_CONFIG, undoJson.encodeToString(newConfig))
             .apply()
         _uiState.update { it.copy(mainButtonConfig = newConfig, showMainButtonSetup = false) }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                if (FirebaseAuth.getInstance().currentUser != null) {
+                    firestoreSyncRepository.uploadMainButtonConfig(newConfig)
+                }
+            }
+        }
+    }
+
+    fun handleLoginMainButtonSync() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val localConfig = _uiState.value.mainButtonConfig
+                val remoteConfig = firestoreSyncRepository.fetchMainButtonConfig()
+                when {
+                    localConfig.configured && remoteConfig == null -> {
+                        firestoreSyncRepository.uploadMainButtonConfig(localConfig)
+                    }
+                    !localConfig.configured && remoteConfig != null && remoteConfig.configured -> {
+                        val toSave = remoteConfig.copy(version = MainButtonConfig.CURRENT_VERSION)
+                        persistMainButtonConfig(toSave)
+                        _uiState.update { it.copy(showMainButtonSetup = false) }
+                    }
+                    localConfig.configured && remoteConfig != null && remoteConfig.configured -> {
+                        if (!configsAreEquivalent(localConfig, remoteConfig)) {
+                            _uiState.update {
+                                it.copy(
+                                    showMainButtonConflict = true,
+                                    pendingRemoteMainButtonConfig = remoteConfig
+                                )
+                            }
+                        }
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    fun useLocalMainButtonConfig() {
+        val local = _uiState.value.mainButtonConfig
+        _uiState.update { it.copy(showMainButtonConflict = false, pendingRemoteMainButtonConfig = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { firestoreSyncRepository.uploadMainButtonConfig(local) }
+        }
+    }
+
+    fun useRemoteMainButtonConfig() {
+        val remote = _uiState.value.pendingRemoteMainButtonConfig ?: return
+        val toSave = remote.copy(version = MainButtonConfig.CURRENT_VERSION)
+        persistMainButtonConfig(toSave)
+        _uiState.update { it.copy(showMainButtonConflict = false, pendingRemoteMainButtonConfig = null) }
+    }
+
+    fun enterConflictSetupMode() {
+        _uiState.update {
+            it.copy(
+                showMainButtonConflict = false,
+                pendingRemoteMainButtonConfig = null,
+                showMainButtonSetup = true
+            )
+        }
+    }
+
+    private fun configsAreEquivalent(a: MainButtonConfig, b: MainButtonConfig): Boolean {
+        val aSet = a.buttons.map { Triple(it.category, it.order, it.isPinned) }.toSet()
+        val bSet = b.buttons.map { Triple(it.category, it.order, it.isPinned) }.toSet()
+        return aSet == bSet
     }
 
     fun enterMainButtonReorderMode(selectedButtonId: String) {

@@ -114,16 +114,30 @@ import java.net.URL
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.DoNotDisturb
 import com.example.flowlog.notification.FocusDndController
+import com.example.flowlog.ui.component.displayCategory
 
 class MainActivity : ComponentActivity() {
     private var requestedScreen by mutableStateOf(SCREEN_HOME)
@@ -182,6 +196,8 @@ class MainActivity : ComponentActivity() {
                 var signedInUser by remember { mutableStateOf(auth.currentUser) }
                 var syncStatus by remember { mutableStateOf<String?>(null) }
                 val scope = rememberCoroutineScope()
+                var showAiMessenger by remember { mutableStateOf(false) }
+                var aiMessengerSuggestions by remember { mutableStateOf<List<String>>(emptyList()) }
 
                 val userRoleStore = remember { UserRoleStore(this@MainActivity) }
                 val isDeveloper = remember(signedInUser) {
@@ -232,6 +248,7 @@ class MainActivity : ComponentActivity() {
                         runCatching {
                             uploadLocalFlowlogSnapshot()
                         }
+                        activityViewModel.handleLoginMainButtonSync()
                         runCatching {
                             AutoButtonScheduler(applicationContext).rescheduleAll()
                         }
@@ -391,6 +408,12 @@ class MainActivity : ComponentActivity() {
                                             onStatsClick = openStatsSite,
                                             onBlogClick = openDeveloperBlog,
                                             onAccountClick = runAccountSync,
+                                            onAiMessengerClick = {
+                                                val currentCategories = activityViewModel.uiState.value
+                                                    .mainButtonConfig.buttons.map { it.category }.toSet()
+                                                aiMessengerSuggestions = promotedButtons.filter { it !in currentCategories }
+                                                showAiMessenger = true
+                                            },
                                             isDeveloper = isDeveloper,
                                             isDeveloperMode = isDeveloperMode,
                                             onFirebaseUploadClick = runFirebaseUpload,
@@ -422,6 +445,12 @@ class MainActivity : ComponentActivity() {
                             onTodoClick = { currentScreen = "todo" }
                         )
                     }
+                if (showAiMessenger) {
+                    AiMessengerSheet(
+                        suggestions = aiMessengerSuggestions,
+                        onDismiss = { showAiMessenger = false }
+                    )
+                }
                 }
             }
         }
@@ -561,6 +590,7 @@ private fun HeaderActions(
     onStatsClick: () -> Unit,
     onBlogClick: () -> Unit,
     onAccountClick: () -> Unit,
+    onAiMessengerClick: () -> Unit = {},
     isDeveloper: Boolean = false,
     isDeveloperMode: Boolean = false,
     onFirebaseUploadClick: () -> Unit = {},
@@ -597,7 +627,7 @@ private fun HeaderActions(
         }
 
         IconButton(
-            onClick = onToggleNotificationSound,
+            onClick = onAiMessengerClick,
             modifier = Modifier.size(52.dp)
         ) {
             Box(
@@ -609,9 +639,9 @@ private fun HeaderActions(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = if (isNotificationSoundEnabled) Icons.Filled.Notifications else Icons.Filled.NotificationsOff,
-                    contentDescription = if (isNotificationSoundEnabled) "알림 소리 켜짐" else "알림 소리 꺼짐",
-                    tint = if (isNotificationSoundEnabled) Color(0xFF5140D8) else Color(0xFF9E9E9E),
+                    imageVector = Icons.Filled.AutoAwesome,
+                    contentDescription = "AI 메신저",
+                    tint = Color(0xFF5140D8),
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -756,6 +786,43 @@ private fun HeaderActions(
             text = {
                 Column {
                     Text(
+                        text = "알림 설정",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF5140D8)
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    androidx.compose.foundation.layout.Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = if (isNotificationSoundEnabled) Icons.Filled.Notifications else Icons.Filled.NotificationsOff,
+                            contentDescription = null,
+                            tint = if (isNotificationSoundEnabled) Color(0xFF5140D8) else Color(0xFF9E9E9E),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.size(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "알림 소리",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF10182C)
+                            )
+                            Text(
+                                text = if (isNotificationSoundEnabled) "켜짐" else "꺼짐",
+                                fontSize = 12.sp,
+                                color = Color(0xFF9E9E9E)
+                            )
+                        }
+                        Switch(
+                            checked = isNotificationSoundEnabled,
+                            onCheckedChange = { onToggleNotificationSound() }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Text(
                         text = "집중 모드",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
@@ -859,6 +926,131 @@ private fun ProfileAvatar(
                 tint = Color(0xFF5140D8),
                 modifier = Modifier.size(31.dp)
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AiMessengerSheet(
+    suggestions: List<String>,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color.White,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 20.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFF0ECFF)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.AutoAwesome,
+                        contentDescription = null,
+                        tint = Color(0xFF5140D8),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Flowlog AI",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFF10182C)
+                    )
+                    Text(
+                        text = "활동 패턴 기반 제안",
+                        fontSize = 12.sp,
+                        color = Color(0xFF697386)
+                    )
+                }
+            }
+
+            if (suggestions.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "아직 제안할 내용이 없어요.\n기록이 조금 더 쌓이면 Flowlog가 도와줄게요.",
+                        fontSize = 14.sp,
+                        color = Color(0xFF697386),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                suggestions.forEach { category ->
+                    AiSuggestionCard(
+                        category = category,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiSuggestionCard(
+    category: String,
+    modifier: Modifier = Modifier
+) {
+    val name = displayCategory(category)
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F9)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, Color(0xFFE8E8EE))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "최근 $name 기록이 자주 보여요. $name 버튼을 메인에 추가해볼까요?",
+                fontSize = 14.sp,
+                color = Color(0xFF10182C)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { /* TODO: 추천 거절 */ },
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE8E8EE)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF697386))
+                ) {
+                    Text("괜찮아요", fontSize = 13.sp)
+                }
+                Button(
+                    onClick = { /* TODO: MainButtonSetup 연결 */ },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF5140D8),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text("추가하기", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }

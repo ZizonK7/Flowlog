@@ -4,6 +4,8 @@ import com.example.flowlog.data.local.entity.DailyGoalItemEntity
 import com.example.flowlog.data.local.entity.DailyGoalRecommendationEntity
 import com.example.flowlog.data.local.entity.EventLogEntity
 import com.example.flowlog.data.model.ActivitySession
+import com.example.flowlog.data.model.MainButtonConfig
+import com.example.flowlog.data.model.MainButtonItem
 import com.example.flowlog.data.model.TodoItem
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -229,6 +231,53 @@ class FirestoreSyncRepository(
         "createdAt" to createdAt,
         "updatedAt" to updatedAt
     )
+
+    // ── MainButtonConfig sync ─────────────────────────────────────────────
+    // 저장 경로: users/{uid}/flowlog/config  (document)
+    // 비교 기준 필드만 저장: category, order, isPinned. source/updatedAt 등 제외.
+
+    suspend fun uploadMainButtonConfig(config: MainButtonConfig) {
+        val userId = uid ?: return
+        val buttonsData = config.buttons.map { btn ->
+            mapOf("category" to btn.category, "order" to btn.order, "isPinned" to btn.isPinned)
+        }
+        firestore.collection("users").document(userId)
+            .collection("flowlog").document("config")
+            .set(
+                mapOf(
+                    "mainButton" to mapOf(
+                        "buttons" to buttonsData,
+                        "configured" to config.configured,
+                        "version" to config.version
+                    )
+                ),
+                SetOptions.merge()
+            )
+            .awaitResult()
+    }
+
+    suspend fun fetchMainButtonConfig(): MainButtonConfig? {
+        val userId = uid ?: return null
+        val snapshot = firestore.collection("users").document(userId)
+            .collection("flowlog").document("config")
+            .get()
+            .awaitResult()
+        @Suppress("UNCHECKED_CAST")
+        val mainButton = snapshot?.get("mainButton") as? Map<String, Any> ?: return null
+        val configured = mainButton["configured"] as? Boolean ?: return null
+        if (!configured) return null
+        val version = (mainButton["version"] as? Long)?.toInt() ?: 0
+        @Suppress("UNCHECKED_CAST")
+        val buttonsList = mainButton["buttons"] as? List<Map<String, Any>> ?: return null
+        val buttons = buttonsList.mapNotNull { btnMap ->
+            val category = btnMap["category"] as? String ?: return@mapNotNull null
+            val order = (btnMap["order"] as? Long)?.toInt() ?: 0
+            val isPinned = btnMap["isPinned"] as? Boolean ?: false
+            MainButtonItem(category = category, order = order, isPinned = isPinned)
+        }
+        if (buttons.isEmpty()) return null
+        return MainButtonConfig(buttons = buttons, configured = true, version = version)
+    }
 
     private fun activityCollection(userId: String) =
         firestore.collection("users").document(userId)

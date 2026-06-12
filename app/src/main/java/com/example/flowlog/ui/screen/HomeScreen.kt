@@ -171,6 +171,8 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.abs
 import kotlin.math.PI
@@ -704,6 +706,19 @@ fun HomeScreen(
             onEnterReorderMode = { cat -> viewModel.enterMainButtonReorderMode(cat) },
             onReplace = { old, new -> viewModel.replaceMainButton(old, new) }
         )
+    }
+
+    if (uiState.showMainButtonConflict) {
+        val remoteConfig = uiState.pendingRemoteMainButtonConfig
+        if (remoteConfig != null) {
+            MainButtonConflictDialog(
+                localConfig = uiState.mainButtonConfig,
+                remoteConfig = remoteConfig,
+                onUseLocal = { viewModel.useLocalMainButtonConfig() },
+                onUseRemote = { viewModel.useRemoteMainButtonConfig() },
+                onSetupNew = { viewModel.enterConflictSetupMode() }
+            )
+        }
     }
 
     }
@@ -2281,6 +2296,141 @@ private fun defaultActivityTitle(category: String): String {
         "REST" -> "휴식"
         "SCHOOL" -> "학교"
         else -> "활동"
+    }
+}
+
+@Composable
+private fun MainButtonConflictDialog(
+    localConfig: MainButtonConfig,
+    remoteConfig: MainButtonConfig,
+    onUseLocal: () -> Unit,
+    onUseRemote: () -> Unit,
+    onSetupNew: () -> Unit
+) {
+    val isOrderOnlyConflict = remember(localConfig, remoteConfig) {
+        localConfig.buttons.map { it.category }.toSet() ==
+            remoteConfig.buttons.map { it.category }.toSet()
+    }
+    val subtitle = if (isOrderOnlyConflict) {
+        "이 기기와 계정의 버튼 순서가 달라요.\n어느 쪽 순서를 사용할까요?"
+    } else {
+        "이 기기와 계정의 버튼 설정이 달라요.\n어느 쪽을 사용할까요?"
+    }
+    val localLabel = if (isOrderOnlyConflict) "현재 기기 순서 사용" else "현재 기기 설정 사용"
+    val remoteLabel = if (isOrderOnlyConflict) "계정 순서 사용" else "계정 설정 사용"
+
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+    ) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text(
+                    text = "메인 버튼 설정이 달라요",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = FlowInk
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = subtitle,
+                    fontSize = 13.sp,
+                    color = FlowMuted
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    ConflictConfigPreview(
+                        label = "현재 기기",
+                        config = localConfig,
+                        modifier = Modifier.weight(1f)
+                    )
+                    ConflictConfigPreview(
+                        label = "계정",
+                        config = remoteConfig,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+                Button(
+                    onClick = onUseLocal,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = FlowPurple),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = localLabel,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onUseRemote,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.5.dp, FlowPurple)
+                ) {
+                    Text(
+                        text = remoteLabel,
+                        color = FlowPurple,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                TextButton(
+                    onClick = onSetupNew,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "직접 다시 고르기",
+                        color = FlowMuted,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConflictConfigPreview(
+    label: String,
+    config: MainButtonConfig,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .background(Color(0xFFF4F4F8), shape = RoundedCornerShape(12.dp))
+            .padding(12.dp)
+    ) {
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = FlowMuted,
+            modifier = Modifier.padding(bottom = 6.dp)
+        )
+        config.buttons.sortedBy { it.order }.forEach { btn ->
+            Text(
+                text = displayCategory(btn.category),
+                fontSize = 12.sp,
+                color = FlowInk,
+                modifier = Modifier.padding(vertical = 1.dp)
+            )
+        }
     }
 }
 

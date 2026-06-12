@@ -19,3 +19,9 @@ local.properties
 flowlog_activities.csv
 app/google-services.json
 .firebaserc
+
+# Keystore
+*.keystore
+*.jks
+release.keystore
+keystore.properties
