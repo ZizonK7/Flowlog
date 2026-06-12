@@ -148,6 +148,7 @@ import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.ExerciseSetRecord
 import com.example.flowlog.ui.city.CityTimetableCard
 import com.example.flowlog.data.model.AutoButtonSchedule
+import com.example.flowlog.data.model.MainButtonConfig
 import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.ScheduledAutoButtonBlock
 import com.example.flowlog.data.model.TodoCategory
@@ -513,7 +514,8 @@ fun HomeScreen(
                 statusMessage = uiState.statusMessage,
                 appliedTitle = uiState.pendingTitle.orEmpty(),
                 titleSuggestions = titleSuggestions,
-                promotedButtons = uiState.promotedButtons,
+                mainButtonConfig = uiState.mainButtonConfig,
+                onLongClickButton = { category -> viewModel.showMainButtonSetup(category) },
                 onPinQuickCategory = { category ->
                     val startedAt = System.currentTimeMillis()
                     pinnedQuickCategory = category
@@ -681,6 +683,19 @@ fun HomeScreen(
         )
     }
 
+    val mainButtonSetupTarget = uiState.mainButtonSetupTarget
+    if (uiState.showMainButtonSetup && mainButtonSetupTarget != null) {
+        MainButtonEditBottomSheet(
+            category = mainButtonSetupTarget,
+            config = uiState.mainButtonConfig,
+            onDismiss = { viewModel.dismissMainButtonSetup() },
+            onHide = { viewModel.hideMainButton(it) },
+            onSwap = { cat, dir -> viewModel.swapMainButton(cat, dir) },
+            onReplace = { old, new -> viewModel.replaceMainButton(old, new) },
+            onTogglePin = { viewModel.togglePinMainButton(it) }
+        )
+    }
+
     }
 }
 
@@ -723,7 +738,8 @@ private fun TodayFlowCard(
     statusMessage: String?,
     appliedTitle: String,
     titleSuggestions: List<String>,
-    promotedButtons: List<String>,
+    mainButtonConfig: MainButtonConfig,
+    onLongClickButton: (String) -> Unit,
     onPinQuickCategory: (String) -> Unit,
     pinnedQuickCategory: String?,
     onStop: (String, String?, List<ExerciseSetRecord>) -> Unit,
@@ -797,7 +813,8 @@ private fun TodayFlowCard(
                 )
             } else {
                 FlowStartPage(
-                    promotedButtons = promotedButtons,
+                    mainButtonConfig = mainButtonConfig,
+                    onLongClickButton = onLongClickButton,
                     activeCategory = currentCategory.takeIf { isRunning },
                     onPinQuickCategory = onPinQuickCategory,
                     pinnedQuickCategory = pinnedQuickCategory,
@@ -2243,56 +2260,27 @@ private fun defaultActivityTitle(category: String): String {
     }
 }
 
-private val DEFAULT_MAIN_BUTTON_CATEGORIES = listOf(
-    "SLEEP", "REST",
-    "WORK", "STUDY",
-    "EXERCISE", "WASH",
-    "MEAL", "ETC"
-)
-
 @Composable
 private fun FlowStartPage(
-    promotedButtons: List<String>,
+    mainButtonConfig: MainButtonConfig,
+    onLongClickButton: (String) -> Unit,
     activeCategory: String?,
     onPinQuickCategory: (String) -> Unit,
     pinnedQuickCategory: String?,
     statusMessage: String?,
     onStart: (String) -> Unit
 ) {
-    // 기본 6개(3행) + promoted 버튼 + 하단 2개(식사/기타)
-    val displayCategories = remember(promotedButtons) {
-        if (promotedButtons.isNotEmpty()) {
-            DEFAULT_MAIN_BUTTON_CATEGORIES.take(6) +
-                promotedButtons.asReversed() +
-                DEFAULT_MAIN_BUTTON_CATEGORIES.drop(6)
-        } else {
-            DEFAULT_MAIN_BUTTON_CATEGORIES
+    val displayCategories = remember(mainButtonConfig) {
+        mainButtonConfig.buttons.sortedBy { it.order }.map { it.category }
+    }
+
+    val visibleCategories = remember(displayCategories, activeCategory, pinnedQuickCategory) {
+        displayCategories.filterNot { category ->
+            category == activeCategory || category == pinnedQuickCategory
         }
     }
 
-    // 행 수에 따른 그리드 높이: n행 × 84dp + (n-1) × 12dp 간격 + 8dp 여유(카드 그림자 클리핑 방지)
-    var hidingPromotedCategories by remember(promotedButtons) { mutableStateOf(emptySet<String>()) }
-    var hiddenPromotedCategories by remember(promotedButtons) { mutableStateOf(emptySet<String>()) }
-    LaunchedEffect(pinnedQuickCategory) {
-        if (pinnedQuickCategory == null) {
-            hidingPromotedCategories = emptySet()
-            hiddenPromotedCategories = emptySet()
-        }
-    }
-    LaunchedEffect(hidingPromotedCategories) {
-        if (hidingPromotedCategories.isNotEmpty()) {
-            kotlinx.coroutines.delay(300L)
-            hiddenPromotedCategories = hiddenPromotedCategories + hidingPromotedCategories
-            hidingPromotedCategories = emptySet()
-        }
-    }
-    val visibleCategories = remember(displayCategories, activeCategory, hiddenPromotedCategories, pinnedQuickCategory) {
-        displayCategories.filterNot { category ->
-            category == activeCategory ||
-                category == pinnedQuickCategory ||
-                category in hiddenPromotedCategories
-        }
-    }
+    // n행 × 84dp + (n-1) × 12dp 간격 + 8dp 여유(카드 그림자 클리핑 방지)
     val rowCount = (visibleCategories.size + 1) / 2
     val gridHeight = (rowCount * 84 + (rowCount - 1) * 12 + 8).dp
 
@@ -2344,34 +2332,22 @@ private fun FlowStartPage(
                 items = visibleCategories,
                 key = { category -> category }
             ) { category ->
-                AnimatedVisibility(
-                    visible = category !in hidingPromotedCategories,
-                    enter = slideInVertically(
-                        animationSpec = tween(260),
-                        initialOffsetY = { -it / 3 }
-                    ) + fadeIn(animationSpec = tween(180)),
-                    exit = slideOutVertically(
-                        animationSpec = tween(280),
-                        targetOffsetY = { it }
-                    ) + fadeOut(animationSpec = tween(180)),
-                    modifier = Modifier.animateItem()
-                ) {
-                    CategoryButton(
-                        category = category,
-                        label = displayCategory(category),
-                        onClick = {
-                            when {
-                                category == "SCHOOL" || category == "COMPANY" -> {
-                                    if (pinnedQuickCategory == null) {
-                                        hidingPromotedCategories = hidingPromotedCategories + category
-                                        onPinQuickCategory(category)
-                                    }
+                CategoryButton(
+                    category = category,
+                    label = displayCategory(category),
+                    onClick = {
+                        when {
+                            category == "SCHOOL" || category == "COMPANY" -> {
+                                if (pinnedQuickCategory == null) {
+                                    onPinQuickCategory(category)
                                 }
-                                category != activeCategory -> onStart(category)
                             }
+                            category != activeCategory -> onStart(category)
                         }
-                    )
-                }
+                    },
+                    onLongClick = { onLongClickButton(category) },
+                    modifier = Modifier.animateItem()
+                )
             }
         }
     }
@@ -5044,6 +5020,221 @@ private fun burdenLabel(level: String): String {
         "HEAVY" -> "과중함"
         "LIGHT" -> "가벼움"
         else -> "보통"
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MainButtonEditBottomSheet(
+    category: String,
+    config: MainButtonConfig,
+    onDismiss: () -> Unit,
+    onHide: (String) -> Unit,
+    onSwap: (String, Int) -> Unit,
+    onReplace: (String, String) -> Unit,
+    onTogglePin: (String) -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sorted = remember(config) { config.buttons.sortedBy { it.order } }
+    val currentIndex = sorted.indexOfFirst { it.category == category }
+    val isPinned = sorted.getOrNull(currentIndex)?.isPinned == true
+    val canHide = config.buttons.size > MainButtonConfig.MIN_BUTTONS
+    val canMoveLeft = currentIndex > 0
+    val canMoveRight = currentIndex < sorted.size - 1
+
+    var showCategoryPicker by remember { mutableStateOf(false) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFFFCFCFF),
+        contentColor = FlowInk
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
+        ) {
+            // 헤더
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (showCategoryPicker) {
+                    IconButton(onClick = { showCategoryPicker = false }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "뒤로",
+                            tint = FlowInk
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                Text(
+                    text = if (showCategoryPicker) "다른 활동으로 바꾸기" else displayCategory(category),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = FlowInk,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "닫기",
+                        tint = FlowMuted
+                    )
+                }
+            }
+
+            if (showCategoryPicker) {
+                // 카테고리 선택 화면
+                val currentCategories = config.buttons.map { it.category }.toSet()
+                val available = MainButtonConfig.ALL_SELECTABLE_CATEGORIES
+                    .filter { it !in currentCategories }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    available.forEach { candidate ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onReplace(category, candidate) }
+                                .padding(vertical = 14.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            com.example.flowlog.ui.component.CategoryGlyph(
+                                category = candidate,
+                                tint = com.example.flowlog.ui.component.categoryColor(candidate),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = displayCategory(candidate),
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = FlowInk
+                            )
+                        }
+                    }
+                    if (available.isEmpty()) {
+                        Text(
+                            text = "모든 활동이 이미 메인에 있습니다.",
+                            fontSize = 14.sp,
+                            color = FlowMuted,
+                            modifier = Modifier.padding(vertical = 16.dp)
+                        )
+                    }
+                }
+            } else {
+                // 메인 메뉴
+                MainButtonMenuRow(
+                    label = "다른 활동으로 바꾸기",
+                    icon = Icons.Default.Edit,
+                    enabled = true,
+                    onClick = { showCategoryPicker = true }
+                )
+                // 자리 바꾸기
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = null,
+                        tint = FlowMuted,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Text(
+                        text = "자리 바꾸기",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = FlowInk,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { onSwap(category, -1) },
+                            enabled = canMoveLeft,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = FlowPurple),
+                            border = BorderStroke(1.dp, if (canMoveLeft) FlowPurple else Color(0xFFE0E0E0))
+                        ) { Text("← 이전", fontSize = 13.sp) }
+                        OutlinedButton(
+                            onClick = { onSwap(category, 1) },
+                            enabled = canMoveRight,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = FlowPurple),
+                            border = BorderStroke(1.dp, if (canMoveRight) FlowPurple else Color(0xFFE0E0E0))
+                        ) { Text("다음 →", fontSize = 13.sp) }
+                    }
+                }
+                MainButtonMenuRow(
+                    label = if (isPinned) "고정 해제하기" else "버튼 고정하기",
+                    icon = if (isPinned) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                    enabled = true,
+                    onClick = {
+                        onTogglePin(category)
+                        onDismiss()
+                    }
+                )
+                MainButtonMenuRow(
+                    label = "메인에서 숨기기",
+                    icon = Icons.Default.Close,
+                    enabled = canHide,
+                    tint = if (canHide) Color(0xFFE53935) else FlowMuted,
+                    subtitle = if (!canHide) "최소 ${MainButtonConfig.MIN_BUTTONS}개 버튼이 필요합니다" else null,
+                    onClick = { onHide(category) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MainButtonMenuRow(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean,
+    tint: Color = FlowInk,
+    subtitle: String? = null,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(vertical = 14.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (enabled) tint else FlowMuted,
+            modifier = Modifier.size(22.dp)
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (enabled) tint else FlowMuted
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    fontSize = 12.sp,
+                    color = FlowMuted,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        }
     }
 }
 

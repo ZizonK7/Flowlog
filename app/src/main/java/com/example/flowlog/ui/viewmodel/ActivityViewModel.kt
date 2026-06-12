@@ -10,6 +10,9 @@ import com.example.flowlog.data.local.TimerStatus
 import com.example.flowlog.data.model.AutoButtonSchedule
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.ExerciseSetRecord
+import com.example.flowlog.data.model.MainButtonConfig
+import com.example.flowlog.data.model.MainButtonItem
+import com.example.flowlog.data.model.MainButtonSource
 import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.ScheduledAutoButtonBlock
 import com.example.flowlog.data.model.TodoCategory
@@ -125,7 +128,10 @@ data class ActivityUiState(
     val activeAutoButtonCategory: String? = null,
     val activeAutoButtonStartedAt: Long = 0L,
     val exerciseSets: List<ExerciseSetRecord> = emptyList(),
-    val exerciseMemo: String = ""
+    val exerciseMemo: String = "",
+    val mainButtonConfig: MainButtonConfig = MainButtonConfig.DEFAULT,
+    val showMainButtonSetup: Boolean = false,
+    val mainButtonSetupTarget: String? = null
 )
 
 data class TimerDisplayState(
@@ -173,8 +179,13 @@ class ActivityViewModel(
         PREFS_TIMER_STATE,
         Context.MODE_PRIVATE
     )
+    private val mainButtonPrefs = appContext.getSharedPreferences(
+        PREFS_MAIN_BUTTON_CONFIG,
+        Context.MODE_PRIVATE
+    )
     init {
         _uiState.update { it.copy(lastAddedActivity = loadLastAddedActivity()) }
+        _uiState.update { it.copy(mainButtonConfig = loadMainButtonConfig()) }
         restoreBrushTimerState()
         restoreSnackButtonTimerState()
         restoreFocusModeState()
@@ -1200,6 +1211,79 @@ class ActivityViewModel(
         _uiState.update { it.copy(snackButtonEndsAtMillis = 0L) }
     }
 
+    // region MainButtonConfig
+
+    private fun loadMainButtonConfig(): MainButtonConfig {
+        val json = mainButtonPrefs.getString(KEY_MAIN_BUTTON_CONFIG, null)
+            ?: return MainButtonConfig.DEFAULT
+        return try {
+            undoJson.decodeFromString(json)
+        } catch (_: Exception) {
+            MainButtonConfig.DEFAULT
+        }
+    }
+
+    private fun persistMainButtonConfig(config: MainButtonConfig) {
+        mainButtonPrefs.edit()
+            .putString(KEY_MAIN_BUTTON_CONFIG, undoJson.encodeToString(config))
+            .apply()
+        _uiState.update { it.copy(mainButtonConfig = config) }
+    }
+
+    fun showMainButtonSetup(category: String) {
+        _uiState.update { it.copy(showMainButtonSetup = true, mainButtonSetupTarget = category) }
+    }
+
+    fun dismissMainButtonSetup() {
+        _uiState.update { it.copy(showMainButtonSetup = false, mainButtonSetupTarget = null) }
+    }
+
+    fun hideMainButton(category: String) {
+        val config = _uiState.value.mainButtonConfig
+        if (config.buttons.size <= MainButtonConfig.MIN_BUTTONS) return
+        val newButtons = config.buttons
+            .filter { it.category != category }
+            .mapIndexed { i, btn -> btn.copy(order = i) }
+        persistMainButtonConfig(config.copy(buttons = newButtons))
+        dismissMainButtonSetup()
+    }
+
+    fun swapMainButton(category: String, direction: Int) {
+        val config = _uiState.value.mainButtonConfig
+        val sorted = config.buttons.sortedBy { it.order }.toMutableList()
+        val idx = sorted.indexOfFirst { it.category == category }
+        if (idx < 0) return
+        val targetIdx = idx + direction
+        if (targetIdx < 0 || targetIdx >= sorted.size) return
+        val a = sorted[idx]
+        val b = sorted[targetIdx]
+        sorted[idx] = b.copy(order = a.order)
+        sorted[targetIdx] = a.copy(order = b.order)
+        persistMainButtonConfig(config.copy(buttons = sorted.sortedBy { it.order }))
+    }
+
+    fun replaceMainButton(oldCategory: String, newCategory: String) {
+        val config = _uiState.value.mainButtonConfig
+        if (config.buttons.any { it.category == newCategory }) return
+        val newButtons = config.buttons.map { btn ->
+            if (btn.category == oldCategory)
+                btn.copy(category = newCategory, source = MainButtonSource.USER_ADDED)
+            else btn
+        }
+        persistMainButtonConfig(config.copy(buttons = newButtons))
+        dismissMainButtonSetup()
+    }
+
+    fun togglePinMainButton(category: String) {
+        val config = _uiState.value.mainButtonConfig
+        val newButtons = config.buttons.map { btn ->
+            if (btn.category == category) btn.copy(isPinned = !btn.isPinned) else btn
+        }
+        persistMainButtonConfig(config.copy(buttons = newButtons))
+    }
+
+    // endregion
+
     private fun observeAllActivities() {
         viewModelScope.launch {
             repository.getAllActivities().collect { activities ->
@@ -1207,6 +1291,8 @@ class ActivityViewModel(
                 val analytics = withContext(Dispatchers.Default) {
                     buildAnalytics(timedActivities)
                 }
+                // TODO: 승인형 추천 기능으로 전환 예정. 현재는 mainButtonConfig가 버튼 목록을 관리하므로
+                //  이 결과를 FlowStartPage에 직접 삽입하지 않는다. 나중에 "추천 버튼 추가" 제안 UI에 활용한다.
                 val promotedButtons = withContext(Dispatchers.Default) {
                     buttonRecommendationEngine.computePromotedCategories(activities)
                 }
@@ -1706,6 +1792,8 @@ class ActivityViewModel(
         private const val PREFS_MIGRATIONS = "flowlog_migrations"
         private const val PREFS_ACTIVITY_UNDO = "activity_undo"
         private const val PREFS_TIMER_STATE = "timer_state"
+        private const val PREFS_MAIN_BUTTON_CONFIG = "main_button_config"
+        private const val KEY_MAIN_BUTTON_CONFIG = "config"
         private const val KEY_LAST_ADDED_ACTIVITY = "last_added_activity"
         private const val KEY_BRUSH_TIMER_ENDS_AT = "brush_timer_ends_at"
         private const val KEY_SNACK_BUTTON_TIMER_ENDS_AT = "snack_button_timer_ends_at"
