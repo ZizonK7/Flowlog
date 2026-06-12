@@ -551,7 +551,9 @@ fun HomeScreen(
                 selectedMainButtonForSwapId = uiState.selectedMainButtonForSwapId,
                 onExitReorderMode = { viewModel.exitMainButtonReorderMode() },
                 onConfirmReorderMode = { viewModel.confirmMainButtonReorder() },
-                onSelectButtonForSwap = { cat -> viewModel.selectMainButtonForSwap(cat) }
+                onSelectButtonForSwap = { cat -> viewModel.selectMainButtonForSwap(cat) },
+                showMainButtonSetup = uiState.showMainButtonSetup,
+                onCompleteSetup = { selected -> viewModel.completeMainButtonSetup(selected) }
             )
         }
 
@@ -693,7 +695,7 @@ fun HomeScreen(
     }
 
     val mainButtonSetupTarget = uiState.mainButtonSetupTarget
-    if (uiState.showMainButtonSetup && mainButtonSetupTarget != null) {
+    if (mainButtonSetupTarget != null) {
         MainButtonEditBottomSheet(
             category = mainButtonSetupTarget,
             config = uiState.mainButtonConfig,
@@ -766,7 +768,9 @@ private fun TodayFlowCard(
     selectedMainButtonForSwapId: String? = null,
     onExitReorderMode: () -> Unit = {},
     onConfirmReorderMode: () -> Unit = {},
-    onSelectButtonForSwap: (String) -> Unit = {}
+    onSelectButtonForSwap: (String) -> Unit = {},
+    showMainButtonSetup: Boolean = false,
+    onCompleteSetup: (List<String>) -> Unit = {}
 ) {
     val cardColor by animateColorAsState(
         targetValue = if (isFocusFireActive) FocusFireSurface else Color.White,
@@ -824,6 +828,8 @@ private fun TodayFlowCard(
                     onStopFocusMode = onStopFocusMode,
                     isFocusFireActive = isFocusFireActive
                 )
+            } else if (showMainButtonSetup) {
+                MainButtonSetupPage(onComplete = onCompleteSetup)
             } else {
                 FlowStartPage(
                     mainButtonConfig = mainButtonConfig,
@@ -2275,6 +2281,130 @@ private fun defaultActivityTitle(category: String): String {
         "REST" -> "휴식"
         "SCHOOL" -> "학교"
         else -> "활동"
+    }
+}
+
+@Composable
+private fun MainButtonSetupPage(
+    onComplete: (List<String>) -> Unit
+) {
+    val defaultSelected = remember {
+        LinkedHashSet(MainButtonConfig.DEFAULT_FALLBACK_CATEGORIES)
+    }
+    var selected by remember { mutableStateOf<Set<String>>(defaultSelected) }
+    var showMaxWarning by remember { mutableStateOf(false) }
+
+    val count = selected.size
+    val willAutoFill = count in 0 until MainButtonConfig.MIN_BUTTONS
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(20.dp)
+    ) {
+        Text(
+            text = "메인 버튼을 설정해 주세요",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = FlowInk
+        )
+        Text(
+            text = "자주 누를 활동을 골라두면 기록을 더 빠르게 시작할 수 있어요.\n기본 버튼은 미리 골라뒀고, 필요하면 바꿀 수 있어요.",
+            fontSize = 13.sp,
+            color = FlowMuted,
+            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
+        )
+
+        Text(
+            text = "${count}개 선택됨  •  최소 ${MainButtonConfig.MIN_BUTTONS}개, 최대 ${MainButtonConfig.MAX_BUTTONS}개",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = when {
+                count < MainButtonConfig.MIN_BUTTONS -> Color(0xFFE53935)
+                count >= MainButtonConfig.MAX_BUTTONS -> FlowPurple
+                else -> FlowMuted
+            },
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        val allCategories = MainButtonConfig.ALL_SELECTABLE_CATEGORIES
+        val rowCount = (allCategories.size + 1) / 2
+        val gridHeight = (rowCount * 84 + (rowCount - 1) * 12 + 8).dp
+
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(gridHeight),
+            contentPadding = PaddingValues(0.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            userScrollEnabled = false
+        ) {
+            items(items = allCategories, key = { it }) { category ->
+                val isSelected = category in selected
+                CategoryButton(
+                    category = category,
+                    label = displayCategory(category),
+                    isSelected = isSelected,
+                    onClick = {
+                        if (isSelected) {
+                            selected = selected - category
+                            showMaxWarning = false
+                        } else {
+                            if (selected.size >= MainButtonConfig.MAX_BUTTONS) {
+                                showMaxWarning = true
+                            } else {
+                                selected = selected + category
+                                showMaxWarning = false
+                            }
+                        }
+                    }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        AnimatedVisibility(visible = showMaxWarning) {
+            Text(
+                text = "메인 버튼은 최대 ${MainButtonConfig.MAX_BUTTONS}개까지 둘 수 있어요.",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFFE53935),
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+        }
+
+        if (willAutoFill) {
+            Text(
+                text = "부족한 버튼은 기본 활동으로 채워둘게요.",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = FlowMuted,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Button(
+            onClick = { onComplete(selected.toList()) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = FlowPurple,
+                contentColor = Color.White
+            ),
+            shape = RoundedCornerShape(14.dp)
+        ) {
+            Text(
+                text = "이대로 시작하기",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
     }
 }
 

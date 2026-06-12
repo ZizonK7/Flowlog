@@ -188,8 +188,10 @@ class ActivityViewModel(
     )
     init {
         _uiState.update { it.copy(lastAddedActivity = loadLastAddedActivity()) }
+        val initialConfig = loadMainButtonConfig()
         _uiState.update { it.copy(
-            mainButtonConfig = loadMainButtonConfig(),
+            mainButtonConfig = initialConfig,
+            showMainButtonSetup = !initialConfig.configured,
             isMainButtonReorderMode = false,
             selectedMainButtonForSwapId = null,
             temporaryMainButtons = null
@@ -1225,7 +1227,13 @@ class ActivityViewModel(
         val json = mainButtonPrefs.getString(KEY_MAIN_BUTTON_CONFIG, null)
             ?: return MainButtonConfig.DEFAULT
         return try {
-            undoJson.decodeFromString(json)
+            val config = undoJson.decodeFromString<MainButtonConfig>(json)
+            // 기존 사용자 마이그레이션: 버튼이 있으면 이미 설정된 것으로 간주
+            if (config.buttons.isNotEmpty() && !config.configured) {
+                config.copy(configured = true, version = MainButtonConfig.CURRENT_VERSION)
+            } else {
+                config
+            }
         } catch (_: Exception) {
             MainButtonConfig.DEFAULT
         }
@@ -1239,11 +1247,30 @@ class ActivityViewModel(
     }
 
     fun showMainButtonSetup(category: String) {
-        _uiState.update { it.copy(showMainButtonSetup = true, mainButtonSetupTarget = category) }
+        _uiState.update { it.copy(mainButtonSetupTarget = category) }
     }
 
     fun dismissMainButtonSetup() {
-        _uiState.update { it.copy(showMainButtonSetup = false, mainButtonSetupTarget = null) }
+        _uiState.update { it.copy(mainButtonSetupTarget = null) }
+    }
+
+    fun completeMainButtonSetup(selectedCategories: List<String>) {
+        val categories = selectedCategories.toMutableList()
+        if (categories.size < MainButtonConfig.MIN_BUTTONS) {
+            val toAdd = MainButtonConfig.DEFAULT_FALLBACK_CATEGORIES.filter { it !in categories }
+            categories.addAll(toAdd.take(MainButtonConfig.MIN_BUTTONS - categories.size))
+        }
+        val newConfig = _uiState.value.mainButtonConfig.copy(
+            buttons = categories.mapIndexed { i, cat ->
+                MainButtonItem(category = cat, order = i, source = MainButtonSource.DEFAULT)
+            },
+            configured = true,
+            version = MainButtonConfig.CURRENT_VERSION
+        )
+        mainButtonPrefs.edit()
+            .putString(KEY_MAIN_BUTTON_CONFIG, undoJson.encodeToString(newConfig))
+            .apply()
+        _uiState.update { it.copy(mainButtonConfig = newConfig, showMainButtonSetup = false) }
     }
 
     fun enterMainButtonReorderMode(selectedButtonId: String) {
