@@ -410,6 +410,9 @@ fun HomeScreen(
         )
     }
     val categories = activityCategories
+    val editCategories = remember(uiState.mainButtonConfig) {
+        uiState.mainButtonConfig.buttons.sortedBy { it.order }.map { it.category }
+    }
     val selectedCategory = uiState.selectedCategory
     val isFiltered = selectedCategory != null
     val displayActivities by remember(
@@ -653,7 +656,7 @@ fun HomeScreen(
     uiState.editingActivity?.let { editingActivity ->
         EditActivityDialog(
             activity = editingActivity,
-            categories = activityCategories,
+            categories = editCategories,
             isVisible = true,
             onSave = { category, title, note, exerciseSets ->
                 viewModel.saveEditedActivity(category, title, note, exerciseSets)
@@ -2438,14 +2441,13 @@ private fun ConflictConfigPreview(
 private fun MainButtonSetupPage(
     onComplete: (List<String>) -> Unit
 ) {
-    val defaultSelected = remember {
-        LinkedHashSet(MainButtonConfig.DEFAULT_FALLBACK_CATEGORIES)
+    val initialRecommended = remember {
+        linkedSetOf("STUDY", "REST", "EXERCISE", "MEAL", "SLEEP", "ETC")
     }
-    var selected by remember { mutableStateOf<Set<String>>(defaultSelected) }
+    var selected by remember { mutableStateOf<Set<String>>(initialRecommended) }
     var showMaxWarning by remember { mutableStateOf(false) }
 
     val count = selected.size
-    val willAutoFill = count in 0 until MainButtonConfig.MIN_BUTTONS
 
     Column(
         modifier = Modifier
@@ -2459,7 +2461,7 @@ private fun MainButtonSetupPage(
             color = FlowInk
         )
         Text(
-            text = "자주 누를 활동을 골라두면 기록을 더 빠르게 시작할 수 있어요.\n기본 버튼은 미리 골라뒀고, 필요하면 바꿀 수 있어요.",
+            text = "자주 쓰는 활동을 추려봤어요. 필요하면 바꿀 수 있어요.\n나중에 Flowlog AI가 더 맞는 버튼을 추천해 드려요.",
             fontSize = 13.sp,
             color = FlowMuted,
             modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
@@ -2526,26 +2528,19 @@ private fun MainButtonSetupPage(
             )
         }
 
-        if (willAutoFill) {
-            Text(
-                text = "부족한 버튼은 기본 활동으로 채워둘게요.",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = FlowMuted,
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
-        }
-
         Spacer(modifier = Modifier.height(4.dp))
 
         Button(
             onClick = { onComplete(selected.toList()) },
+            enabled = count >= MainButtonConfig.MIN_BUTTONS,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = FlowPurple,
-                contentColor = Color.White
+                contentColor = Color.White,
+                disabledContainerColor = Color(0xFFDED9F5),
+                disabledContentColor = Color.White
             ),
             shape = RoundedCornerShape(14.dp)
         ) {

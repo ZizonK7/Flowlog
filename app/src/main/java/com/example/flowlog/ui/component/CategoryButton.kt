@@ -143,6 +143,7 @@ private fun categoryPastelColor(category: String): Color {
         "SLEEP" -> Color(0xFFF0E4FF)
         "REST" -> Color(0xFFE2F5F5)
         "ETC" -> Color(0xFFEDEDF1)
+        "GAME" -> Color(0xFFE8EAF6)
         "EXPERIMENT_1" -> Color(0xFFE2F5F1)
         "EXPERIMENT_2" -> Color(0xFFECE7FF)
         "EXPERIMENT_3" -> Color(0xFFFFE8D8)

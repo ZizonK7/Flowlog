@@ -178,6 +178,7 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
         "EXERCISE" -> "운동"
         "SLEEP" -> "수면"
         "REST" -> "휴식"
+        "GAME" -> "게임"
         "TODO" -> "할일"
         else -> "활동"
     }

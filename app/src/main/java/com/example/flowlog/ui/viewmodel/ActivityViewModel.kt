@@ -138,7 +138,7 @@ data class ActivityUiState(
     val activeAutoButtonStartedAt: Long = 0L,
     val exerciseSets: List<ExerciseSetRecord> = emptyList(),
     val exerciseMemo: String = "",
-    val mainButtonConfig: MainButtonConfig = MainButtonConfig.DEFAULT,
+    val mainButtonConfig: MainButtonConfig = MainButtonConfig.EMPTY,
     val showMainButtonSetup: Boolean = false,
     val showMainButtonConflict: Boolean = false,
     val pendingRemoteMainButtonConfig: MainButtonConfig? = null,
@@ -1243,11 +1243,11 @@ class ActivityViewModel(
 
     private fun loadMainButtonConfig(): MainButtonConfig {
         val json = mainButtonPrefs.getString(KEY_MAIN_BUTTON_CONFIG, null)
-            ?: return MainButtonConfig.DEFAULT
+            ?: return MainButtonConfig.EMPTY
         return try {
             undoJson.decodeFromString(json)
         } catch (_: Exception) {
-            MainButtonConfig.DEFAULT
+            MainButtonConfig.EMPTY
         }
     }
 
@@ -1267,14 +1267,9 @@ class ActivityViewModel(
     }
 
     fun completeMainButtonSetup(selectedCategories: List<String>) {
-        val categories = selectedCategories.toMutableList()
-        if (categories.size < MainButtonConfig.MIN_BUTTONS) {
-            val toAdd = MainButtonConfig.DEFAULT_FALLBACK_CATEGORIES.filter { it !in categories }
-            categories.addAll(toAdd.take(MainButtonConfig.MIN_BUTTONS - categories.size))
-        }
         val newConfig = _uiState.value.mainButtonConfig.copy(
-            buttons = categories.mapIndexed { i, cat ->
-                MainButtonItem(category = cat, order = i, source = MainButtonSource.DEFAULT)
+            buttons = selectedCategories.mapIndexed { i, cat ->
+                MainButtonItem(category = cat, order = i, source = MainButtonSource.USER_ADDED)
             },
             configured = true,
             version = MainButtonConfig.CURRENT_VERSION
@@ -1369,8 +1364,10 @@ class ActivityViewModel(
 
     fun maybeGenerateMainButtonRecommendationMessage() {
         viewModelScope.launch(Dispatchers.Default) {
-            val configuredCategories = _uiState.value.mainButtonConfig.buttons
-                .map { it.category }.toSet()
+            val config = _uiState.value.mainButtonConfig
+            val configuredCategories = config.buttons.map { it.category }.toSet()
+            val remainingSlots = MainButtonConfig.MAX_BUTTONS - config.buttons.size
+            if (remainingSlots <= 0) return@launch
             val dismissedMap = loadDismissedCategories()
             val now = System.currentTimeMillis()
             val pendingCategories = _aiMessengerUiState.value.messages
@@ -1378,11 +1375,13 @@ class ActivityViewModel(
                 .filter { it.status == RecommendationStatus.PENDING }
                 .map { it.category }
                 .toSet()
-            val newRecommendations = _uiState.value.promotedButtons.filter { category ->
-                category !in configuredCategories &&
-                    category !in pendingCategories &&
-                    (dismissedMap[category] ?: 0L) < now
-            }
+            val newRecommendations = _uiState.value.promotedButtons
+                .filter { category ->
+                    category !in configuredCategories &&
+                        category !in pendingCategories &&
+                        (dismissedMap[category] ?: 0L) < now
+                }
+                .take(remainingSlots)
             if (newRecommendations.isEmpty()) return@launch
             val newMessages = newRecommendations.map { category ->
                 AiMessage.MainButtonRecommendation(category = category)
@@ -1941,6 +1940,7 @@ class ActivityViewModel(
             "WASH" -> "\uC53B\uAE30"
             "REST" -> "\uD734\uC2DD"
             "SCHOOL" -> "\uD559\uAD50"
+            "GAME" -> "\uAC8C\uC784"
             else -> "\uD65C\uB3D9"
         }
     }

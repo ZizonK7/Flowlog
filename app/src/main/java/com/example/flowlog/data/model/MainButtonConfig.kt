@@ -26,23 +26,11 @@ data class MainButtonConfig(
 
         val ALL_SELECTABLE_CATEGORIES = listOf(
             "SLEEP", "REST", "WORK", "STUDY", "EXERCISE", "WASH",
-            "MEAL", "ETC", "DEVELOPMENT", "READING", "SCHOOL", "COMPANY", "MOVE"
+            "MEAL", "ETC", "DEVELOPMENT", "READING", "SCHOOL", "COMPANY", "MOVE", "GAME"
         )
 
-        // 자동 보충 시 사용하는 기본 후보 순서
-        val DEFAULT_FALLBACK_CATEGORIES = listOf(
-            "STUDY", "REST", "EXERCISE", "MEAL", "SLEEP", "ETC"
-        )
-
-        val DEFAULT = MainButtonConfig(
-            buttons = listOf(
-                MainButtonItem("STUDY", 0),
-                MainButtonItem("REST", 1),
-                MainButtonItem("EXERCISE", 2),
-                MainButtonItem("MEAL", 3),
-                MainButtonItem("SLEEP", 4),
-                MainButtonItem("ETC", 5),
-            ),
+        val EMPTY = MainButtonConfig(
+            buttons = emptyList(),
             configured = false,
             version = 0
         )

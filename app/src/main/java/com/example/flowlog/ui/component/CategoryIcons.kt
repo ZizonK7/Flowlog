@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Shower
+import androidx.compose.material.icons.filled.VideogameAsset
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.example.flowlog.R
@@ -33,6 +34,7 @@ fun categoryAppIcon(category: String): ImageVector? = when (category) {
     "SLEEP"       -> Icons.Filled.Bedtime
     "REST"        -> Icons.Filled.LocalCafe
     "ETC"         -> Icons.Filled.MoreHoriz
+    "GAME"        -> Icons.Filled.VideogameAsset
     "SNACK"       -> Icons.Filled.Cookie
     "EXPERIMENT_1", "EXPERIMENT_2", "EXPERIMENT_3" -> Icons.Filled.Science
     else -> null
