@@ -450,7 +450,9 @@ class MainActivity : ComponentActivity() {
                         uiState = aiMessengerUiState,
                         onAccept = { id -> activityViewModel.acceptMainButtonRecommendation(id) },
                         onDismiss = { id -> activityViewModel.dismissMainButtonRecommendation(id) },
-                        onClose = { activityViewModel.closeAiMessenger() }
+                        onClose = { activityViewModel.closeAiMessenger() },
+                        isDeveloperMode = isDeveloperMode,
+                        onDebugInject = { activityViewModel.debugInjectMainButtonRecommendation() },
                     )
                 }
                 }
@@ -949,7 +951,9 @@ private fun AiMessengerSheet(
     uiState: AiMessengerUiState,
     onAccept: (messageId: String) -> Unit,
     onDismiss: (messageId: String) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    isDeveloperMode: Boolean = false,
+    onDebugInject: () -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val pendingRecommendations = uiState.messages
@@ -1010,12 +1014,19 @@ private fun AiMessengerSheet(
                         .padding(vertical = 40.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "아직 제안할 내용이 없어요.\n기록이 조금 더 쌓이면 Flowlog가 도와줄게요.",
-                        fontSize = 14.sp,
-                        color = Color(0xFF697386),
-                        textAlign = TextAlign.Center
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "아직 제안할 내용이 없어요.\n기록이 조금 더 쌓이면 Flowlog가 도와줄게요.",
+                            fontSize = 14.sp,
+                            color = Color(0xFF697386),
+                            textAlign = TextAlign.Center
+                        )
+                        if (isDeveloperMode) {
+                            TextButton(onClick = onDebugInject) {
+                                Text("[DEBUG] 테스트 추천 삽입", fontSize = 12.sp, color = Color(0xFFAAAAAA))
+                            }
+                        }
+                    }
                 }
             } else {
                 pendingRecommendations.forEach { recommendation ->

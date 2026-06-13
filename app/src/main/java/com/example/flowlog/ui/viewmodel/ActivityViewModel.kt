@@ -1241,6 +1241,18 @@ class ActivityViewModel(
 
     // region MainButtonConfig
 
+    private data class MainButtonSyncMeta(
+        val lastUid: String?,
+        val dirty: Boolean,
+        val lastEditAt: Long
+    )
+
+    private fun readSyncMeta() = MainButtonSyncMeta(
+        lastUid = mainButtonPrefs.getString(KEY_LAST_MAIN_BUTTON_CONFIG_UID, null),
+        dirty = mainButtonPrefs.getBoolean(KEY_MAIN_BUTTON_CONFIG_DIRTY, false),
+        lastEditAt = mainButtonPrefs.getLong(KEY_LAST_LOCAL_MAIN_BUTTON_EDIT_AT, 0L)
+    )
+
     private fun loadMainButtonConfig(): MainButtonConfig {
         val json = mainButtonPrefs.getString(KEY_MAIN_BUTTON_CONFIG, null)
             ?: return MainButtonConfig.EMPTY
@@ -1256,6 +1268,25 @@ class ActivityViewModel(
             .putString(KEY_MAIN_BUTTON_CONFIG, undoJson.encodeToString(config))
             .apply()
         _uiState.update { it.copy(mainButtonConfig = config) }
+    }
+
+    private fun persistAndSyncMainButtonConfig(config: MainButtonConfig) {
+        persistMainButtonConfig(config)
+        val currentUid = FirebaseAuth.getInstance().currentUser?.uid
+        mainButtonPrefs.edit().apply {
+            putBoolean(KEY_MAIN_BUTTON_CONFIG_DIRTY, true)
+            putLong(KEY_LAST_LOCAL_MAIN_BUTTON_EDIT_AT, System.currentTimeMillis())
+            if (currentUid != null) putString(KEY_LAST_MAIN_BUTTON_CONFIG_UID, currentUid)
+        }.apply()
+        if (currentUid == null) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { firestoreSyncRepository.uploadMainButtonConfig(config) }
+                .onSuccess {
+                    mainButtonPrefs.edit()
+                        .putBoolean(KEY_MAIN_BUTTON_CONFIG_DIRTY, false)
+                        .apply()
+                }
+        }
     }
 
     fun openMainButtonReplacePicker(category: String) {
@@ -1274,49 +1305,58 @@ class ActivityViewModel(
             configured = true,
             version = MainButtonConfig.CURRENT_VERSION
         )
-        mainButtonPrefs.edit()
-            .putString(KEY_MAIN_BUTTON_CONFIG, undoJson.encodeToString(newConfig))
-            .apply()
-        _uiState.update { it.copy(mainButtonConfig = newConfig, showMainButtonSetup = false) }
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                if (FirebaseAuth.getInstance().currentUser != null) {
-                    firestoreSyncRepository.uploadMainButtonConfig(newConfig)
-                }
-            }
-        }
+        _uiState.update { it.copy(showMainButtonSetup = false) }
+        persistAndSyncMainButtonConfig(newConfig)
     }
 
     fun handleLoginMainButtonSync() {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 val localConfig = _uiState.value.mainButtonConfig
+                val currentUid = FirebaseAuth.getInstance().currentUser?.uid ?: return@runCatching
                 val remoteConfig = firestoreSyncRepository.fetchMainButtonConfig()
                 when {
-                    localConfig.configured && remoteConfig == null -> {
-                        firestoreSyncRepository.uploadMainButtonConfig(localConfig)
-                    }
+                    // local 미설정 + remote 설정됨 → setup 화면에서 계정 설정 불러오기 흐름 유지
                     !localConfig.configured && remoteConfig != null && remoteConfig.configured -> {
-                        // 로컬 설정이 없는 상태이므로 자동 복원하지 않고,
-                        // 원격 설정을 pending에만 보관한 채 셋업 화면을 유지한다.
-                        // 사용자가 MainButtonSetup을 완료하거나 추후 UI에서 승인해야 적용된다.
                         _uiState.update {
                             it.copy(
                                 pendingRemoteMainButtonConfig = remoteConfig.copy(version = MainButtonConfig.CURRENT_VERSION)
                             )
                         }
                     }
-                    localConfig.configured && remoteConfig != null && remoteConfig.configured -> {
-                        if (!configsAreEquivalent(localConfig, remoteConfig)) {
-                            _uiState.update {
-                                it.copy(
-                                    showMainButtonConflict = true,
-                                    pendingRemoteMainButtonConfig = remoteConfig
-                                )
+                    // local 설정됨 + remote 없음 → local 업로드
+                    localConfig.configured && remoteConfig == null -> {
+                        firestoreSyncRepository.uploadMainButtonConfig(localConfig)
+                        mainButtonPrefs.edit().putBoolean(KEY_MAIN_BUTTON_CONFIG_DIRTY, false).apply()
+                    }
+                    // 완전히 동일 → no-op
+                    localConfig.configured && remoteConfig != null && configsAreEquivalent(localConfig, remoteConfig) -> Unit
+                    // 다름 → 세부 분기
+                    localConfig.configured && remoteConfig != null -> {
+                        val meta = readSyncMeta()
+                        when {
+                            // category·isPinned 동일, order만 다름 → local 순서로 업로드
+                            configsHaveSameButtonSet(localConfig, remoteConfig) -> {
+                                firestoreSyncRepository.uploadMainButtonConfig(localConfig)
+                                mainButtonPrefs.edit().putBoolean(KEY_MAIN_BUTTON_CONFIG_DIRTY, false).apply()
+                            }
+                            // 같은 계정 + dirty → 미동기화 변경, local 업로드
+                            meta.lastUid == currentUid && meta.dirty -> {
+                                firestoreSyncRepository.uploadMainButtonConfig(localConfig)
+                                mainButtonPrefs.edit().putBoolean(KEY_MAIN_BUTTON_CONFIG_DIRTY, false).apply()
+                            }
+                            // 실제 충돌 → conflict 다이얼로그
+                            else -> {
+                                _uiState.update {
+                                    it.copy(
+                                        showMainButtonConflict = true,
+                                        pendingRemoteMainButtonConfig = remoteConfig
+                                    )
+                                }
                             }
                         }
                     }
-                    else -> {}
+                    else -> Unit
                 }
             }
         }
@@ -1327,13 +1367,21 @@ class ActivityViewModel(
         _uiState.update { it.copy(showMainButtonConflict = false, pendingRemoteMainButtonConfig = null) }
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { firestoreSyncRepository.uploadMainButtonConfig(local) }
+                .onSuccess {
+                    mainButtonPrefs.edit().putBoolean(KEY_MAIN_BUTTON_CONFIG_DIRTY, false).apply()
+                }
         }
     }
 
     fun useRemoteMainButtonConfig() {
+        val currentUid = FirebaseAuth.getInstance().currentUser?.uid
         val remote = _uiState.value.pendingRemoteMainButtonConfig ?: return
         val toSave = remote.copy(version = MainButtonConfig.CURRENT_VERSION)
         persistMainButtonConfig(toSave)
+        mainButtonPrefs.edit().apply {
+            putBoolean(KEY_MAIN_BUTTON_CONFIG_DIRTY, false)
+            if (currentUid != null) putString(KEY_LAST_MAIN_BUTTON_CONFIG_UID, currentUid)
+        }.apply()
         _uiState.update { it.copy(showMainButtonConflict = false, pendingRemoteMainButtonConfig = null) }
     }
 
@@ -1347,15 +1395,35 @@ class ActivityViewModel(
         }
     }
 
+    // category + order + isPinned 모두 동일한지 확인
     private fun configsAreEquivalent(a: MainButtonConfig, b: MainButtonConfig): Boolean {
         val aSet = a.buttons.map { Triple(it.category, it.order, it.isPinned) }.toSet()
         val bSet = b.buttons.map { Triple(it.category, it.order, it.isPinned) }.toSet()
         return aSet == bSet
     }
 
+    // category 집합과 category별 isPinned가 같고 order만 다른지 확인
+    private fun configsHaveSameButtonSet(a: MainButtonConfig, b: MainButtonConfig): Boolean {
+        val aMap = a.buttons.associate { it.category to it.isPinned }
+        val bMap = b.buttons.associate { it.category to it.isPinned }
+        return aMap == bMap
+    }
+
     fun openAiMessenger() {
         _aiMessengerUiState.update { it.copy(showSheet = true, hasUnread = false) }
         maybeGenerateMainButtonRecommendationMessage()
+    }
+
+    fun debugInjectMainButtonRecommendation() {
+        val configuredCategories = _uiState.value.mainButtonConfig.buttons.map { it.category }.toSet()
+        val testCategory = MainButtonConfig.ALL_SELECTABLE_CATEGORIES
+            .firstOrNull { it !in configuredCategories } ?: return
+        _aiMessengerUiState.update { s ->
+            s.copy(
+                messages = s.messages + AiMessage.MainButtonRecommendation(category = testCategory),
+                hasUnread = true
+            )
+        }
     }
 
     fun closeAiMessenger() {
@@ -1405,7 +1473,7 @@ class ActivityViewModel(
             return
         }
         val nextOrder = (config.buttons.maxOfOrNull { it.order } ?: -1) + 1
-        persistMainButtonConfig(
+        persistAndSyncMainButtonConfig(
             config.copy(
                 buttons = config.buttons + MainButtonItem(
                     category = message.category,
@@ -1499,7 +1567,7 @@ class ActivityViewModel(
     fun confirmMainButtonReorder() {
         val tempButtons = _uiState.value.temporaryMainButtons ?: return
         val renormalized = tempButtons.sortedBy { it.order }.mapIndexed { i, btn -> btn.copy(order = i) }
-        persistMainButtonConfig(_uiState.value.mainButtonConfig.copy(buttons = renormalized))
+        persistAndSyncMainButtonConfig(_uiState.value.mainButtonConfig.copy(buttons = renormalized))
         _uiState.update { it.copy(
             isMainButtonReorderMode = false,
             selectedMainButtonForSwapId = null,
@@ -1513,7 +1581,7 @@ class ActivityViewModel(
         val newButtons = config.buttons
             .filter { it.category != category }
             .mapIndexed { i, btn -> btn.copy(order = i) }
-        persistMainButtonConfig(config.copy(buttons = newButtons))
+        persistAndSyncMainButtonConfig(config.copy(buttons = newButtons))
         dismissMainButtonReplacePicker()
     }
 
@@ -1539,7 +1607,7 @@ class ActivityViewModel(
                 btn.copy(category = newCategory, source = MainButtonSource.USER_ADDED)
             else btn
         }
-        persistMainButtonConfig(config.copy(buttons = newButtons))
+        persistAndSyncMainButtonConfig(config.copy(buttons = newButtons))
         dismissMainButtonReplacePicker()
     }
 
@@ -2058,6 +2126,9 @@ class ActivityViewModel(
         private const val PREFS_TIMER_STATE = "timer_state"
         private const val PREFS_MAIN_BUTTON_CONFIG = "main_button_config"
         private const val KEY_MAIN_BUTTON_CONFIG = "config"
+        private const val KEY_LAST_MAIN_BUTTON_CONFIG_UID = "last_uid"
+        private const val KEY_MAIN_BUTTON_CONFIG_DIRTY = "dirty"
+        private const val KEY_LAST_LOCAL_MAIN_BUTTON_EDIT_AT = "last_edit_at"
         private const val PREFS_AI_MESSENGER = "ai_messenger"
         private const val KEY_DISMISSED_CATEGORIES = "dismissed_categories"
         private const val RECOMMENDATION_COOLDOWN_MILLIS = 14L * 24 * 60 * 60 * 1000L
