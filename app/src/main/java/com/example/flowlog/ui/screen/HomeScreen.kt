@@ -68,6 +68,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.foundation.BorderStroke
@@ -967,13 +968,23 @@ private fun TimerPage(
                     fontWeight = FontWeight.Bold,
                     color = accentColor
                 )
-                Text(
-                    text = displayCategory(currentCategory),
-                    fontSize = 27.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = accentColor,
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(top = 14.dp)
-                )
+                ) {
+                    Text(
+                        text = displayCategory(currentCategory),
+                        fontSize = 27.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = accentColor
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    CategoryGlyph(
+                        category = currentCategory,
+                        tint = accentColor,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
                 val formattedTime = formatTime(elapsedTime)
                 val timeFontSize = when {
                     formattedTime.length <= 5 -> 34.sp   // MM:SS
@@ -2620,12 +2631,22 @@ private fun FlowStartPage(
             }
         }
 
+        if (!isMainButtonReorderMode) {
+            RecommendationBannerCard(
+                category = "REST",
+                activityName = "휴식",
+                reasonText = "잠깐 쉬어가도 괜찮아요.",
+                onClick = { onStart("REST") },
+                modifier = Modifier.padding(top = 16.dp)
+            )
+        }
+
         Text(
             text = "활동",
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
             color = FlowMuted,
-            modifier = Modifier.padding(top = 18.dp, bottom = 10.dp)
+            modifier = Modifier.padding(top = 14.dp, bottom = 10.dp)
         )
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -2668,6 +2689,62 @@ private fun FlowStartPage(
                         modifier = Modifier.animateItem()
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecommendationBannerCard(
+    category: String,
+    activityName: String,
+    reasonText: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val accentColor = Color(0xFF00BCD4)
+    val cardBg = Color(0xFFE2F5F5)
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = cardBg),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .background(accentColor.copy(alpha = 0.12f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                CategoryGlyph(
+                    category = category,
+                    tint = accentColor,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = activityName,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = FlowInk
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "추천 · $reasonText",
+                    fontSize = 11.sp,
+                    color = FlowMuted
+                )
             }
         }
     }
