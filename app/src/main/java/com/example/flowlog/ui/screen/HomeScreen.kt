@@ -70,7 +70,9 @@ import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -120,6 +122,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -148,6 +151,7 @@ import com.example.flowlog.debug.SampleTimetableData
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.ExerciseSetRecord
 import com.example.flowlog.ui.city.CityTimetableCard
+import com.example.flowlog.data.agent.OrganizedPetite
 import com.example.flowlog.data.model.AutoButtonSchedule
 import com.example.flowlog.data.model.MainButtonConfig
 import com.example.flowlog.data.model.RecommendedTodoBlock
@@ -606,6 +610,9 @@ fun HomeScreen(
                 onCompleteRecommended = { if (!isDeveloperMode) viewModel.completeRecommendedTodo(it) },
                 onSetRecommendedTime = { block, hour -> if (!isDeveloperMode) viewModel.setRecommendedTodoTime(block, hour) },
                 onReplaceRecommendedItem = { block, todo -> if (!isDeveloperMode) viewModel.replaceRecommendedTodoItem(block, todo) },
+                onStartActivity = { if (!isDeveloperMode) viewModel.startActivity(it) },
+                onCompleteRecommendation = { if (!isDeveloperMode) viewModel.completeFlowRecommendation() },
+                flowRecommendation = if (isDeveloperMode) null else uiState.flowRecommendation,
                 isDeveloperMode = isDeveloperMode,
                 samplePresetIndex = samplePresetIndex,
                 onCyclePreset = { samplePresetIndex = (samplePresetIndex + 1) % SampleTimetableData.presetCount }
@@ -2631,16 +2638,6 @@ private fun FlowStartPage(
             }
         }
 
-        if (!isMainButtonReorderMode) {
-            RecommendationBannerCard(
-                category = "REST",
-                activityName = "휴식",
-                reasonText = "잠깐 쉬어가도 괜찮아요.",
-                onClick = { onStart("REST") },
-                modifier = Modifier.padding(top = 16.dp)
-            )
-        }
-
         Text(
             text = "활동",
             fontSize = 14.sp,
@@ -2765,6 +2762,164 @@ private fun FlowPageDots(activePage: Int) {
                         shape = CircleShape
                     )
             )
+        }
+    }
+}
+
+@Composable
+private fun ActivityRecommendationRow(
+    category: String,
+    activityName: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(FlowPurpleSoft.copy(alpha = 0.6f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Lightbulb,
+            contentDescription = null,
+            tint = FlowPurple,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "추천 흐름",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = FlowMuted
+            )
+            Text(
+                text = activityName,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = FlowInk
+            )
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = FlowMuted,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ActivityRecommendationSheet(
+    category: String,
+    activityName: String,
+    reasonText: String?,
+    onDismiss: () -> Unit,
+    onStart: () -> Unit,
+    onComplete: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color.White,
+        contentColor = FlowInk
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(top = 8.dp, bottom = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(60.dp)
+                    .background(categoryColor(category).copy(alpha = 0.12f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                CategoryGlyph(
+                    category = category,
+                    tint = categoryColor(category),
+                    modifier = Modifier.size(30.dp)
+                )
+            }
+            Spacer(Modifier.height(14.dp))
+            Text(
+                text = activityName,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = FlowInk
+            )
+            if (!reasonText.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = reasonText,
+                    fontSize = 14.sp,
+                    color = FlowMuted,
+                    textAlign = TextAlign.Center
+                )
+            }
+            Spacer(Modifier.height(28.dp))
+            Button(
+                onClick = onStart,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = FlowPurple,
+                    contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text(
+                    text = "시작하기",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+            val context = LocalContext.current
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = {
+                    val intent = android.content.Intent(
+                        android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse("https://flowlog.pfkfks.org/preview/")
+                    )
+                    context.startActivity(intent)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = FlowPurple),
+                border = BorderStroke(1.dp, FlowPurple.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text(
+                    text = "예습 사이트 가기",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            TextButton(
+                onClick = onComplete,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+            ) {
+                Text(
+                    text = "완료로 표시",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = FlowMuted
+                )
+            }
         }
     }
 }
@@ -4033,6 +4188,9 @@ private fun TimetableCard(
     onCompleteRecommended: (RecommendedTodoBlock) -> Unit,
     onSetRecommendedTime: (RecommendedTodoBlock, Int) -> Unit,
     onReplaceRecommendedItem: (RecommendedTodoBlock, TodoItem) -> Unit,
+    onStartActivity: (String) -> Unit = {},
+    onCompleteRecommendation: () -> Unit = {},
+    flowRecommendation: OrganizedPetite? = null,
     isDeveloperMode: Boolean = false,
     samplePresetIndex: Int = 0,
     onCyclePreset: () -> Unit = {}
@@ -4040,6 +4198,7 @@ private fun TimetableCard(
     var selectedBlock by remember { mutableStateOf<ScheduledAutoButtonBlock?>(null) }
     var selectedRecommendedBlock by remember { mutableStateOf<RecommendedTodoBlock?>(null) }
     var pendingSleepRange by remember { mutableStateOf<EmptyRange?>(null) }
+    var showActivityRecommendation by remember { mutableStateOf(false) }
     val activitiesForSleepRange = remember(allActivities, activities) {
         allActivities.ifEmpty { activities }
     }
@@ -4163,8 +4322,33 @@ private fun TimetableCard(
                     activeCategory = activeCategory,
                     onShowMenu = { block -> selectedBlock = block }
                 )
+                if (flowRecommendation != null) {
+                    ActivityRecommendationRow(
+                        category = flowRecommendation.activityCategory ?: "STUDY",
+                        activityName = flowRecommendation.title,
+                        onClick = { showActivityRecommendation = true },
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                }
             }
         }
+    }
+
+    if (showActivityRecommendation && flowRecommendation != null) {
+        ActivityRecommendationSheet(
+            category = flowRecommendation.activityCategory ?: "STUDY",
+            activityName = flowRecommendation.title,
+            reasonText = flowRecommendation.aiComment,
+            onDismiss = { showActivityRecommendation = false },
+            onStart = {
+                onStartActivity(flowRecommendation.activityCategory ?: "STUDY")
+                showActivityRecommendation = false
+            },
+            onComplete = {
+                onCompleteRecommendation()
+                showActivityRecommendation = false
+            }
+        )
     }
 
     selectedBlock?.let { block ->

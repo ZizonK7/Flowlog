@@ -22,10 +22,12 @@ import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.data.recommendation.ButtonRecommendationEngine
 import com.example.flowlog.data.constants.EntityType
 import com.example.flowlog.data.constants.EventType
+import com.example.flowlog.data.agent.OrganizedPetite
 import com.example.flowlog.data.repository.ActivityRepository
 import com.example.flowlog.data.repository.AutoButtonScheduleRepository
 import com.example.flowlog.data.repository.DailyGoalRepository
 import com.example.flowlog.data.repository.EventLogRepository
+import com.example.flowlog.data.repository.OrganizedPetiteRepository
 import com.example.flowlog.data.repository.TodoRepository
 import com.example.flowlog.data.remote.FirestoreSyncRepository
 import com.example.flowlog.data.sync.FirebaseSyncCoordinator
@@ -145,7 +147,8 @@ data class ActivityUiState(
     val mainButtonSetupTarget: String? = null,
     val isMainButtonReorderMode: Boolean = false,
     val selectedMainButtonForSwapId: String? = null,
-    val temporaryMainButtons: List<MainButtonItem>? = null
+    val temporaryMainButtons: List<MainButtonItem>? = null,
+    val flowRecommendation: OrganizedPetite? = null
 )
 
 data class TimerDisplayState(
@@ -187,6 +190,7 @@ class ActivityViewModel(
     private val dailyGoalRepository = DailyGoalRepository(appContext)
     private val buttonRecommendationEngine = ButtonRecommendationEngine()
     private val autoButtonScheduler = AutoButtonScheduler(appContext)
+    private val organizedPetiteRepository = OrganizedPetiteRepository(appContext)
     private val firestoreSyncRepository = FirestoreSyncRepository()
     private val undoPreferences = appContext.getSharedPreferences(
         PREFS_ACTIVITY_UNDO,
@@ -226,6 +230,23 @@ class ActivityViewModel(
         observeRecommendedTodoBlocks()
         observeIncompleteTodos()
         watchActiveSessionStore()
+        observeFlowRecommendation()
+    }
+
+    private fun observeFlowRecommendation() {
+        viewModelScope.launch {
+            organizedPetiteRepository.observeActivePetites().collect { petites ->
+                val next = petites.firstOrNull { !it.isCompleted }
+                _uiState.update { it.copy(flowRecommendation = next) }
+            }
+        }
+    }
+
+    fun completeFlowRecommendation() {
+        val petite = _uiState.value.flowRecommendation ?: return
+        viewModelScope.launch {
+            organizedPetiteRepository.complete(petite)
+        }
     }
 
     fun startActivity(category: String) {

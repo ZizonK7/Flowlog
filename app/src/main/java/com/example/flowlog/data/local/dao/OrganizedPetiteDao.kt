@@ -107,6 +107,9 @@ interface OrganizedPetiteDao {
      * 기존 row가 있으면 content 필드만 덮어쓰고, isDismissed·isCompleted는 보존한다.
      * 기존 row가 없으면 새로 삽입한다.
      */
+    @Query("UPDATE organized_petites SET isCompleted = 1, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun markCompletedById(id: String, updatedAt: Long)
+
     @Transaction
     suspend fun upsertCalendarPetitePreservingUserState(entity: OrganizedPetiteEntity) {
         val existing = getBySource(entity.userId, entity.sourceType, entity.sourceId)

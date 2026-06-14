@@ -74,6 +74,10 @@ class OrganizedPetiteRepository(context: Context) {
         )
     }
 
+    suspend fun complete(item: OrganizedPetite) {
+        dao.markCompletedById(item.id, System.currentTimeMillis())
+    }
+
     suspend fun loadDismissedSourceKeys(): Set<String> {
         return dao.getDismissed(userId).map { "${it.sourceType}:${it.sourceId}" }.toSet()
     }

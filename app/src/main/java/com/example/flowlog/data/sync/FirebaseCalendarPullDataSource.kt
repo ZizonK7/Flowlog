@@ -300,6 +300,46 @@ class FirebaseCalendarPullDataSource(context: Context) {
             return 0
         }
 
+        // 각 강의마다 "예습하기" Petite upsert (isDismissed/isCompleted 보존)
+        todayLessons.forEachIndexed { index, lesson ->
+            runCatching {
+                val previewId = "lecture_preview_${lesson.eventId}"
+                val title = "${lesson.courseTitle ?: lesson.lectureTitle ?: "강의"} 예습하기"
+                petiteDao.upsertCalendarPetitePreservingUserState(
+                    OrganizedPetiteEntity(
+                        id = previewId,
+                        userId = userId,
+                        title = title,
+                        sourceType = PetiteSourceType.CALENDAR.name,
+                        sourceId = previewId,
+                        category = null,
+                        dateMillis = dayStart,
+                        linkedActivityName = null,
+                        activityCategory = "STUDY",
+                        isCompleted = false,
+                        priorityScore = 1,
+                        burdenScore = null,
+                        isSeverelyBehind = null,
+                        totalStudyMinutesSinceD7 = null,
+                        studiedDaysSinceD7 = null,
+                        missedDaysSinceD7 = null,
+                        aiComment = lesson.syllabusText,
+                        estimatedMinutes = 30,
+                        stepsJson = "[]",
+                        examDValue = null,
+                        routineTimerDurationMillis = null,
+                        routineTimerCategory = null,
+                        rank = index,
+                        isDismissed = false,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                )
+            }.onFailure { e ->
+                Log.w(TAG, "Lecture preview petite upsert failed: ${lesson.eventId} — ${e.message}")
+            }
+        }
+
         Log.i(TAG, "Syllabus pull complete — saved=${todayLessons.size} date=$todayDateStr course=$courseTitle")
         return todayLessons.size
     }
