@@ -53,7 +53,8 @@ data class DailyCueItem(
     val title: String,
     val isCompleted: Boolean = false,
     val timerDurationMillis: Long? = null,
-    val timerCategory: String = "TODO"
+    val timerCategory: String = "TODO",
+    val order: Int = 0
 )
 
 data class YesterdayFlowSuggestion(
@@ -75,6 +76,7 @@ class TodoViewModel(
 
     private val focusPrefs = context.getSharedPreferences("todo_focus", Context.MODE_PRIVATE)
     private val cuePrefs = context.getSharedPreferences("daily_cues", Context.MODE_PRIVATE)
+    private val normalTodoOrderPrefs = context.getSharedPreferences("todo_normal_order", Context.MODE_PRIVATE)
     private val dailyGoalRepository = DailyGoalRepository(context.applicationContext)
     private val activityRepository = ActivityRepository(context.applicationContext)
     private val examRepository = ExamRepository(context.applicationContext)
@@ -84,6 +86,18 @@ class TodoViewModel(
 
     private val _todos = MutableStateFlow<List<TodoItem>>(emptyList())
     val todos: StateFlow<List<TodoItem>> = _todos.asStateFlow()
+
+    private val _normalTodoOrder = MutableStateFlow<List<Long>>(loadNormalTodoOrder())
+    val normalTodosOrdered: StateFlow<List<TodoItem>> = combine(_todos, _normalTodoOrder) { todos, order ->
+        val todayTodos = todos.filter { !it.isCompleted && it.category == TodoCategory.TODAY }
+        if (order.isEmpty()) todayTodos
+        else {
+            val indexed = todayTodos.associateBy { it.id }
+            val inOrder = order.mapNotNull { indexed[it] }
+            val rest = todayTodos.filter { it.id !in order }
+            inOrder + rest
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _examCheckEvents = MutableSharedFlow<ExamCheckEvent>(extraBufferCapacity = 4)
     val examCheckEvents: SharedFlow<ExamCheckEvent> = _examCheckEvents.asSharedFlow()
@@ -144,6 +158,7 @@ class TodoViewModel(
             hiddenAiSourceKeys.clear()
             hiddenAiSourceKeys += organizedPetiteRepository.loadDismissedSourceKeys()
             organizedPetiteRepository.observeActivePetites().collect { saved ->
+                android.util.Log.d("PetiteListTrace", "VM collect: total=${saved.size} bySource=${saved.groupingBy { it.sourceType.name }.eachCount()} titles=${saved.map { "${it.title}/${it.sourceType}/${it.id}" }}")
                 _organizedPetites.value = saved
             }
         }
@@ -369,7 +384,11 @@ class TodoViewModel(
                     activities = latestActivities,
                     hiddenAiSourceKeys = hiddenAiSourceKeys
                 )
-                _organizedPetites.value = organized
+                // CALENDAR items (from calendar pull) are preserved in the immediate UI update.
+                // replaceWith → replaceNonCalendarForUser preserves them in DB as well.
+                val calendarPetites = _organizedPetites.value
+                    .filter { it.sourceType == PetiteSourceType.CALENDAR }
+                _organizedPetites.value = organized + calendarPetites
                 organizedPetiteRepository.replaceWith(organized)
             } finally {
                 _isTodayOrganizerRunning.value = false
@@ -380,7 +399,9 @@ class TodoViewModel(
     fun resetTodayOrganizer() {
         if (!isTodayOrganizerAllowed) return
         hiddenAiSourceKeys.clear()
-        _organizedPetites.value = emptyList()
+        // CALENDAR items from calendar pull are kept — only organizer-generated items are cleared.
+        _organizedPetites.value = _organizedPetites.value
+            .filter { it.sourceType == PetiteSourceType.CALENDAR }
         viewModelScope.launch {
             runCatching { organizedPetiteRepository.replaceWith(emptyList()) }
         }
@@ -401,7 +422,8 @@ class TodoViewModel(
                 ?.toLongOrNull()
                 ?.let { id -> _dailyCues.value.firstOrNull { it.id == id } }
                 ?.isCompleted ?: item.isCompleted
-            PetiteSourceType.EXAM -> false
+            PetiteSourceType.EXAM,
+            PetiteSourceType.CALENDAR -> false
         }
         var wasHidden = false
         when (item.sourceType) {
@@ -419,6 +441,7 @@ class TodoViewModel(
                 hiddenAiSourceKeys += item.sourceKey()
                 wasHidden = true
             }
+            PetiteSourceType.CALENDAR -> {}
         }
         val updatedPetites = _organizedPetites.value.filterNot { it.sourceKey() == item.sourceKey() }
         _organizedPetites.value = updatedPetites
@@ -456,6 +479,7 @@ class TodoViewModel(
                     hiddenAiSourceKeys -= item.sourceKey()
                 }
             }
+            PetiteSourceType.CALENDAR -> {}
         }
         if (_organizedPetites.value.none { it.sourceKey() == item.sourceKey() }) {
             val restored = TodayOrganizerRules.sort(_organizedPetites.value + item)
@@ -474,12 +498,14 @@ class TodoViewModel(
         val cleanLabel = if (label == "Memo") "Memo" else "Routine"
         val cleanTimerDurationMillis = timerDurationMillis?.takeIf { cleanLabel == "Routine" && it > 0L }
         val cleanTimerCategory = timerCategory.takeIf { cleanLabel == "Routine" && it.isNotBlank() } ?: "TODO"
+        val newOrder = (_dailyCues.value.maxOfOrNull { it.order } ?: -1) + 1
         val updated = sortDailyCues(_dailyCues.value + DailyCueItem(
             id = System.currentTimeMillis(),
             label = cleanLabel,
             title = cleanTitle,
             timerDurationMillis = cleanTimerDurationMillis,
-            timerCategory = cleanTimerCategory
+            timerCategory = cleanTimerCategory,
+            order = newOrder
         ))
         _dailyCues.value = updated
         saveDailyCues(updated)
@@ -543,7 +569,8 @@ class TodoViewModel(
                     title = item.optString("title", ""),
                     isCompleted = item.optBoolean("isCompleted", false),
                     timerDurationMillis = item.optLong("timerDurationMillis", 0L).takeIf { it > 0L },
-                    timerCategory = item.optString("timerCategory", "TODO").ifBlank { "TODO" }
+                    timerCategory = item.optString("timerCategory", "TODO").ifBlank { "TODO" },
+                    order = item.optInt("order", index)
                 )
             }.filter { it.title.isNotBlank() }
         }.getOrElse { defaultDailyCues() }
@@ -570,6 +597,7 @@ class TodoViewModel(
                 put("isCompleted", cue.isCompleted)
                 cue.timerDurationMillis?.let { put("timerDurationMillis", it) }
                 put("timerCategory", cue.timerCategory)
+                put("order", cue.order)
             })
         }
         cuePrefs.edit()
@@ -579,14 +607,86 @@ class TodoViewModel(
     }
 
     private fun defaultDailyCues(): List<DailyCueItem> = listOf(
-        DailyCueItem(1L, "Routine", "물 마시기"),
-        DailyCueItem(2L, "Routine", "스트레칭"),
-        DailyCueItem(3L, "Memo", "신청서 확인"),
-        DailyCueItem(4L, "Memo", "우산 챙기기")
+        DailyCueItem(1L, "Routine", "물 마시기", order = 0),
+        DailyCueItem(2L, "Routine", "스트레칭", order = 1),
+        DailyCueItem(3L, "Memo", "신청서 확인", order = 2),
+        DailyCueItem(4L, "Memo", "우산 챙기기", order = 3)
     )
 
     private fun sortDailyCues(cues: List<DailyCueItem>): List<DailyCueItem> {
-        return cues.sortedWith(compareBy<DailyCueItem> { if (it.label == "Routine") 0 else 1 }.thenBy { it.id })
+        return cues.sortedBy { it.order }
+    }
+
+    fun swapDailyCue(cueId: Long, direction: Int) {
+        val sorted = _dailyCues.value.sortedBy { it.order }
+        val idx = sorted.indexOfFirst { it.id == cueId }
+        if (idx < 0) return
+        val targetIdx = idx + direction
+        if (targetIdx < 0 || targetIdx >= sorted.size) return
+        val mutable = sorted.toMutableList()
+        val tempOrder = mutable[idx].order
+        mutable[idx] = mutable[idx].copy(order = mutable[targetIdx].order)
+        mutable[targetIdx] = mutable[targetIdx].copy(order = tempOrder)
+        val updated = sortDailyCues(mutable)
+        _dailyCues.value = updated
+        saveDailyCues(updated)
+    }
+
+    fun swapOrganizedPetite(itemId: String, direction: Int) {
+        val current = _organizedPetites.value.toMutableList()
+        val idx = current.indexOfFirst { it.id == itemId }
+        if (idx < 0) return
+        val targetIdx = idx + direction
+        if (targetIdx < 0 || targetIdx >= current.size) return
+        val temp = current[idx]
+        current[idx] = current[targetIdx]
+        current[targetIdx] = temp
+        _organizedPetites.value = current.toList()
+        viewModelScope.launch {
+            runCatching { organizedPetiteRepository.replaceWith(current.toList()) }
+        }
+    }
+
+    fun reorderOrganizedPetites(from: Int, to: Int) {
+        val current = _organizedPetites.value.toMutableList()
+        if (from < 0 || to < 0 || from >= current.size || to >= current.size || from == to) return
+        val item = current.removeAt(from)
+        current.add(to, item)
+        _organizedPetites.value = current.toList()
+        viewModelScope.launch {
+            runCatching { organizedPetiteRepository.replaceWith(current.toList()) }
+        }
+    }
+
+    fun reorderDailyCues(from: Int, to: Int) {
+        val sorted = _dailyCues.value.sortedBy { it.order }.toMutableList()
+        if (from < 0 || to < 0 || from >= sorted.size || to >= sorted.size || from == to) return
+        val item = sorted.removeAt(from)
+        sorted.add(to, item)
+        val reordered = sorted.mapIndexed { i, cue -> cue.copy(order = i) }
+        _dailyCues.value = reordered
+        saveDailyCues(reordered)
+    }
+
+    fun reorderNormalTodos(from: Int, to: Int) {
+        val current = normalTodosOrdered.value.toMutableList()
+        if (from < 0 || to < 0 || from >= current.size || to >= current.size || from == to) return
+        android.util.Log.e("PetiteRenderTrace", "persist reordered petites todos from=$from to=$to")
+        val item = current.removeAt(from)
+        current.add(to, item)
+        val newOrder = current.map { it.id }
+        _normalTodoOrder.value = newOrder
+        saveNormalTodoOrder(newOrder)
+    }
+
+    private fun loadNormalTodoOrder(): List<Long> {
+        return normalTodoOrderPrefs.getString("order", null)
+            ?.split(",")?.mapNotNull { it.toLongOrNull() }
+            ?: emptyList()
+    }
+
+    private fun saveNormalTodoOrder(ids: List<Long>) {
+        normalTodoOrderPrefs.edit().putString("order", ids.joinToString(",")).apply()
     }
 
     fun addWorkTime(todoId: Long, durationMillis: Long) {

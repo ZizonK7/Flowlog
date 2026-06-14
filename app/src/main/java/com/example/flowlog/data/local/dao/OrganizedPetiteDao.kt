@@ -58,4 +58,72 @@ interface OrganizedPetiteDao {
         deleteAllForUser(userId)
         if (items.isNotEmpty()) insertAll(items)
     }
+
+    // CALENDAR sourceType은 calendar pull이 독립적으로 관리하므로 삭제 대상에서 제외한다.
+    @Query("DELETE FROM organized_petites WHERE userId = :userId AND sourceType != 'CALENDAR'")
+    suspend fun deleteNonCalendarForUser(userId: String)
+
+    @Transaction
+    suspend fun replaceNonCalendarForUser(userId: String, items: List<OrganizedPetiteEntity>) {
+        deleteNonCalendarForUser(userId)
+        if (items.isNotEmpty()) insertAll(items)
+    }
+
+    @Query("""
+        SELECT * FROM organized_petites
+        WHERE userId = :userId
+          AND sourceType = :sourceType
+          AND IFNULL(sourceId, '') = IFNULL(:sourceId, '')
+        LIMIT 1
+    """)
+    suspend fun getBySource(userId: String, sourceType: String, sourceId: String?): OrganizedPetiteEntity?
+
+    @Query("""
+        UPDATE organized_petites SET
+            title = :title,
+            category = :category,
+            dateMillis = :dateMillis,
+            estimatedMinutes = :estimatedMinutes,
+            aiComment = :aiComment,
+            rank = :rank,
+            priorityScore = :priorityScore,
+            updatedAt = :updatedAt
+        WHERE id = :id
+    """)
+    suspend fun updateCalendarPetiteContent(
+        id: String,
+        title: String,
+        category: String?,
+        dateMillis: Long?,
+        estimatedMinutes: Int?,
+        aiComment: String?,
+        rank: Int,
+        priorityScore: Int,
+        updatedAt: Long
+    )
+
+    /**
+     * CALENDAR sourceType 전용 upsert.
+     * 기존 row가 있으면 content 필드만 덮어쓰고, isDismissed·isCompleted는 보존한다.
+     * 기존 row가 없으면 새로 삽입한다.
+     */
+    @Transaction
+    suspend fun upsertCalendarPetitePreservingUserState(entity: OrganizedPetiteEntity) {
+        val existing = getBySource(entity.userId, entity.sourceType, entity.sourceId)
+        if (existing == null) {
+            insertAll(listOf(entity))
+        } else {
+            updateCalendarPetiteContent(
+                id = existing.id,
+                title = entity.title,
+                category = entity.category,
+                dateMillis = entity.dateMillis,
+                estimatedMinutes = entity.estimatedMinutes,
+                aiComment = entity.aiComment,
+                rank = entity.rank,
+                priorityScore = entity.priorityScore,
+                updatedAt = entity.updatedAt
+            )
+        }
+    }
 }

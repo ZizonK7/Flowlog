@@ -1,7 +1,11 @@
 package com.example.flowlog.ui.screen
 
+import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -13,6 +17,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -73,6 +78,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -80,13 +86,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.zIndex
+import kotlin.math.roundToInt
 import com.example.flowlog.util.CalendarIntentHelper
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.content.Intent
@@ -143,6 +158,7 @@ fun TodoScreen(
     modifier: Modifier = Modifier
 ) {
     val todos         by viewModel.todos.collectAsState()
+    val normalTodosOrdered by viewModel.normalTodosOrdered.collectAsState()
     val focusTodos    by viewModel.todayFocusItems.collectAsState()
     val dailyCues     by viewModel.dailyCues.collectAsState()
     val examCards     by viewModel.examCards.collectAsState()
@@ -151,9 +167,7 @@ fun TodoScreen(
     val focusIds      = remember(focusTodos) { focusTodos.map { it.id }.toSet() }
     val todayStart = startOfDay(System.currentTimeMillis())
     // TODAY(오늘 할 일)만 Petites 섹션에 표시. NORMAL(미분류)은 전체 할 일로.
-    val normalTodos   = remember(todos) {
-        todos.filter { todo -> !todo.isCompleted && todo.category == TodoCategory.TODAY }
-    }
+    val normalTodos = normalTodosOrdered
     val activeTodos   = remember(todos, todayStart) {
         todos.filter { todo ->
             !todo.isCompleted &&
@@ -202,6 +216,13 @@ fun TodoScreen(
     val visibleOrganizedPetites = remember(adminOrganizedPetites, isAnchorsExpanded) {
         if (isAnchorsExpanded) adminOrganizedPetites else adminOrganizedPetites.take(4)
     }
+    // CALENDAR-only organized petites must not hide the normal todos (TODAY-category) section.
+    // Normal todos are treated as "로컬 Petites" when the AI organizer has never been run.
+    val hasNonCalendarOrganizedPetites = remember(adminOrganizedPetites) {
+        adminOrganizedPetites.any { it.sourceType != PetiteSourceType.CALENDAR }
+    }
+    Log.e("PetiteRenderTrace", "TodoScreen recompose: isAiOrganizerAllowed=$isAiOrganizerAllowed adminPetites=${adminOrganizedPetites.size} visiblePetites=${visibleOrganizedPetites.size} hasNonCalendar=$hasNonCalendarOrganizedPetites")
+    Log.d("PetiteListTrace", "Screen visible: ${visibleOrganizedPetites.map { "${it.title}/${it.sourceType}/${it.id}" }}")
     val scope = rememberCoroutineScope()
 
     // Exam 체크 Snackbar
@@ -380,7 +401,12 @@ fun TodoScreen(
         // ── 오늘의 목표 ───────────────────────────────────────────────────────
         if (normalTodos.isNotEmpty() || adminOrganizedPetites.isNotEmpty()) {
             item(key = "focus_header") {
-                val petiteCount = if (adminOrganizedPetites.isNotEmpty()) adminOrganizedPetites.size else normalTodos.size
+                // When both sections show (CALENDAR-only + normal todos), count both for "더보기" button.
+                val petiteCount = when {
+                    hasNonCalendarOrganizedPetites -> adminOrganizedPetites.size
+                    adminOrganizedPetites.isNotEmpty() -> adminOrganizedPetites.size + normalTodos.size
+                    else -> normalTodos.size
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -406,56 +432,78 @@ fun TodoScreen(
                 }
             }
             if (adminOrganizedPetites.isNotEmpty()) {
-                items(visibleOrganizedPetites, key = { "organized_${it.id}" }) { item ->
-                    OrganizedPetiteCard(
-                        item = item,
-                        onStart = {
-                            when (item.sourceType) {
-                                PetiteSourceType.PETITE,
-                                PetiteSourceType.TODO -> item.sourceId
-                                    ?.toLongOrNull()
-                                    ?.let { id -> todos.firstOrNull { it.id == id } }
-                                    ?.let(onStartTodo)
-                                PetiteSourceType.ROUTINE -> item.sourceId
-                                    ?.toLongOrNull()
-                                    ?.let { cueId ->
-                                        onStartDailyCueRoutine(
-                                            cueId,
-                                            item.title,
-                                            item.routineTimerDurationMillis ?: 0L,
-                                            item.routineTimerCategory ?: "TODO"
-                                        )
-                                    }
-                                PetiteSourceType.EXAM -> item.sourceId
-                                    ?.toLongOrNull()
-                                    ?.let { examId ->
-                                        onStartExamStudy(
-                                            examId,
-                                            item.linkedActivityName ?: item.title,
-                                            item.examDValue ?: 0
-                                        )
-                                    }
-                            }
-                        },
-                        onComplete = { viewModel.completeOrganizedPetite(item) }
-                    )
+                item(key = "petites_drag_block") {
+                    DragDropSingleColumn(
+                        items = visibleOrganizedPetites,
+                        spacing = 6.dp,
+                        onReorder = { fromVis, toVis ->
+                            val fromId = visibleOrganizedPetites.getOrNull(fromVis)?.id ?: return@DragDropSingleColumn
+                            val toId   = visibleOrganizedPetites.getOrNull(toVis)?.id  ?: return@DragDropSingleColumn
+                            val from = organizedPetites.indexOfFirst { it.id == fromId }
+                            val to   = organizedPetites.indexOfFirst { it.id == toId }
+                            if (from >= 0 && to >= 0) viewModel.reorderOrganizedPetites(from, to)
+                        }
+                    ) { item, _, dragMod ->
+                        OrganizedPetiteCard(
+                            item = item,
+                            modifier = dragMod,
+                            onStart = {
+                                when (item.sourceType) {
+                                    PetiteSourceType.PETITE,
+                                    PetiteSourceType.TODO -> item.sourceId
+                                        ?.toLongOrNull()
+                                        ?.let { id -> todos.firstOrNull { it.id == id } }
+                                        ?.let(onStartTodo)
+                                    PetiteSourceType.ROUTINE -> item.sourceId
+                                        ?.toLongOrNull()
+                                        ?.let { cueId ->
+                                            onStartDailyCueRoutine(
+                                                cueId,
+                                                item.title,
+                                                item.routineTimerDurationMillis ?: 0L,
+                                                item.routineTimerCategory ?: "TODO"
+                                            )
+                                        }
+                                    PetiteSourceType.EXAM -> item.sourceId
+                                        ?.toLongOrNull()
+                                        ?.let { examId ->
+                                            onStartExamStudy(
+                                                examId,
+                                                item.linkedActivityName ?: item.title,
+                                                item.examDValue ?: 0
+                                            )
+                                        }
+                                    PetiteSourceType.CALENDAR -> {}
+                                }
+                            },
+                            onComplete = { viewModel.completeOrganizedPetite(item) }
+                        )
+                    }
                 }
             }
-            if (adminOrganizedPetites.isEmpty()) {
-            items(visibleNormalTodos, key = { "focus_${it.id}" }) { todo ->
-                TodoCard(
-                    todo         = todo,
-                    isEditing    = editingId == todo.id,
-                    isCompleting = completingId == todo.id,
-                    isFocus      = false,
-                    onStartTodo  = { onStartTodo(todo) },
-                    onComplete   = { onCompleteNormal(todo) },
-                    onUncomplete = { viewModel.uncompleteTodo(todo) },
-                    onEditToggle = { editingId = if (editingId == todo.id) null else todo.id },
-                    onSave       = { t, c, d -> viewModel.updateTodo(todo.copy(title = t, category = c, selectedDate = d)); editingId = null },
-                    onDelete     = { viewModel.deleteTodo(todo); editingId = null }
-                )
-            }
+            // Show normal todos when there are no NON-CALENDAR organized petites.
+            // A CALENDAR-only organized list must not hide the TODAY-category todos.
+            if (!hasNonCalendarOrganizedPetites) {
+                item(key = "normal_todo_drag_block") {
+                    DragDropTodoColumn(
+                        items = visibleNormalTodos,
+                        onReorder = { from, to -> viewModel.reorderNormalTodos(from, to) }
+                    ) { todo, _, dragMod ->
+                        TodoCard(
+                            todo         = todo,
+                            modifier     = dragMod,
+                            isEditing    = editingId == todo.id,
+                            isCompleting = completingId == todo.id,
+                            isFocus      = false,
+                            onStartTodo  = { onStartTodo(todo) },
+                            onComplete   = { onCompleteNormal(todo) },
+                            onUncomplete = { viewModel.uncompleteTodo(todo) },
+                            onEditToggle = { editingId = if (editingId == todo.id) null else todo.id },
+                            onSave       = { t, c, d -> viewModel.updateTodo(todo.copy(title = t, category = c, selectedDate = d)); editingId = null },
+                            onDelete     = { viewModel.deleteTodo(todo); editingId = null }
+                        )
+                    }
+                }
             }
         }
 
@@ -487,6 +535,7 @@ fun TodoScreen(
                 onUpdateCue = viewModel::updateDailyCue,
                 onDeleteCue = viewModel::deleteDailyCue,
                 onStartRoutine = onStartDailyCueRoutine,
+                onReorderCue = viewModel::reorderDailyCues,
                 timerCategories = routineTimerCategories
             )
         }
@@ -574,13 +623,280 @@ fun TodoScreen(
     } // Box 닫기
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DragDropSingleColumn(
+    items: List<OrganizedPetite>,
+    onReorder: (Int, Int) -> Unit,
+    spacing: Dp = 6.dp,
+    modifier: Modifier = Modifier,
+    content: @Composable (OrganizedPetite, Boolean, Modifier) -> Unit
+) {
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragOffsetY by remember { mutableStateOf(0f) }
+    var slotPx by remember { mutableStateOf(0) }
+    val spacingPx = with(LocalDensity.current) { spacing.toPx() }
+    val haptic = LocalHapticFeedback.current
+
+    val draggingIdx = items.indexOfFirst { it.id == draggingId }
+    val targetIdx = if (draggingIdx < 0 || slotPx == 0) -1
+    else (draggingIdx + (dragOffsetY / (slotPx + spacingPx)).roundToInt()).coerceIn(0, items.size - 1)
+
+    Log.e("PetiteRenderTrace", "DragDropSingleColumn composing ${items.size} items")
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(spacing)) {
+        items.forEachIndexed { idx, item ->
+            key(item.id) {
+                Log.e("PetiteRenderTrace", "rendering slot idx=$idx id=${item.id}")
+                val isDragging = item.id == draggingId
+                val displace by animateFloatAsState(
+                    targetValue = when {
+                        draggingIdx < 0 || isDragging -> 0f
+                        draggingIdx < targetIdx && idx in (draggingIdx + 1)..targetIdx ->
+                            -(slotPx + spacingPx)
+                        draggingIdx > targetIdx && idx in targetIdx until draggingIdx ->
+                            (slotPx + spacingPx)
+                        else -> 0f
+                    },
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                    label = "petite_dy"
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onSizeChanged { if (it.height > 0 && !isDragging) slotPx = it.height }
+                        .zIndex(if (isDragging) 1f else 0f)
+                        .graphicsLayer(
+                            translationY = if (isDragging) dragOffsetY else displace,
+                            shadowElevation = if (isDragging) 10f else 0f,
+                            alpha = if (isDragging) 0.93f else 1f,
+                            scaleX = if (isDragging) 1.02f else 1f,
+                            scaleY = if (isDragging) 1.02f else 1f
+                        )
+                        .pointerInput(item.id) {
+                            Log.e("PetiteRenderTrace", "[${item.id}] pointerInput block entered")
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    Log.e("PetiteRenderTrace", "[${item.id}] LONG PRESS DETECTED → drag start")
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    draggingId = item.id
+                                    dragOffsetY = 0f
+                                },
+                                onDrag = { _, d ->
+                                    Log.e("PetiteRenderTrace", "[${item.id}] onDrag dy=${d.y}")
+                                    dragOffsetY += d.y
+                                },
+                                onDragEnd = {
+                                    Log.e("PetiteRenderTrace", "[${item.id}] onDragEnd")
+                                    val from = items.indexOfFirst { it.id == draggingId }
+                                    val to = if (from < 0 || slotPx == 0) from
+                                    else (from + (dragOffsetY / (slotPx + spacingPx)).roundToInt())
+                                        .coerceIn(0, items.size - 1)
+                                    draggingId = null; dragOffsetY = 0f
+                                    if (to >= 0 && to != from) onReorder(from, to)
+                                },
+                                onDragCancel = {
+                                    Log.e("PetiteRenderTrace", "[${item.id}] onDragCancel")
+                                    draggingId = null; dragOffsetY = 0f
+                                }
+                            )
+                        }
+                ) {
+                    content(item, isDragging, Modifier.fillMaxWidth())
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DragDropTodoColumn(
+    items: List<TodoItem>,
+    onReorder: (Int, Int) -> Unit,
+    spacing: Dp = 6.dp,
+    modifier: Modifier = Modifier,
+    content: @Composable (TodoItem, Boolean, Modifier) -> Unit
+) {
+    var draggingId by remember { mutableStateOf<Long?>(null) }
+    var dragOffsetY by remember { mutableStateOf(0f) }
+    var slotPx by remember { mutableStateOf(0) }
+    val spacingPx = with(LocalDensity.current) { spacing.toPx() }
+    val haptic = LocalHapticFeedback.current
+
+    Log.e("PetiteRenderTrace", "ENTER PetitesTodoDragList count=${items.size}")
+
+    val draggingIdx = items.indexOfFirst { it.id == draggingId }
+    val targetIdx = if (draggingIdx < 0 || slotPx == 0) -1
+    else (draggingIdx + (dragOffsetY / (slotPx + spacingPx)).roundToInt()).coerceIn(0, items.size - 1)
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(spacing)) {
+        items.forEachIndexed { idx, item ->
+            key(item.id) {
+                val isDragging = item.id == draggingId
+                val displace by animateFloatAsState(
+                    targetValue = when {
+                        draggingIdx < 0 || isDragging -> 0f
+                        draggingIdx < targetIdx && idx in (draggingIdx + 1)..targetIdx -> -(slotPx + spacingPx)
+                        draggingIdx > targetIdx && idx in targetIdx until draggingIdx -> (slotPx + spacingPx)
+                        else -> 0f
+                    },
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                    label = "todo_dy"
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onSizeChanged { if (it.height > 0 && !isDragging) slotPx = it.height }
+                        .zIndex(if (isDragging) 1f else 0f)
+                        .graphicsLayer(
+                            translationY = if (isDragging) dragOffsetY else displace,
+                            shadowElevation = if (isDragging) 10f else 0f,
+                            alpha = if (isDragging) 0.93f else 1f,
+                            scaleX = if (isDragging) 1.02f else 1f,
+                            scaleY = if (isDragging) 1.02f else 1f
+                        )
+                        .pointerInput(item.id) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    Log.e("PetiteRenderTrace", "drag start id=${item.id}")
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    draggingId = item.id
+                                    dragOffsetY = 0f
+                                },
+                                onDrag = { _, d -> dragOffsetY += d.y },
+                                onDragEnd = {
+                                    val from = items.indexOfFirst { it.id == draggingId }
+                                    val to = if (from < 0 || slotPx == 0) from
+                                    else (from + (dragOffsetY / (slotPx + spacingPx)).roundToInt())
+                                        .coerceIn(0, items.size - 1)
+                                    Log.e("PetiteRenderTrace", "move from=$from to=$to")
+                                    draggingId = null; dragOffsetY = 0f
+                                    if (to >= 0 && to != from) onReorder(from, to)
+                                },
+                                onDragCancel = { draggingId = null; dragOffsetY = 0f }
+                            )
+                        }
+                ) {
+                    content(item, isDragging, Modifier.fillMaxWidth())
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DragDropTwoColumnGrid(
+    items: List<DailyCueItem>,
+    onReorder: (Int, Int) -> Unit,
+    rowSpacing: Dp = 8.dp,
+    colSpacing: Dp = 8.dp,
+    modifier: Modifier = Modifier,
+    content: @Composable (DailyCueItem, Boolean, Modifier) -> Unit
+) {
+    var draggingId by remember { mutableStateOf<Long?>(null) }
+    var dragX by remember { mutableStateOf(0f) }
+    var dragY by remember { mutableStateOf(0f) }
+    var cellW by remember { mutableStateOf(0) }
+    var cellH by remember { mutableStateOf(0) }
+    val rsP = with(LocalDensity.current) { rowSpacing.toPx() }
+    val csP = with(LocalDensity.current) { colSpacing.toPx() }
+    val haptic = LocalHapticFeedback.current
+
+    val draggingIdx = items.indexOfFirst { it.id == draggingId }
+    val targetIdx = if (draggingIdx < 0 || cellW == 0 || cellH == 0) -1 else {
+        val origRow = draggingIdx / 2; val origCol = draggingIdx % 2
+        val dRow = (dragY / (cellH + rsP)).roundToInt()
+        val dCol = (dragX / (cellW + csP)).roundToInt()
+        val newRow = (origRow + dRow).coerceIn(0, (items.size - 1) / 2)
+        val maxCol = if (newRow * 2 + 1 < items.size) 1 else 0
+        val newCol = (origCol + dCol).coerceIn(0, maxCol)
+        (newRow * 2 + newCol).coerceIn(0, items.size - 1)
+    }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(rowSpacing)) {
+        items.chunked(2).forEachIndexed { rowIdx, rowItems ->
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(colSpacing)) {
+                rowItems.forEachIndexed { colIdx, item ->
+                    val flatIdx = rowIdx * 2 + colIdx
+                    key(item.id) {
+                        val isDragging = item.id == draggingId
+                        val newFlat = when {
+                            draggingIdx < 0 || isDragging -> flatIdx
+                            draggingIdx < targetIdx && flatIdx in (draggingIdx + 1)..targetIdx -> flatIdx - 1
+                            draggingIdx > targetIdx && flatIdx in targetIdx until draggingIdx -> flatIdx + 1
+                            else -> flatIdx
+                        }
+                        val dX by animateFloatAsState(
+                            targetValue = if (draggingIdx < 0 || isDragging) 0f
+                            else (newFlat % 2 - flatIdx % 2) * (cellW + csP),
+                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow), label = "cue_dx"
+                        )
+                        val dY by animateFloatAsState(
+                            targetValue = if (draggingIdx < 0 || isDragging) 0f
+                            else (newFlat / 2 - flatIdx / 2) * (cellH + rsP),
+                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow), label = "cue_dy"
+                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .onSizeChanged {
+                                    if (!isDragging) {
+                                        if (it.width > 0) cellW = it.width
+                                        if (it.height > 0) cellH = it.height
+                                    }
+                                }
+                                .zIndex(if (isDragging) 1f else 0f)
+                                .graphicsLayer(
+                                    translationX = if (isDragging) dragX else dX,
+                                    translationY = if (isDragging) dragY else dY,
+                                    shadowElevation = if (isDragging) 10f else 0f,
+                                    alpha = if (isDragging) 0.93f else 1f
+                                )
+                                .pointerInput(item.id) {
+                                    detectDragGesturesAfterLongPress(
+                                        onDragStart = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            draggingId = item.id; dragX = 0f; dragY = 0f
+                                        },
+                                        onDrag = { _, d -> dragX += d.x; dragY += d.y },
+                                        onDragEnd = {
+                                            val from = items.indexOfFirst { it.id == draggingId }
+                                            val to = if (from < 0 || cellW == 0 || cellH == 0) from else {
+                                                val oR = from / 2; val oC = from % 2
+                                                val dr = (dragY / (cellH + rsP)).roundToInt()
+                                                val dc = (dragX / (cellW + csP)).roundToInt()
+                                                val nR = (oR + dr).coerceIn(0, (items.size - 1) / 2)
+                                                val mC = if (nR * 2 + 1 < items.size) 1 else 0
+                                                val nC = (oC + dc).coerceIn(0, mC)
+                                                (nR * 2 + nC).coerceIn(0, items.size - 1)
+                                            }
+                                            draggingId = null; dragX = 0f; dragY = 0f
+                                            if (to >= 0 && to != from) onReorder(from, to)
+                                        },
+                                        onDragCancel = { draggingId = null; dragX = 0f; dragY = 0f }
+                                    )
+                                }
+                        ) {
+                            content(item, isDragging, Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+                if (rowItems.size < 2) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun OrganizedPetiteCard(
     item: OrganizedPetite,
+    modifier: Modifier = Modifier,
     onStart: () -> Unit,
     onComplete: () -> Unit
 ) {
+    Log.e("PetiteRenderTrace", "ENTER OrganizedPetiteCard id=${item.id} title=${item.title}")
     var showDetail by remember(item.id) { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val accent = organizedPetiteAccent(item.sourceType)
@@ -588,10 +904,17 @@ private fun OrganizedPetiteCard(
     val metaItems = organizedPetiteMetaItems(item)
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             .height(78.dp)
-            .clickable { showDetail = true },
+            .combinedClickable(
+                onClick = {
+                    Log.e("PetiteRenderTrace", "[${item.id}] combinedClickable onClick")
+                    showDetail = true
+                },
+                onLongClick = {
+                    Log.e("PetiteRenderTrace", "[${item.id}] combinedClickable onLongClick")
+                }
+            ),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(0.dp),
         border = BorderStroke(1.dp, accent.copy(alpha = 0.18f)),
@@ -810,6 +1133,7 @@ private fun organizedPetiteAccent(sourceType: PetiteSourceType): Color = when (s
     PetiteSourceType.ROUTINE -> Purple
     PetiteSourceType.TODO -> Color(0xFFE35B5B)
     PetiteSourceType.PETITE -> Purple
+    PetiteSourceType.CALENDAR -> Color(0xFF00897B)
 }
 
 private fun organizedPetiteLabel(sourceType: PetiteSourceType): String = when (sourceType) {
@@ -817,6 +1141,7 @@ private fun organizedPetiteLabel(sourceType: PetiteSourceType): String = when (s
     PetiteSourceType.ROUTINE -> "Routine"
     PetiteSourceType.TODO -> "Todo"
     PetiteSourceType.PETITE -> "Petite"
+    PetiteSourceType.CALENDAR -> "Calendar"
 }
 
 private fun organizedPetiteMetaItems(item: OrganizedPetite): List<String> = buildList {
@@ -841,6 +1166,7 @@ private fun DailyCuesSection(
     onUpdateCue: (Long, String, String, Long?, String) -> Unit,
     onDeleteCue: (Long) -> Unit,
     onStartRoutine: (Long, String, Long, String) -> Unit,
+    onReorderCue: (Int, Int) -> Unit,
     timerCategories: List<String>
 ) {
     var isShowingAll by remember { mutableStateOf(false) }
@@ -928,24 +1254,25 @@ private fun DailyCuesSection(
             }
         }
 
-        visibleCues.chunked(2).forEach { rowCues ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                rowCues.forEach { cue ->
-                    DailyCueCard(
-                        cue = cue,
-                        onToggle = { onToggleCue(cue.id) },
-                        onEdit = { editingCue = cue },
-                        onStartRoutine = onStartRoutine,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                repeat(2 - rowCues.size) {
-                    Spacer(Modifier.weight(1f))
-                }
-            }
+        DragDropTwoColumnGrid(
+            items = visibleCues,
+            onReorder = { fromVis, toVis ->
+                val fromId = visibleCues.getOrNull(fromVis)?.id ?: return@DragDropTwoColumnGrid
+                val toId   = visibleCues.getOrNull(toVis)?.id  ?: return@DragDropTwoColumnGrid
+                val from = cues.indexOfFirst { it.id == fromId }
+                val to   = cues.indexOfFirst { it.id == toId }
+                if (from >= 0 && to >= 0) onReorderCue(from, to)
+            },
+            rowSpacing = 8.dp,
+            colSpacing = 8.dp
+        ) { cue, _, cellModifier ->
+            DailyCueCard(
+                cue = cue,
+                onToggle = { onToggleCue(cue.id) },
+                onEdit = { editingCue = cue },
+                onStartRoutine = onStartRoutine,
+                modifier = cellModifier
+            )
         }
     }
 }
@@ -1542,10 +1869,11 @@ private fun NewTodoCard(
 }
 
 // ── Todo 카드 ─────────────────────────────────────────────────────────────────
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun TodoCard(
     todo: TodoItem,
+    modifier: Modifier = Modifier,
     isEditing: Boolean,
     isCompleting: Boolean,
     isFocus: Boolean,
@@ -1556,6 +1884,7 @@ private fun TodoCard(
     onSave: (title: String, category: TodoCategory, date: Long?) -> Unit,
     onDelete: () -> Unit
 ) {
+    Log.e("PetiteRenderTrace", "ENTER TodoCard id=${todo.id} title=${todo.title} isFocus=$isFocus")
     var editTitle     by remember(todo.id, isEditing) { mutableStateOf(todo.title) }
     var editCategory  by remember(todo.id, isEditing) { mutableStateOf(todo.category) }
     var editDate      by remember(todo.id, isEditing) { mutableStateOf(todo.selectedDate) }
@@ -1587,7 +1916,7 @@ private fun TodoCard(
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = cardBg),
         elevation = if (isFocus) CardDefaults.cardElevation(2.dp) else CardDefaults.cardElevation(0.dp),
         border = if (isFocus) null else BorderStroke(1.dp, Color(0xFFF0EFF5)),
@@ -1647,7 +1976,7 @@ private fun TodoCard(
                     Column(
                         Modifier
                             .weight(1f)
-                            .clickable(onClick = onEditToggle)
+                            .combinedClickable(onClick = onEditToggle)
                             .padding(end = 8.dp)
                     ) {
                         if (todo.category != TodoCategory.NORMAL && todo.category != TodoCategory.TODAY) {

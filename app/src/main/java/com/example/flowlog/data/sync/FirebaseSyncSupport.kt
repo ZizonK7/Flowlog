@@ -10,11 +10,19 @@ import com.example.flowlog.data.local.TimerStatus
 import com.example.flowlog.notification.FirebaseSyncReceiver
 import java.util.Calendar
 
+data class CalendarPullOutcome(
+    val pulledPetiteCount: Int = 0,
+    val pulledLectureInfoCount: Int = 0,
+    val pulledGeneralEventCount: Int = 0,
+    val failed: Boolean = false
+)
+
 data class SyncOutcome(
     val attemptedCount: Int = 0,
     val successCount: Int = 0,
     val failureCount: Int = 0,
-    val deferred: Boolean = false
+    val deferred: Boolean = false,
+    val calendarPull: CalendarPullOutcome? = null
 )
 
 object FirebaseSyncAlarmScheduler {
@@ -112,5 +120,30 @@ class FirebaseSyncCoordinator(context: Context) {
             return SyncOutcome(deferred = true)
         }
         return dataSource.syncEligible(userId)
+    }
+
+    /**
+     * 자정 자동 동기화용: 업로드 후 오늘 calendar pull.
+     * deferred(타이머 실행 중)이면 calendar pull도 생략한다.
+     */
+    suspend fun syncEligibleWithTodayCalendar(userId: String): SyncOutcome {
+        val uploadResult = syncEligible(userId)
+        if (uploadResult.deferred) return uploadResult
+        val pullResult = runCatching {
+            FirebaseCalendarPullDataSource(appContext).pullTodayCalendar(userId)
+        }.getOrElse { CalendarPullOutcome(failed = true) }
+        return uploadResult.copy(calendarPull = pullResult)
+    }
+
+    /**
+     * 개발자 버튼용: 전체 PENDING 업로드 후 오늘 calendar pull.
+     * 타이머 체크 없이 강제 실행한다.
+     */
+    suspend fun syncAllWithTodayCalendar(userId: String): SyncOutcome {
+        val uploadResult = syncAll(userId)
+        val pullResult = runCatching {
+            FirebaseCalendarPullDataSource(appContext).pullTodayCalendar(userId)
+        }.getOrElse { CalendarPullOutcome(failed = true) }
+        return uploadResult.copy(calendarPull = pullResult)
     }
 }

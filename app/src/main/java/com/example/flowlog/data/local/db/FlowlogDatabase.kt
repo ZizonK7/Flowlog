@@ -8,9 +8,11 @@ import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.flowlog.data.local.dao.ActivityDao
 import com.example.flowlog.data.local.dao.AutoButtonScheduleDao
+import com.example.flowlog.data.local.dao.CalendarEventDao
 import com.example.flowlog.data.local.dao.DailyGoalDao
 import com.example.flowlog.data.local.dao.EventLogDao
 import com.example.flowlog.data.local.dao.ExamStrategyCheckDao
+import com.example.flowlog.data.local.dao.LectureCalendarInfoDao
 import com.example.flowlog.data.local.dao.MigrationErrorDao
 import com.example.flowlog.data.local.dao.OrganizedPetiteDao
 import com.example.flowlog.data.local.dao.SyncBatchDao
@@ -19,12 +21,14 @@ import com.example.flowlog.data.local.entity.ActivityEntity
 import com.example.flowlog.data.local.entity.AutoButtonScheduleEntity
 import com.example.flowlog.data.local.entity.AutoButtonSkipDateEntity
 import com.example.flowlog.data.local.entity.AutoButtonUndoSnapshotEntity
+import com.example.flowlog.data.local.entity.CalendarEventEntity
 import com.example.flowlog.data.local.entity.DailyGoalItemEntity
 import com.example.flowlog.data.local.entity.DailyGoalRecommendationEntity
 import com.example.flowlog.data.local.entity.DailySummaryEntity
 import com.example.flowlog.data.local.entity.EventLogEntity
 import com.example.flowlog.data.local.entity.ExamStrategyCheckEntity
 import com.example.flowlog.data.local.entity.InstallationEntity
+import com.example.flowlog.data.local.entity.LectureCalendarInfoEntity
 import com.example.flowlog.data.local.entity.MigrationErrorEntity
 import com.example.flowlog.data.local.entity.NotificationLogEntity
 import com.example.flowlog.data.local.entity.OrganizedPetiteEntity
@@ -59,8 +63,12 @@ import com.example.flowlog.data.local.entity.UserEntity
         // Phase 4 — Exam
         ExamStrategyCheckEntity::class,
         OrganizedPetiteEntity::class,
+
+        // Phase 5 — Calendar
+        CalendarEventEntity::class,
+        LectureCalendarInfoEntity::class,
     ],
-    version = 11,
+    version = 12,
     // 장기적으로는 schema export + Migration 검증을 붙이는 것이 바람직하지만,
     // 현재 단계에서는 개발 편의상 schema 파일 생성을 보류한다.
     exportSchema = false
@@ -84,6 +92,10 @@ abstract class FlowlogDatabase : RoomDatabase() {
     abstract fun examStrategyCheckDao(): ExamStrategyCheckDao
     abstract fun organizedPetiteDao(): OrganizedPetiteDao
 
+    // Phase 5 DAOs
+    abstract fun calendarEventDao(): CalendarEventDao
+    abstract fun lectureCalendarInfoDao(): LectureCalendarInfoDao
+
     companion object {
         @Volatile
         private var INSTANCE: FlowlogDatabase? = null
@@ -95,7 +107,7 @@ abstract class FlowlogDatabase : RoomDatabase() {
                     FlowlogDatabase::class.java,
                     "flowlog.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                     .build().also { INSTANCE = it }
             }
         }
@@ -273,6 +285,53 @@ abstract class FlowlogDatabase : RoomDatabase() {
         private val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE activities ADD COLUMN exerciseSetsJson TEXT")
+            }
+        }
+
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS calendar_events (
+                        eventId TEXT NOT NULL PRIMARY KEY,
+                        type TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        startTime INTEGER NOT NULL,
+                        endTime INTEGER,
+                        location TEXT,
+                        description TEXT,
+                        source TEXT,
+                        updatedAt INTEGER NOT NULL,
+                        deletedAt INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_calendar_events_startTime ON calendar_events(startTime)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_calendar_events_type ON calendar_events(type)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS lecture_calendar_infos (
+                        eventId TEXT NOT NULL PRIMARY KEY,
+                        type TEXT NOT NULL,
+                        courseTitle TEXT,
+                        lectureTitle TEXT,
+                        classDate INTEGER,
+                        startTime INTEGER,
+                        endTime INTEGER,
+                        week INTEGER,
+                        syllabusText TEXT,
+                        previewCardId TEXT,
+                        location TEXT,
+                        description TEXT,
+                        sourceId TEXT,
+                        updatedAt INTEGER NOT NULL,
+                        deletedAt INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_lecture_calendar_infos_classDate ON lecture_calendar_infos(classDate)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_lecture_calendar_infos_type ON lecture_calendar_infos(type)")
             }
         }
 

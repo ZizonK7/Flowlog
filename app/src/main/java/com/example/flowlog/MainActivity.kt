@@ -297,9 +297,9 @@ class MainActivity : ComponentActivity() {
                     scope.launch {
                         val result = uploadAllPendingFlowlogSnapshot()
                         val message = when {
-                            result?.deferred == true -> "진행 중인 Activity가 있어 업로드를 보류했습니다."
-                            result == null -> "Firebase 업로드에 실패했습니다."
-                            else -> "Firebase 업로드 완료: 성공 ${result.successCount}건, 실패 ${result.failureCount}건"
+                            result?.deferred == true -> "진행 중인 Activity가 있어 동기화를 보류했습니다."
+                            result == null -> "Firebase 동기화에 실패했습니다."
+                            else -> buildFirebaseSyncMessage(result)
                         }
                         Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
                     }
@@ -505,7 +505,7 @@ class MainActivity : ComponentActivity() {
         try {
             val uid = FirebaseAuth.getInstance().currentUser?.uid
             if (uid != null) {
-                return FirebaseSyncCoordinator(applicationContext).syncAll(uid)
+                return FirebaseSyncCoordinator(applicationContext).syncAllWithTodayCalendar(uid)
             }
             return null
         } finally {
@@ -539,6 +539,32 @@ class MainActivity : ComponentActivity() {
             connectivityManager.unregisterNetworkCallback(callback)
         }
         networkCallback = null
+    }
+
+    private fun buildFirebaseSyncMessage(result: com.example.flowlog.data.sync.SyncOutcome): String {
+        val uploadPart = "업로드 성공 ${result.successCount}건, 실패 ${result.failureCount}건"
+        val pull = result.calendarPull
+        val calendarPart = when {
+            pull == null -> null
+            pull.failed -> "캘린더 불러오기 실패"
+            pull.pulledPetiteCount + pull.pulledLectureInfoCount + pull.pulledGeneralEventCount == 0 -> null
+            else -> buildString {
+                if (pull.pulledPetiteCount > 0) append("Petites ${pull.pulledPetiteCount}개")
+                if (pull.pulledLectureInfoCount > 0) {
+                    if (isNotEmpty()) append(", ")
+                    append("수업 정보 ${pull.pulledLectureInfoCount}개")
+                }
+                if (pull.pulledGeneralEventCount > 0) {
+                    if (isNotEmpty()) append(", ")
+                    append("일정 ${pull.pulledGeneralEventCount}개")
+                }
+            }
+        }
+        return if (calendarPart != null) {
+            "Firebase 동기화 완료: $uploadPart, $calendarPart"
+        } else {
+            "Firebase 동기화 완료: $uploadPart"
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -721,7 +747,7 @@ private fun HeaderActions(
                 )
                 if (isDeveloperMode) {
                     DropdownMenuItem(
-                        text = { Text("Firebase 업로드", color = Color(0xFF10182C)) },
+                        text = { Text("Firebase 동기화", color = Color(0xFF10182C)) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Filled.CheckBox,

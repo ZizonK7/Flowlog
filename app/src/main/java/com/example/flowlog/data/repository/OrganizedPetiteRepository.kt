@@ -1,6 +1,7 @@
 package com.example.flowlog.data.repository
 
 import android.content.Context
+import android.util.Log
 import com.example.flowlog.data.agent.OrganizedPetite
 import com.example.flowlog.data.agent.PetiteSourceType
 import com.example.flowlog.data.local.dao.OrganizedPetiteDao
@@ -37,13 +38,19 @@ class OrganizedPetiteRepository(context: Context) {
 
     fun observeActivePetites(): Flow<List<OrganizedPetite>> {
         return userIdFlow().flatMapLatest { uid ->
-            dao.observeActive(uid).map { rows -> rows.mapNotNull { it.toModel() } }
+            dao.observeActive(uid).map { rows ->
+                val models = rows.mapNotNull { it.toModel() }
+                Log.d("PetiteListTrace", "DB active: total=${rows.size} mapped=${models.size} bySource=${rows.groupingBy { it.sourceType }.eachCount()} rows=${rows.map { "${it.title}/${it.sourceType}/${it.id}/${it.isDismissed}/${it.rank}" }}")
+                models
+            }
         }
     }
 
     suspend fun replaceWith(items: List<OrganizedPetite>) {
         val now = System.currentTimeMillis()
-        dao.replaceAllForUser(
+        // replaceNonCalendarForUser: CALENDAR sourceType은 삭제하지 않음.
+        // calendar pull이 독립적으로 upsert/dismiss를 담당한다.
+        dao.replaceNonCalendarForUser(
             userId = userId,
             items = items.mapIndexed { index, item -> item.toEntity(userId, index, now) }
         )

@@ -21,7 +21,7 @@ class FirebaseSyncReceiver : BroadcastReceiver() {
             try {
                 val userId = FirebaseAuth.getInstance().currentUser?.uid
                 if (userId != null) {
-                    FirebaseSyncCoordinator(appContext).syncEligible(userId)
+                    FirebaseSyncCoordinator(appContext).syncEligibleWithTodayCalendar(userId)
                 }
             } finally {
                 pendingResult.finish()
