@@ -495,10 +495,9 @@ class TodoViewModel(
                 val now = System.currentTimeMillis()
                 viewModelScope.launch {
                     runCatching {
-                        val todoId = repository.insertTodo(
-                            TodoItem(title = item.title, category = TodoCategory.TODAY, createdAt = now, updatedAt = now)
+                        repository.insertTodo(
+                            TodoItem(title = item.title, category = TodoCategory.TODAY, isCompleted = true, createdAt = now, updatedAt = now)
                         )
-                        repository.updateCompleted(todoId, true, now)
                     }
                 }
             }
