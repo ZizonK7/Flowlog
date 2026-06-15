@@ -891,10 +891,7 @@ private fun OrganizedPetiteCard(
     Card(
         modifier = modifier
             .height(78.dp)
-            .combinedClickable(
-                onClick = { showDetail = true },
-                onLongClick = {}
-            ),
+            .clickable { showDetail = true },
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(0.dp),
         border = BorderStroke(1.dp, accent.copy(alpha = 0.18f)),
