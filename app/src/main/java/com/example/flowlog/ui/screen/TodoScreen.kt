@@ -107,7 +107,6 @@ import android.content.Intent
 import android.net.Uri
 import com.example.flowlog.data.agent.OrganizedPetite
 import com.example.flowlog.data.agent.PetiteSourceType
-import com.example.flowlog.data.model.ExamStrategyCard
 import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.ui.component.PickerWaveBackground
@@ -116,7 +115,6 @@ import com.example.flowlog.ui.component.CategoryPicker
 import com.example.flowlog.ui.component.displayCategory
 import com.example.flowlog.ui.component.formatDuration
 import com.example.flowlog.ui.viewmodel.DailyCueItem
-import com.example.flowlog.ui.viewmodel.ExamCheckEvent
 import com.example.flowlog.ui.viewmodel.TodoViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -160,7 +158,6 @@ fun TodoScreen(
     val normalTodosOrdered by viewModel.normalTodosOrdered.collectAsState()
     val focusTodos    by viewModel.todayFocusItems.collectAsState()
     val dailyCues     by viewModel.dailyCues.collectAsState()
-    val examCards     by viewModel.examCards.collectAsState()
     val organizedPetites by viewModel.organizedPetites.collectAsState()
     val isTodayOrganizerRunning by viewModel.isTodayOrganizerRunning.collectAsState()
     val focusIds      = remember(focusTodos) { focusTodos.map { it.id }.toSet() }
@@ -222,21 +219,7 @@ fun TodoScreen(
     }
     val scope = rememberCoroutineScope()
 
-    // Exam 체크 Snackbar
-    val examSnackbarHostState  = remember { SnackbarHostState() }
     val normalSnackbarHostState = remember { SnackbarHostState() }
-    LaunchedEffect(viewModel) {
-        viewModel.examCheckEvents.collect { event ->
-            val result = examSnackbarHostState.showSnackbar(
-                message = "${event.examTitle} 시험 공부 체크됨",
-                actionLabel = "되돌리기",
-                duration = SnackbarDuration.Short
-            )
-            if (result == SnackbarResult.ActionPerformed) {
-                viewModel.undoExamStrategyCheck(event)
-            }
-        }
-    }
     LaunchedEffect(viewModel) {
         viewModel.organizedPetiteUndoEvents.collect { event ->
             val result = normalSnackbarHostState.showSnackbar(
@@ -504,26 +487,6 @@ fun TodoScreen(
             }
         }
 
-        // ── Exam D-# ─────────────────────────────────────────────────────────
-        if (examCards.isNotEmpty()) {
-            item(key = "exam_section") {
-                ExamSection(
-                    examCards = examCards,
-                    onStartStudy = { card -> onStartExamStudy(card.examTodoId, card.examTitle, card.dValue) },
-                    onCheck = { card ->
-                        viewModel.checkExamStrategy(
-                            examTodoId = card.examTodoId,
-                            examTitle = card.examTitle,
-                            examDateMillis = card.examDateMillis,
-                            dValue = card.dValue,
-                            strategyLabel = card.strategyLabel,
-                            daysUntilExam = card.daysUntilExam
-                        )
-                    }
-                )
-            }
-        }
-
         item(key = "daily_cues") {
             DailyCuesSection(
                 cues = dailyCues,
@@ -588,22 +551,6 @@ fun TodoScreen(
     // 오늘 할 일 완료 되돌리기 Snackbar
     SnackbarHost(
         hostState = normalSnackbarHostState,
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .padding(bottom = 16.dp),
-        snackbar = { data ->
-            Snackbar(
-                snackbarData = data,
-                containerColor = Color(0xFF1565C0),
-                contentColor = Color.White,
-                actionColor = Color(0xFFBBDEFB),
-                shape = RoundedCornerShape(12.dp)
-            )
-        }
-    )
-    // Exam 체크 되돌리기 Snackbar
-    SnackbarHost(
-        hostState = examSnackbarHostState,
         modifier = Modifier
             .align(Alignment.BottomCenter)
             .padding(bottom = 16.dp),
@@ -2256,149 +2203,6 @@ private fun DateChipButton(date: Long?, placeholder: String = "날짜 선택", o
         Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(15.dp))
         Spacer(Modifier.width(5.dp))
         Text(date?.let { fmtDate(it) } ?: placeholder, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-    }
-}
-
-// ── Exam D-# 섹션 ─────────────────────────────────────────────────────────────
-@Composable
-private fun ExamSection(
-    examCards: List<ExamStrategyCard>,
-    onStartStudy: (ExamStrategyCard) -> Unit,
-    onCheck: (ExamStrategyCard) -> Unit
-) {
-    if (examCards.isEmpty()) return
-
-    val sectionTitle = examCards.minByOrNull { it.daysUntilExam }?.let { card ->
-        if (card.daysUntilExam == 0) "Exam D-Day" else "Exam D-${card.daysUntilExam}"
-    } ?: "Exam"
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                sectionTitle,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF1565C0)
-            )
-            Spacer(Modifier.width(5.dp))
-            Text("◈", fontSize = 13.sp, color = Color(0xFF1565C0).copy(alpha = 0.7f))
-        }
-
-        examCards.forEach { card ->
-            ExamStrategyCard(
-                card = card,
-                onStartStudy = { onStartStudy(card) },
-                onCheck = { onCheck(card) }
-            )
-        }
-    }
-}
-
-@Composable
-private fun ExamStrategyCard(
-    card: ExamStrategyCard,
-    onStartStudy: () -> Unit,
-    onCheck: () -> Unit
-) {
-    val context = LocalContext.current
-    val dLabel = if (card.dValue == 0) "D-Day" else "D-${card.dValue}"
-    val examDateStr = fmtDate(card.examDateMillis)
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F6FF)),
-        elevation = CardDefaults.cardElevation(0.dp),
-        border = BorderStroke(1.dp, Color(0xFFBBD6F5)),
-        shape = CardShape
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-        ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "${card.examTitle} 시험 공부 ${if (card.dValue == 0) "D-Day" else "D-${card.dValue}"}",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF11182F)
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "~$examDateStr · $dLabel",
-                        fontSize = 12.sp,
-                        color = Color(0xFF7D8190)
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                // 체크 버튼
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFE8F5E9))
-                        .clickable(onClick = onCheck),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Outlined.CheckCircle,
-                        "체크",
-                        tint = Color(0xFF4CAF50),
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                Spacer(Modifier.width(6.dp))
-                // 공부 시작 버튼
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFE8F4FF))
-                        .clickable(onClick = onStartStudy),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Filled.PlayArrow,
-                        "시작",
-                        tint = Color(0xFF1565C0),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            // 전략 pill 버튼
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFFDDEEFF))
-                    .clickable {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(card.strategyUrl))
-                        context.startActivity(intent)
-                    }
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    card.strategyLabel,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF1565C0)
-                )
-            }
-        }
     }
 }
 
