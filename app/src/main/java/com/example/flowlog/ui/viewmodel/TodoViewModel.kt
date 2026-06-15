@@ -490,7 +490,17 @@ class TodoViewModel(
                 hiddenAiSourceKeys += item.sourceKey()
                 wasHidden = true
             }
-            PetiteSourceType.CALENDAR -> {}
+            PetiteSourceType.CALENDAR -> {
+                val now = System.currentTimeMillis()
+                viewModelScope.launch {
+                    runCatching {
+                        val todoId = repository.insertTodo(
+                            TodoItem(title = item.title, category = TodoCategory.TODAY, createdAt = now, updatedAt = now)
+                        )
+                        repository.updateCompleted(todoId, true, now)
+                    }
+                }
+            }
         }
         _organizedPetites.value = _organizedPetites.value.filterNot { it.sourceKey() == item.sourceKey() }
         viewModelScope.launch {
