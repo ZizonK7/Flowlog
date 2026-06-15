@@ -423,4 +423,14 @@ interface DailyGoalDao {
         WHERE recommendationId = :recommendationId AND todoId = :todoId
     """)
     suspend fun markItemDeleted(recommendationId: String, todoId: String, updatedAt: Long)
+
+    @Query("""
+        UPDATE daily_goal_items
+        SET userActionStatus = 'DISMISSED',
+            updatedAt = :updatedAt,
+            syncStatus = '${SyncStatus.PENDING}'
+        WHERE todoId = :todoId
+            AND userActionStatus IN ('PLANNED', 'RESCHEDULED')
+    """)
+    suspend fun dismissItemsByTodoId(todoId: String, updatedAt: Long)
 }

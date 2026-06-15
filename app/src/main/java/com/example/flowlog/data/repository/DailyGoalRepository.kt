@@ -484,6 +484,10 @@ class DailyGoalRepository(context: Context) {
         )
     }
 
+    suspend fun dismissItemsByTodoId(todoLegacyId: Long) {
+        dao.dismissItemsByTodoId("legacy_todo_$todoLegacyId", System.currentTimeMillis())
+    }
+
     suspend fun reconcilePastRecommendations(
         currentTodos: List<TodoItem>,
         activities: List<ActivitySession> = emptyList(),

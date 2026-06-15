@@ -427,7 +427,7 @@ class ActivityViewModel(
         val cleanCategory = category.takeIf { isTimedCategory(it) } ?: "TODO"
 
         val startTime = System.currentTimeMillis()
-        val cleanGoalMillis = goalMillis.coerceAtLeast(0L)
+        val cleanGoalMillis = if (goalMillis > 0L) goalMillis else TimerStateStore.DEFAULT_GOAL_MILLIS
         _timerDisplayState.value = TimerDisplayState(
             elapsedTime = 0L,
             timerGoalMillis = cleanGoalMillis

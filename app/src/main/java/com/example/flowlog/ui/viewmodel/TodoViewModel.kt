@@ -346,6 +346,7 @@ class TodoViewModel(
 
     fun deleteTodo(todo: TodoItem) {
         viewModelScope.launch {
+            dailyGoalRepository.dismissItemsByTodoId(todo.id)
             repository.deleteTodo(todo)
         }
     }
