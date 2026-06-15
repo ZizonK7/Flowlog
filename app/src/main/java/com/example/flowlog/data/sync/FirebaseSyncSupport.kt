@@ -124,11 +124,10 @@ class FirebaseSyncCoordinator(context: Context) {
 
     /**
      * 자정 자동 동기화용: 업로드 후 오늘 calendar pull.
-     * deferred(타이머 실행 중)이면 calendar pull도 생략한다.
+     * 업로드는 타이머 실행 중이면 deferred되지만, calendar pull은 독립적으로 항상 실행한다.
      */
     suspend fun syncEligibleWithTodayCalendar(userId: String): SyncOutcome {
         val uploadResult = syncEligible(userId)
-        if (uploadResult.deferred) return uploadResult
         val pullResult = runCatching {
             FirebaseCalendarPullDataSource(appContext).pullTodayCalendar(userId)
         }.getOrElse { CalendarPullOutcome(failed = true) }
