@@ -43,8 +43,18 @@ class OrganizedPetiteRepository(context: Context) {
 
     suspend fun replaceWith(items: List<OrganizedPetite>) {
         val now = System.currentTimeMillis()
-        dao.replaceAllForUser(
+        dao.replaceAllForUserExceptSource(
             userId = userId,
+            preservedSourceType = PetiteSourceType.STUDY_PLAN.name,
+            items = items.mapIndexed { index, item -> item.toEntity(userId, index, now) }
+        )
+    }
+
+    suspend fun replaceStudyPlans(items: List<OrganizedPetite>) {
+        val now = System.currentTimeMillis()
+        dao.replaceAllForUserBySource(
+            userId = userId,
+            sourceType = PetiteSourceType.STUDY_PLAN.name,
             items = items.mapIndexed { index, item -> item.toEntity(userId, index, now) }
         )
     }

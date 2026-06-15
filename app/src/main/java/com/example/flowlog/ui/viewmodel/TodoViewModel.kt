@@ -401,7 +401,8 @@ class TodoViewModel(
                 ?.toLongOrNull()
                 ?.let { id -> _dailyCues.value.firstOrNull { it.id == id } }
                 ?.isCompleted ?: item.isCompleted
-            PetiteSourceType.EXAM -> false
+            PetiteSourceType.EXAM,
+            PetiteSourceType.STUDY_PLAN -> false
         }
         var wasHidden = false
         when (item.sourceType) {
@@ -415,7 +416,8 @@ class TodoViewModel(
             PetiteSourceType.ROUTINE -> {
                 item.sourceId?.toLongOrNull()?.let { completeDailyCue(it) }
             }
-            PetiteSourceType.EXAM -> {
+            PetiteSourceType.EXAM,
+            PetiteSourceType.STUDY_PLAN -> {
                 hiddenAiSourceKeys += item.sourceKey()
                 wasHidden = true
             }
@@ -451,7 +453,8 @@ class TodoViewModel(
                     item.sourceId?.toLongOrNull()?.let { toggleDailyCue(it) }
                 }
             }
-            PetiteSourceType.EXAM -> {
+            PetiteSourceType.EXAM,
+            PetiteSourceType.STUDY_PLAN -> {
                 if (event.wasHidden) {
                     hiddenAiSourceKeys -= item.sourceKey()
                 }

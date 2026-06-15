@@ -5,5 +5,6 @@ object ActivitySourceType {
     const val TIMER = "TIMER"
     const val AUTO_BUTTON = "AUTO_BUTTON"
     const val DAILY_CUE_ROUTINE = "DAILY_CUE_ROUTINE"
+    const val STUDY_PLAN = "STUDY_PLAN"
     const val IMPORTED = "IMPORTED"
 }

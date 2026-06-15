@@ -435,6 +435,7 @@ fun TodoScreen(
                                             item.examDValue ?: 0
                                         )
                                     }
+                                PetiteSourceType.STUDY_PLAN -> Unit
                             }
                         },
                         onComplete = { viewModel.completeOrganizedPetite(item) }
@@ -807,6 +808,7 @@ private fun DetailSection(title: String, body: String) {
 
 private fun organizedPetiteAccent(sourceType: PetiteSourceType): Color = when (sourceType) {
     PetiteSourceType.EXAM -> Color(0xFF1565C0)
+    PetiteSourceType.STUDY_PLAN -> Color(0xFF2E7D5B)
     PetiteSourceType.ROUTINE -> Purple
     PetiteSourceType.TODO -> Color(0xFFE35B5B)
     PetiteSourceType.PETITE -> Purple
@@ -814,6 +816,7 @@ private fun organizedPetiteAccent(sourceType: PetiteSourceType): Color = when (s
 
 private fun organizedPetiteLabel(sourceType: PetiteSourceType): String = when (sourceType) {
     PetiteSourceType.EXAM -> "Exam"
+    PetiteSourceType.STUDY_PLAN -> "Study Plan"
     PetiteSourceType.ROUTINE -> "Routine"
     PetiteSourceType.TODO -> "Todo"
     PetiteSourceType.PETITE -> "Petite"

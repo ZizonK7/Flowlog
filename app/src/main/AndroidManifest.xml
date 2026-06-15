@@ -55,6 +55,9 @@
             android:name=".notification.AutoButtonAlarmReceiver"
             android:exported="false" />
         <receiver
+            android:name=".notification.StudyPlanAutoStartReceiver"
+            android:exported="false" />
+        <receiver
             android:name=".notification.AutoButtonUndoReceiver"
             android:exported="false" />
         <receiver

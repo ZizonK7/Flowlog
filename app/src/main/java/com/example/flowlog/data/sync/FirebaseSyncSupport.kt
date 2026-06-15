@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
+import com.example.flowlog.notification.StudyPlanAutoStartScheduler
 import com.example.flowlog.notification.FirebaseSyncReceiver
 import java.util.Calendar
 
@@ -101,8 +102,11 @@ object FirebaseSyncAlarmScheduler {
 class FirebaseSyncCoordinator(context: Context) {
     private val appContext = context.applicationContext
     private val dataSource = FirebaseSyncDataSource(appContext)
+    private val studyPlanPetiteSync = StudyPlanPetiteSyncDataSource(appContext)
 
     suspend fun syncAll(userId: String): SyncOutcome {
+        studyPlanPetiteSync.sync(userId)
+        StudyPlanAutoStartScheduler(appContext).rescheduleAll()
         return dataSource.syncAll(userId)
     }
 
@@ -111,6 +115,8 @@ class FirebaseSyncCoordinator(context: Context) {
         if (activeTimer?.status == TimerStatus.RUNNING) {
             return SyncOutcome(deferred = true)
         }
+        studyPlanPetiteSync.sync(userId)
+        StudyPlanAutoStartScheduler(appContext).rescheduleAll()
         return dataSource.syncEligible(userId)
     }
 }
