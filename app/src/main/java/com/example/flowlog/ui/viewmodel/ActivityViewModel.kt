@@ -244,8 +244,11 @@ class ActivityViewModel(
 
     fun completeFlowRecommendation() {
         val petite = _uiState.value.flowRecommendation ?: return
+        android.util.Log.d("PetiteListTrace", "completeFlowRecommendation called: title=${petite.title} sourceType=${petite.sourceType} sourceId=${petite.sourceId}")
         viewModelScope.launch {
-            organizedPetiteRepository.complete(petite)
+            android.util.Log.d("PetiteListTrace", "completeFlowRecommendation repository dismiss start")
+            organizedPetiteRepository.dismiss(petite)
+            android.util.Log.d("PetiteListTrace", "completeFlowRecommendation repository dismiss done: isDismissed=true")
         }
     }
 

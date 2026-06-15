@@ -411,7 +411,32 @@ class TodoViewModel(
         isTodayOrganizerAllowed = allowed
     }
 
+    fun dismissPetiteLinkedToTodo(todoId: Long) {
+        val all = _organizedPetites.value
+        android.util.Log.d("PetiteListTrace", "dismissPetiteLinkedToTodo called: todoId=$todoId totalPetites=${all.size}")
+        all.forEach { p ->
+            android.util.Log.d("PetiteListTrace", "  petite → sourceType=${p.sourceType} sourceId=${p.sourceId} title=${p.title}")
+        }
+        val petite = all.firstOrNull { p ->
+            (p.sourceType == PetiteSourceType.TODO || p.sourceType == PetiteSourceType.PETITE) &&
+                p.sourceId == todoId.toString()
+        }
+        android.util.Log.d("PetiteListTrace", "dismissPetiteLinkedToTodo: matched=${petite?.title}/${petite?.sourceType}")
+        if (petite == null) return
+        _organizedPetites.value = _organizedPetites.value.filterNot { it.sourceKey() == petite.sourceKey() }
+        viewModelScope.launch {
+            runCatching {
+                organizedPetiteRepository.dismiss(petite)
+                android.util.Log.d("PetiteListTrace", "dismissPetiteLinkedToTodo DB: sourceType=${petite.sourceType} sourceId=${petite.sourceId} -> isDismissed=true")
+            }.onFailure { e ->
+                android.util.Log.w("PetiteListTrace", "dismissPetiteLinkedToTodo DB failed: ${e.message}")
+            }
+        }
+    }
+
     fun completeOrganizedPetite(item: OrganizedPetite) {
+        android.util.Log.d("PetiteListTrace", "completeOrganizedPetite called: title=${item.title} sourceType=${item.sourceType} sourceId=${item.sourceId} sourceKey=${item.sourceKey()}")
+        android.util.Log.d("PetiteListTrace", "completeOrganizedPetite before VM size=${_organizedPetites.value.size}")
         val previousCompletedState = when (item.sourceType) {
             PetiteSourceType.PETITE,
             PetiteSourceType.TODO -> item.sourceId
@@ -445,8 +470,15 @@ class TodoViewModel(
         }
         val updatedPetites = _organizedPetites.value.filterNot { it.sourceKey() == item.sourceKey() }
         _organizedPetites.value = updatedPetites
+        android.util.Log.d("PetiteListTrace", "completeOrganizedPetite after VM size=${_organizedPetites.value.size}")
         viewModelScope.launch {
-            runCatching { organizedPetiteRepository.dismiss(item) }
+            android.util.Log.d("PetiteListTrace", "completeOrganizedPetite repository dismiss start: sourceType=${item.sourceType} sourceId=${item.sourceId}")
+            runCatching {
+                organizedPetiteRepository.dismiss(item)
+                android.util.Log.d("PetiteListTrace", "completeOrganizedPetite repository dismiss done: isDismissed=true")
+            }.onFailure { e ->
+                android.util.Log.w("PetiteListTrace", "completeOrganizedPetite repository dismiss FAILED: ${e.message}")
+            }
         }
         _organizedPetiteUndoEvents.tryEmit(
             OrganizedPetiteUndoEvent(

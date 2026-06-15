@@ -190,9 +190,14 @@ class MainActivity : ComponentActivity() {
                 }
                 LaunchedEffect(activityViewModel, todoViewModel) {
                     val notifier = ActivityTimerNotifier(this@MainActivity)
-                    activityViewModel.dailyCueGoalReachedEvents.collect { event ->
-                        todoViewModel.completeDailyCue(event.cueId)
-                        notifier.showRoutineGoalAlert(event.title, event.category)
+                    launch {
+                        activityViewModel.dailyCueGoalReachedEvents.collect { event ->
+                            todoViewModel.completeDailyCue(event.cueId)
+                            notifier.showRoutineGoalAlert(event.title, event.category)
+                        }
+                    }
+                    activityViewModel.recommendedTodoCompletionEvents.collect { event ->
+                        todoViewModel.dismissPetiteLinkedToTodo(event.block.todoId)
                     }
                 }
                 val auth = remember { FirebaseAuth.getInstance() }
