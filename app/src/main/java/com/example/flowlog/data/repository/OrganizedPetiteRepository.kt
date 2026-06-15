@@ -38,11 +38,7 @@ class OrganizedPetiteRepository(context: Context) {
 
     fun observeActivePetites(): Flow<List<OrganizedPetite>> {
         return userIdFlow().flatMapLatest { uid ->
-            dao.observeActive(uid).map { rows ->
-                val models = rows.mapNotNull { it.toModel() }
-                Log.d("PetiteListTrace", "DB active: total=${rows.size} mapped=${models.size} bySource=${rows.groupingBy { it.sourceType }.eachCount()} rows=${rows.map { "${it.title}/${it.sourceType}/${it.id}/${it.isDismissed}/${it.rank}" }}")
-                models
-            }
+            dao.observeActive(uid).map { rows -> rows.mapNotNull { it.toModel() } }
         }
     }
 
@@ -76,6 +72,11 @@ class OrganizedPetiteRepository(context: Context) {
 
     suspend fun complete(item: OrganizedPetite) {
         dao.markCompletedById(item.id, System.currentTimeMillis())
+    }
+
+    suspend fun addLocalTodoPetiteIfAbsent(item: OrganizedPetite) {
+        val now = System.currentTimeMillis()
+        dao.insertPetiteIfAbsent(item.toEntity(userId, rank = 0, now = now))
     }
 
     suspend fun loadDismissedSourceKeys(): Set<String> {

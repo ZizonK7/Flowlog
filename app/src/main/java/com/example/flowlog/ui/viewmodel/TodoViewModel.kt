@@ -142,6 +142,12 @@ class TodoViewModel(
         viewModelScope.launch {
             repository.getAllTodos().collect { todos ->
                 _todos.value = todos
+                val todayIncomplete = todos.filter { it.category == TodoCategory.TODAY && !it.isCompleted }
+                // _todos가 업데이트된 시점에 모든 TODAY todo의 PETITE를 등록.
+                // addTodo()보다 늦게 실행되므로 새 todo도 이 시점엔 _todos.value에 포함됨.
+                if (todayIncomplete.isNotEmpty()) {
+                    registerAllTodayTodoPetitesIfAbsent()
+                }
                 _yesterdaySuggestion.value = buildYesterdaySuggestion(todos, latestActivities)
                 if (_focusIds.value.isEmpty() && todos.isNotEmpty()) {
                     initFocusIds(todos)
@@ -158,7 +164,6 @@ class TodoViewModel(
             hiddenAiSourceKeys.clear()
             hiddenAiSourceKeys += organizedPetiteRepository.loadDismissedSourceKeys()
             organizedPetiteRepository.observeActivePetites().collect { saved ->
-                android.util.Log.d("PetiteListTrace", "VM collect: total=${saved.size} bySource=${saved.groupingBy { it.sourceType.name }.eachCount()} titles=${saved.map { "${it.title}/${it.sourceType}/${it.id}" }}")
                 _organizedPetites.value = saved
             }
         }
@@ -237,6 +242,33 @@ class TodoViewModel(
                     updatedAt = System.currentTimeMillis()
                 )
             )
+            // insertTodo 완료 후 _todos flow가 먼저 업데이트되어야 새 todo가 포함됨.
+            // todos flow 업데이트는 DB observer를 통해 async하게 오므로, 여기서 즉시 호출하면
+            // _todos.value에 새 todo가 없을 수 있다. 대신 _todos collect에서 처리한다.
+            if (category == TodoCategory.TODAY) {
+                registerAllTodayTodoPetitesIfAbsent()
+            }
+        }
+    }
+
+    // 새 TODAY todo 추가 시 기존 TODAY todos도 함께 등록 — hasNonCalendarOrganizedPetites 전환 시
+    // 화면에서 다른 TODAY todo가 사라지지 않도록 보장한다.
+    private fun registerAllTodayTodoPetitesIfAbsent() {
+        val todayTodos = _todos.value.filter { it.category == TodoCategory.TODAY && !it.isCompleted }
+        viewModelScope.launch {
+            todayTodos.forEach { todo ->
+                runCatching {
+                    organizedPetiteRepository.addLocalTodoPetiteIfAbsent(
+                        OrganizedPetite(
+                            id = "petite_${todo.id}",
+                            title = todo.title,
+                            sourceType = PetiteSourceType.PETITE,
+                            sourceId = todo.id.toString(),
+                            priorityScore = 100
+                        )
+                    )
+                }
+            }
         }
     }
 
@@ -304,6 +336,11 @@ class TodoViewModel(
     fun updateTodo(todo: TodoItem) {
         viewModelScope.launch {
             repository.updateTodo(todo.copy(updatedAt = System.currentTimeMillis()))
+            // _todos collect에서 registerAllTodayTodoPetitesIfAbsent()가 이미 트리거되지만,
+            // 즉시 반영을 위해 여기서도 호출.
+            if (todo.category == TodoCategory.TODAY && !todo.isCompleted) {
+                registerAllTodayTodoPetitesIfAbsent()
+            }
         }
     }
 
@@ -412,31 +449,18 @@ class TodoViewModel(
     }
 
     fun dismissPetiteLinkedToTodo(todoId: Long) {
-        val all = _organizedPetites.value
-        android.util.Log.d("PetiteListTrace", "dismissPetiteLinkedToTodo called: todoId=$todoId totalPetites=${all.size}")
-        all.forEach { p ->
-            android.util.Log.d("PetiteListTrace", "  petite → sourceType=${p.sourceType} sourceId=${p.sourceId} title=${p.title}")
-        }
-        val petite = all.firstOrNull { p ->
+        val petite = _organizedPetites.value.firstOrNull { p ->
             (p.sourceType == PetiteSourceType.TODO || p.sourceType == PetiteSourceType.PETITE) &&
                 p.sourceId == todoId.toString()
         }
-        android.util.Log.d("PetiteListTrace", "dismissPetiteLinkedToTodo: matched=${petite?.title}/${petite?.sourceType}")
         if (petite == null) return
         _organizedPetites.value = _organizedPetites.value.filterNot { it.sourceKey() == petite.sourceKey() }
         viewModelScope.launch {
-            runCatching {
-                organizedPetiteRepository.dismiss(petite)
-                android.util.Log.d("PetiteListTrace", "dismissPetiteLinkedToTodo DB: sourceType=${petite.sourceType} sourceId=${petite.sourceId} -> isDismissed=true")
-            }.onFailure { e ->
-                android.util.Log.w("PetiteListTrace", "dismissPetiteLinkedToTodo DB failed: ${e.message}")
-            }
+            runCatching { organizedPetiteRepository.dismiss(petite) }
         }
     }
 
     fun completeOrganizedPetite(item: OrganizedPetite) {
-        android.util.Log.d("PetiteListTrace", "completeOrganizedPetite called: title=${item.title} sourceType=${item.sourceType} sourceId=${item.sourceId} sourceKey=${item.sourceKey()}")
-        android.util.Log.d("PetiteListTrace", "completeOrganizedPetite before VM size=${_organizedPetites.value.size}")
         val previousCompletedState = when (item.sourceType) {
             PetiteSourceType.PETITE,
             PetiteSourceType.TODO -> item.sourceId
@@ -468,17 +492,9 @@ class TodoViewModel(
             }
             PetiteSourceType.CALENDAR -> {}
         }
-        val updatedPetites = _organizedPetites.value.filterNot { it.sourceKey() == item.sourceKey() }
-        _organizedPetites.value = updatedPetites
-        android.util.Log.d("PetiteListTrace", "completeOrganizedPetite after VM size=${_organizedPetites.value.size}")
+        _organizedPetites.value = _organizedPetites.value.filterNot { it.sourceKey() == item.sourceKey() }
         viewModelScope.launch {
-            android.util.Log.d("PetiteListTrace", "completeOrganizedPetite repository dismiss start: sourceType=${item.sourceType} sourceId=${item.sourceId}")
-            runCatching {
-                organizedPetiteRepository.dismiss(item)
-                android.util.Log.d("PetiteListTrace", "completeOrganizedPetite repository dismiss done: isDismissed=true")
-            }.onFailure { e ->
-                android.util.Log.w("PetiteListTrace", "completeOrganizedPetite repository dismiss FAILED: ${e.message}")
-            }
+            runCatching { organizedPetiteRepository.dismiss(item) }
         }
         _organizedPetiteUndoEvents.tryEmit(
             OrganizedPetiteUndoEvent(
@@ -703,7 +719,6 @@ class TodoViewModel(
     fun reorderNormalTodos(from: Int, to: Int) {
         val current = normalTodosOrdered.value.toMutableList()
         if (from < 0 || to < 0 || from >= current.size || to >= current.size || from == to) return
-        android.util.Log.e("PetiteRenderTrace", "persist reordered petites todos from=$from to=$to")
         val item = current.removeAt(from)
         current.add(to, item)
         val newOrder = current.map { it.id }

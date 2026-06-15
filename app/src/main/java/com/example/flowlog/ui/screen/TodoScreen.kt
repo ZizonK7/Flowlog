@@ -1,6 +1,5 @@
 package com.example.flowlog.ui.screen
 
-import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -221,8 +220,6 @@ fun TodoScreen(
     val hasNonCalendarOrganizedPetites = remember(adminOrganizedPetites) {
         adminOrganizedPetites.any { it.sourceType != PetiteSourceType.CALENDAR }
     }
-    Log.e("PetiteRenderTrace", "TodoScreen recompose: isAiOrganizerAllowed=$isAiOrganizerAllowed adminPetites=${adminOrganizedPetites.size} visiblePetites=${visibleOrganizedPetites.size} hasNonCalendar=$hasNonCalendarOrganizedPetites")
-    Log.d("PetiteListTrace", "Screen visible: ${visibleOrganizedPetites.map { "${it.title}/${it.sourceType}/${it.id}" }}")
     val scope = rememberCoroutineScope()
 
     // Exam 체크 Snackbar
@@ -642,11 +639,9 @@ private fun DragDropSingleColumn(
     val targetIdx = if (draggingIdx < 0 || slotPx == 0) -1
     else (draggingIdx + (dragOffsetY / (slotPx + spacingPx)).roundToInt()).coerceIn(0, items.size - 1)
 
-    Log.e("PetiteRenderTrace", "DragDropSingleColumn composing ${items.size} items")
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(spacing)) {
         items.forEachIndexed { idx, item ->
             key(item.id) {
-                Log.e("PetiteRenderTrace", "rendering slot idx=$idx id=${item.id}")
                 val isDragging = item.id == draggingId
                 val displace by animateFloatAsState(
                     targetValue = when {
@@ -673,20 +668,16 @@ private fun DragDropSingleColumn(
                             scaleY = if (isDragging) 1.02f else 1f
                         )
                         .pointerInput(item.id) {
-                            Log.e("PetiteRenderTrace", "[${item.id}] pointerInput block entered")
                             detectDragGesturesAfterLongPress(
                                 onDragStart = {
-                                    Log.e("PetiteRenderTrace", "[${item.id}] LONG PRESS DETECTED → drag start")
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     draggingId = item.id
                                     dragOffsetY = 0f
                                 },
                                 onDrag = { _, d ->
-                                    Log.e("PetiteRenderTrace", "[${item.id}] onDrag dy=${d.y}")
                                     dragOffsetY += d.y
                                 },
                                 onDragEnd = {
-                                    Log.e("PetiteRenderTrace", "[${item.id}] onDragEnd")
                                     val from = items.indexOfFirst { it.id == draggingId }
                                     val to = if (from < 0 || slotPx == 0) from
                                     else (from + (dragOffsetY / (slotPx + spacingPx)).roundToInt())
@@ -695,7 +686,6 @@ private fun DragDropSingleColumn(
                                     if (to >= 0 && to != from) onReorder(from, to)
                                 },
                                 onDragCancel = {
-                                    Log.e("PetiteRenderTrace", "[${item.id}] onDragCancel")
                                     draggingId = null; dragOffsetY = 0f
                                 }
                             )
@@ -722,8 +712,6 @@ private fun DragDropTodoColumn(
     var slotPx by remember { mutableStateOf(0) }
     val spacingPx = with(LocalDensity.current) { spacing.toPx() }
     val haptic = LocalHapticFeedback.current
-
-    Log.e("PetiteRenderTrace", "ENTER PetitesTodoDragList count=${items.size}")
 
     val draggingIdx = items.indexOfFirst { it.id == draggingId }
     val targetIdx = if (draggingIdx < 0 || slotPx == 0) -1
@@ -758,7 +746,6 @@ private fun DragDropTodoColumn(
                         .pointerInput(item.id) {
                             detectDragGesturesAfterLongPress(
                                 onDragStart = {
-                                    Log.e("PetiteRenderTrace", "drag start id=${item.id}")
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     draggingId = item.id
                                     dragOffsetY = 0f
@@ -769,7 +756,6 @@ private fun DragDropTodoColumn(
                                     val to = if (from < 0 || slotPx == 0) from
                                     else (from + (dragOffsetY / (slotPx + spacingPx)).roundToInt())
                                         .coerceIn(0, items.size - 1)
-                                    Log.e("PetiteRenderTrace", "move from=$from to=$to")
                                     draggingId = null; dragOffsetY = 0f
                                     if (to >= 0 && to != from) onReorder(from, to)
                                 },
@@ -896,7 +882,6 @@ private fun OrganizedPetiteCard(
     onStart: () -> Unit,
     onComplete: () -> Unit
 ) {
-    Log.e("PetiteRenderTrace", "ENTER OrganizedPetiteCard id=${item.id} title=${item.title}")
     var showDetail by remember(item.id) { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val accent = organizedPetiteAccent(item.sourceType)
@@ -907,13 +892,8 @@ private fun OrganizedPetiteCard(
         modifier = modifier
             .height(78.dp)
             .combinedClickable(
-                onClick = {
-                    Log.e("PetiteRenderTrace", "[${item.id}] combinedClickable onClick")
-                    showDetail = true
-                },
-                onLongClick = {
-                    Log.e("PetiteRenderTrace", "[${item.id}] combinedClickable onLongClick")
-                }
+                onClick = { showDetail = true },
+                onLongClick = {}
             ),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(0.dp),
@@ -1884,7 +1864,6 @@ private fun TodoCard(
     onSave: (title: String, category: TodoCategory, date: Long?) -> Unit,
     onDelete: () -> Unit
 ) {
-    Log.e("PetiteRenderTrace", "ENTER TodoCard id=${todo.id} title=${todo.title} isFocus=$isFocus")
     var editTitle     by remember(todo.id, isEditing) { mutableStateOf(todo.title) }
     var editCategory  by remember(todo.id, isEditing) { mutableStateOf(todo.category) }
     var editDate      by remember(todo.id, isEditing) { mutableStateOf(todo.selectedDate) }

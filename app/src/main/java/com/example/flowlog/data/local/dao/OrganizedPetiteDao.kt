@@ -21,6 +21,7 @@ interface OrganizedPetiteDao {
         SELECT * FROM organized_petites
         WHERE userId = :userId
           AND isDismissed = 0
+          AND isCompleted = 0
         ORDER BY rank ASC, priorityScore ASC, title ASC
     """)
     fun observeActive(userId: String): Flow<List<OrganizedPetiteEntity>>
@@ -102,14 +103,27 @@ interface OrganizedPetiteDao {
         updatedAt: Long
     )
 
+    @Query("UPDATE organized_petites SET isCompleted = 1, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun markCompletedById(id: String, updatedAt: Long)
+
+    /**
+     * sourceType/sourceId 조합이 없을 때만 삽입.
+     * 기존 row가 있으면 (dismissed/completed 포함) 아무것도 하지 않는다 — 사용자 상태 보존.
+     */
+    @Transaction
+    suspend fun insertPetiteIfAbsent(entity: OrganizedPetiteEntity) {
+        val existing = getBySource(entity.userId, entity.sourceType, entity.sourceId)
+        if (existing == null) {
+            insertAll(listOf(entity))
+        }
+        // existing row (dismissed/completed 포함)가 있으면 아무것도 하지 않음 — 사용자 상태 보존
+    }
+
     /**
      * CALENDAR sourceType 전용 upsert.
      * 기존 row가 있으면 content 필드만 덮어쓰고, isDismissed·isCompleted는 보존한다.
      * 기존 row가 없으면 새로 삽입한다.
      */
-    @Query("UPDATE organized_petites SET isCompleted = 1, updatedAt = :updatedAt WHERE id = :id")
-    suspend fun markCompletedById(id: String, updatedAt: Long)
-
     @Transaction
     suspend fun upsertCalendarPetitePreservingUserState(entity: OrganizedPetiteEntity) {
         val existing = getBySource(entity.userId, entity.sourceType, entity.sourceId)

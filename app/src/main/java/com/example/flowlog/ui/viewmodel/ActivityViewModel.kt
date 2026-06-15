@@ -23,6 +23,7 @@ import com.example.flowlog.data.recommendation.ButtonRecommendationEngine
 import com.example.flowlog.data.constants.EntityType
 import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.agent.OrganizedPetite
+import com.example.flowlog.data.agent.PetiteSourceType
 import com.example.flowlog.data.repository.ActivityRepository
 import com.example.flowlog.data.repository.AutoButtonScheduleRepository
 import com.example.flowlog.data.repository.DailyGoalRepository
@@ -236,20 +237,19 @@ class ActivityViewModel(
     private fun observeFlowRecommendation() {
         viewModelScope.launch {
             organizedPetiteRepository.observeActivePetites().collect { petites ->
-                val next = petites.firstOrNull { !it.isCompleted }
-                _uiState.update { it.copy(flowRecommendation = next) }
+                // isDismissed=0, isCompleted=0은 DB observeActive()에서 이미 필터됨
+                // 1순위: non-CALENDAR (rank/priorityScore DB 정렬 유지), 2순위: CALENDAR
+                val selected = petites.firstOrNull { it.sourceType != PetiteSourceType.CALENDAR }
+                    ?: petites.firstOrNull()
+                android.util.Log.d("FlowRec", "selected: title=${selected?.title} sourceType=${selected?.sourceType} (candidates=${petites.size})")
+                _uiState.update { it.copy(flowRecommendation = selected) }
             }
         }
     }
 
     fun completeFlowRecommendation() {
         val petite = _uiState.value.flowRecommendation ?: return
-        android.util.Log.d("PetiteListTrace", "completeFlowRecommendation called: title=${petite.title} sourceType=${petite.sourceType} sourceId=${petite.sourceId}")
-        viewModelScope.launch {
-            android.util.Log.d("PetiteListTrace", "completeFlowRecommendation repository dismiss start")
-            organizedPetiteRepository.dismiss(petite)
-            android.util.Log.d("PetiteListTrace", "completeFlowRecommendation repository dismiss done: isDismissed=true")
-        }
+        viewModelScope.launch { organizedPetiteRepository.dismiss(petite) }
     }
 
     fun startActivity(category: String) {
