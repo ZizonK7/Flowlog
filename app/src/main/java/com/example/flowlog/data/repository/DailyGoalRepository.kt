@@ -176,6 +176,14 @@ class DailyGoalRepository(context: Context) {
         if (selectedItems.isEmpty()) return
         val now = System.currentTimeMillis()
         val currentUserId = userId
+
+        val oldItems = dao.getItemsForDate(currentUserId, dateKey)
+            .filter { it.userActionStatus in setOf("PLANNED", "RESCHEDULED") }
+        oldItems.forEach { oldItem ->
+            dao.updateItemActionStatus(currentUserId, oldItem.itemId, "DISMISSED", now)
+            plannedTodoReminderScheduler.cancel(oldItem.itemId)
+        }
+
         val recommendationId = UUID.randomUUID().toString()
 
         val reasonSummary = selectedItems.joinToString(",") { it.reason }

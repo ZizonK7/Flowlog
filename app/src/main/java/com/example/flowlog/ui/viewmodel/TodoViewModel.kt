@@ -171,7 +171,8 @@ class TodoViewModel(
                     daysDiff(todayKey, startOfDay(todo.selectedDate)) in 0L..1L
             }
         }
-        if (storedKey == todayKey && storedOrdered.isNotEmpty() && !hasUrgentMissed) {
+        val existingRecForToday = dailyGoalRepository.getTodayRecommendation(dailyGoalRepository.todayDateKey())
+        if (storedKey == todayKey && !hasUrgentMissed && (storedOrdered.isNotEmpty() || existingRecForToday != null)) {
             _focusIds.value = storedOrdered
             return
         }
