@@ -103,6 +103,7 @@ class TodoViewModel(
     val yesterdaySuggestion: StateFlow<YesterdayFlowSuggestion?> = _yesterdaySuggestion.asStateFlow()
     private var latestActivities: List<ActivitySession> = emptyList()
     private var isRefreshing = false
+    private var lastRecommendationDateKey = 0L
     private val hiddenAiSourceKeys = mutableSetOf<String>()
     private var isTodayOrganizerAllowed = false
 
@@ -130,7 +131,8 @@ class TodoViewModel(
                     registerAllTodayTodoPetitesIfAbsent()
                 }
                 _yesterdaySuggestion.value = buildYesterdaySuggestion(todos, latestActivities)
-                if (_focusIds.value.isEmpty() && todos.isNotEmpty()) {
+                if (_focusIds.value.isEmpty() && todos.isNotEmpty() &&
+                    lastRecommendationDateKey != startOfDay(System.currentTimeMillis())) {
                     initFocusIds(todos)
                 }
             }
@@ -152,6 +154,7 @@ class TodoViewModel(
 
     private suspend fun initFocusIds(allTodos: List<TodoItem>) {
         val todayKey = startOfDay(System.currentTimeMillis())
+        lastRecommendationDateKey = todayKey
         val storedKey = focusPrefs.getLong("date_key", 0L)
         val storedOrdered = focusPrefs.getString("focus_ids_ordered", null)
             ?.split(",")?.mapNotNull { it.toLongOrNull() }
@@ -176,8 +179,9 @@ class TodoViewModel(
         dailyGoalRepository.reconcilePastRecommendations(allTodos, latestActivities)
         val burdenAnalyses = TodoBurdenCalculator.analyze(allTodos, latestActivities)
         repository.updateBurdenCaches(burdenAnalyses)
-        val selectionResult = selectTodayFocus(allTodos, burdenAnalyses)
-        val newIds = selectionResult.map { it.todo.id }
+        val calendarPetites = activeCalendarPetitesForRecommendation()
+        val selectionResult = selectTodayFocus(allTodos, calendarPetites, burdenAnalyses)
+        val newIds = selectionResult.mapNotNull { it.todo?.id }
         _focusIds.value = newIds
 
         focusPrefs.edit()
@@ -204,9 +208,11 @@ class TodoViewModel(
         }
 
         selectionResult
-            .filter { it.todo.category == TodoCategory.REVIEW && it.todo.reviewStage == 1 && it.todo.isCompleted }
+            .filter { it.todo?.category == TodoCategory.REVIEW && it.todo?.reviewStage == 1 && it.todo?.isCompleted == true }
             .forEach { goalItem ->
-                repository.updateTodo(goalItem.todo.copy(isCompleted = false, updatedAt = System.currentTimeMillis()))
+                goalItem.todo?.let { todo ->
+                    repository.updateTodo(todo.copy(isCompleted = false, updatedAt = System.currentTimeMillis()))
+                }
             }
     }
 
@@ -338,11 +344,12 @@ class TodoViewModel(
         if (currentTodos.isEmpty()) return
 
         val burdenAnalyses = TodoBurdenCalculator.analyze(currentTodos, latestActivities)
-        val selectionResult = selectTodayFocus(currentTodos, burdenAnalyses)
-        val newIds = selectionResult.map { it.todo.id }
-        _focusIds.value = newIds
-
+        val calendarPetites = activeCalendarPetitesForRecommendation()
+        val selectionResult = selectTodayFocus(currentTodos, calendarPetites, burdenAnalyses)
+        val newIds = selectionResult.mapNotNull { it.todo?.id }
         val todayKey = startOfDay(System.currentTimeMillis())
+        lastRecommendationDateKey = todayKey
+        _focusIds.value = newIds
         focusPrefs.edit()
             .putLong("date_key", todayKey)
             .putString("focus_ids_ordered", newIds.joinToString(","))
@@ -370,9 +377,11 @@ class TodoViewModel(
                 }
 
                 selectionResult
-                    .filter { it.todo.category == TodoCategory.REVIEW && it.todo.reviewStage == 1 && it.todo.isCompleted }
+                    .filter { it.todo?.category == TodoCategory.REVIEW && it.todo?.reviewStage == 1 && it.todo?.isCompleted == true }
                     .forEach { goalItem ->
-                        repository.updateTodo(goalItem.todo.copy(isCompleted = false, updatedAt = System.currentTimeMillis()))
+                        goalItem.todo?.let { todo ->
+                            repository.updateTodo(todo.copy(isCompleted = false, updatedAt = System.currentTimeMillis()))
+                        }
                     }
             } finally {
                 isRefreshing = false
@@ -431,14 +440,21 @@ class TodoViewModel(
     }
 
     fun dismissPetiteLinkedToTodo(todoId: Long) {
-        val petite = _organizedPetites.value.firstOrNull { p ->
+        val sourceIdStr = todoId.toString()
+        // TODO·PETITE 두 sourceType이 동일 todoId로 공존할 수 있으므로 메모리·DB 모두 한꺼번에 제거.
+        _organizedPetites.value = _organizedPetites.value.filterNot { p ->
             (p.sourceType == PetiteSourceType.TODO || p.sourceType == PetiteSourceType.PETITE) &&
-                p.sourceId == todoId.toString()
+                p.sourceId == sourceIdStr
         }
-        if (petite == null) return
-        _organizedPetites.value = _organizedPetites.value.filterNot { it.sourceKey() == petite.sourceKey() }
         viewModelScope.launch {
-            runCatching { organizedPetiteRepository.dismiss(petite) }
+            runCatching { organizedPetiteRepository.dismissTodoPetitesBySourceId(sourceIdStr) }
+        }
+    }
+
+    fun completePetiteById(petiteId: String) {
+        _organizedPetites.value = _organizedPetites.value.filterNot { it.id == petiteId }
+        viewModelScope.launch {
+            runCatching { organizedPetiteRepository.completeById(petiteId) }
         }
     }
 
@@ -744,6 +760,7 @@ class TodoViewModel(
     // D-0 과제는 개수 제한 없이 모두 포함하고, D-1 등 긴급 Todo가 많으면 최대 3개까지 허용한다.
     private fun selectTodayFocus(
         allTodos: List<TodoItem>,
+        calendarPetites: List<OrganizedPetite> = emptyList(),
         burdenAnalyses: List<TodoBurdenAnalysis> = TodoBurdenCalculator.analyze(allTodos, latestActivities)
     ): List<GoalItem> {
         val todayStart = startOfDay(System.currentTimeMillis())
@@ -751,7 +768,6 @@ class TodoViewModel(
             it.category != TodoCategory.UNIVERSITY_EXAM &&
             (!it.isCompleted || (it.category == TodoCategory.REVIEW && it.reviewStage == 1))
         }
-        if (active.isEmpty()) return emptyList()
 
         val analysisById = burdenAnalyses.associateBy { it.todo.id }
 
@@ -821,9 +837,32 @@ class TodoViewModel(
             todo.id to (priorityCandidate ?: Candidate(todo, 99, RecommendationReason.EMPTY_GOAL_FILL))
         }
 
-        val available = candidatesById.values.toList()
+        val petiteCandidates = calendarPetites
+            .filter { isCalendarPetiteEligibleForRecommendation(it) }
+            .map { CalendarPetiteCandidate(it) }
+
+        val available = candidatesById.values.toList() + petiteCandidates
+        if (available.isEmpty()) return emptyList()
         val selected = selectBurdenCombination(available)
         return sortForTodayFocusDisplay(selected).map { it.toGoalItem() }
+    }
+
+    // 미래 필터링 훅: 나중에 calendarTaskType == "ACADEMIC"인 것만 허용하도록 수정 예정
+    private fun isCalendarPetiteEligibleForRecommendation(petite: OrganizedPetite): Boolean = true
+
+    private fun activeCalendarPetitesForRecommendation(): List<OrganizedPetite> =
+        _organizedPetites.value.filter { it.sourceType == PetiteSourceType.CALENDAR }
+
+    private inner class CalendarPetiteCandidate(val petite: OrganizedPetite) : TodayFocusCandidateLike {
+        override val priority: Int = 99
+        override val burdenLevel: String = "MEDIUM"
+        override val burdenScore: Int = petite.burdenScore ?: 0
+        override val createdAt: Long = 0L
+        override fun toGoalItem(): GoalItem = GoalItem(
+            petite = petite,
+            reason = RecommendationReason.CALENDAR_TODAY,
+            burdenLevel = "MEDIUM"
+        )
     }
 
     private fun selectBurdenCombination(candidates: List<TodayFocusCandidateLike>): List<TodayFocusCandidateLike> {

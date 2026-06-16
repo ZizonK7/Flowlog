@@ -38,5 +38,7 @@ data class OrganizedPetiteEntity(
     val rank: Int,
     val isDismissed: Boolean = false,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    // 미래 필터링용: "ACADEMIC"(공부/과제) / "DAILY"(일상) / null(미분류)
+    val calendarTaskType: String? = null
 )

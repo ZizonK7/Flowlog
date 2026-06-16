@@ -115,6 +115,7 @@ data class ActivityUiState(
     val analytics: AnalyticsState = AnalyticsState(),
     val startTime: Long = 0L,
     val linkedTodoId: Long? = null,
+    val linkedPetiteId: String? = null,
     val sourceType: String = ActivitySourceType.MANUAL,
     val sourceId: String? = null,
     val pendingTitle: String? = null,
@@ -376,6 +377,7 @@ class ActivityViewModel(
             startTime = state.startTime,
             goalMillis = state.timerGoalMillis,
             linkedTodoId = state.linkedTodoId,
+            linkedPetiteId = state.linkedPetiteId,
             pendingNote = state.pendingNote,
             pendingTitle = cleanTitle,
             dailyCueId = state.dailyCueId,
@@ -471,6 +473,7 @@ class ActivityViewModel(
             elapsedTime = 0L,
             timerGoalMillis = goalMillis
         )
+        val linkedTodoId = if (block.petiteId != null) null else block.todoId
         _uiState.update {
             it.copy(
                 isRunning = true,
@@ -478,7 +481,8 @@ class ActivityViewModel(
                 elapsedTime = 0L,
                 timerGoalMillis = goalMillis,
                 startTime = startTime,
-                linkedTodoId = block.todoId,
+                linkedTodoId = linkedTodoId,
+                linkedPetiteId = block.petiteId,
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = block.itemId,
                 pendingTitle = block.title,
@@ -491,7 +495,8 @@ class ActivityViewModel(
             category = "TODO",
             startTime = startTime,
             goalMillis = goalMillis,
-            linkedTodoId = block.todoId,
+            linkedTodoId = linkedTodoId,
+            linkedPetiteId = block.petiteId,
             linkedTodoTitle = block.title,
             sourceType = ActivitySourceType.MANUAL,
             sourceId = block.itemId
@@ -615,6 +620,7 @@ class ActivityViewModel(
             durationMillis = durationMillis,
             tags = emptyList(),
             linkedTodoId = state.linkedTodoId,
+            linkedPetiteId = state.linkedPetiteId,
             sourceType = state.sourceType,
             sourceId = state.sourceId,
             note = noteOverride?.takeIf { it.isNotBlank() }
@@ -697,6 +703,7 @@ class ActivityViewModel(
             note = note?.takeIf { it.isNotBlank() } ?: state.pendingNote?.takeIf { it.isNotBlank() },
             tags = emptyList(),
             linkedTodoId = state.linkedTodoId,
+            linkedPetiteId = state.linkedPetiteId,
             sourceType = state.sourceType,
             sourceId = state.sourceId
         )
@@ -704,12 +711,18 @@ class ActivityViewModel(
         viewModelScope.launch {
             val newId = repository.insertActivity(activity)
             val savedActivity = activity.copy(id = newId)
-            state.linkedTodoId?.let { todoId ->
-                todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
+            if (state.linkedPetiteId != null) {
                 if (state.sourceId != null) {
-                    dailyGoalRepository.markPlannedItemCompleted(state.sourceId, todoId, newId)
-                } else {
-                    dailyGoalRepository.markOpenPlannedItemCompleted(todoId, newId)
+                    dailyGoalRepository.markPlannedItemCompleted(state.sourceId, 0L, newId)
+                }
+            } else {
+                state.linkedTodoId?.let { todoId ->
+                    todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
+                    if (state.sourceId != null) {
+                        dailyGoalRepository.markPlannedItemCompleted(state.sourceId, todoId, newId)
+                    } else {
+                        dailyGoalRepository.markOpenPlannedItemCompleted(todoId, newId)
+                    }
                 }
             }
             dailyGoalRepository.ensureTodayTimePlan(
@@ -928,6 +941,7 @@ class ActivityViewModel(
                 timerGoalMillis = goalMillis,
                 startTime = startTime,
                 linkedTodoId = activeTimer.linkedTodoId,
+                linkedPetiteId = activeTimer.linkedPetiteId,
                 sourceType = activeTimer.sourceType,
                 sourceId = activeTimer.sourceId,
                 pendingTitle = activeTimer.pendingTitle ?: activeTimer.linkedTodoTitle,
@@ -1029,6 +1043,7 @@ class ActivityViewModel(
                     timerGoalMillis = activeTimer.goalMillis,
                     startTime = activeTimer.startTime,
                     linkedTodoId = activeTimer.linkedTodoId,
+                    linkedPetiteId = activeTimer.linkedPetiteId,
                     sourceType = activeTimer.sourceType,
                     sourceId = activeTimer.sourceId,
                     pendingTitle = activeTimer.pendingTitle ?: activeTimer.linkedTodoTitle,
@@ -1111,17 +1126,28 @@ class ActivityViewModel(
     fun completeRecommendedTodo(block: RecommendedTodoBlock) {
         Log.d(TAG, "user completeRecommendedTodo: itemId=${block.itemId} todoId=${block.todoId} title=${block.title}")
         viewModelScope.launch {
-            val todo = _uiState.value.incompleteTodos.firstOrNull { it.id == block.todoId }
-            if (todo?.category == TodoCategory.REVIEW && todo.reviewStage < 2) {
-                todoRepository.completeReviewTodo(todo)
+            if (block.petiteId != null) {
+                // 캘린더 petite — TodoItem 없으므로 todo 완료 처리 생략
+                dailyGoalRepository.markPlannedItemCompleted(
+                    itemId = block.itemId,
+                    todoLegacyId = 0L,
+                    activityLegacyId = null
+                )
             } else {
-                todoRepository.updateCompleted(block.todoId, true, System.currentTimeMillis())
+                val todo = _uiState.value.incompleteTodos.firstOrNull { it.id == block.todoId }
+                if (todo?.category == TodoCategory.REVIEW && todo.reviewStage < 2) {
+                    todoRepository.completeReviewTodo(todo)
+                } else {
+                    todoRepository.updateCompleted(block.todoId, true, System.currentTimeMillis())
+                }
+                dailyGoalRepository.markPlannedItemCompleted(
+                    itemId = block.itemId,
+                    todoLegacyId = block.todoId,
+                    activityLegacyId = null
+                )
             }
-            dailyGoalRepository.markPlannedItemCompleted(
-                itemId = block.itemId,
-                todoLegacyId = block.todoId,
-                activityLegacyId = null
-            )
+            val todo = if (block.petiteId != null) null
+            else _uiState.value.incompleteTodos.firstOrNull { it.id == block.todoId }
             _recommendedTodoCompletionEvents.emit(
                 RecommendedTodoCompletionEvent(
                     block = block,
@@ -1134,11 +1160,13 @@ class ActivityViewModel(
     fun undoRecommendedTodoCompletion(event: RecommendedTodoCompletionEvent) {
         Log.d(TAG, "user undoRecommendedTodoCompletion: itemId=${event.block.itemId} todoId=${event.block.todoId}")
         viewModelScope.launch {
-            val previousTodo = event.previousTodo
-            if (previousTodo != null) {
-                todoRepository.updateTodo(previousTodo.copy(updatedAt = System.currentTimeMillis()))
-            } else {
-                todoRepository.updateCompleted(event.block.todoId, false, null)
+            if (event.block.petiteId == null) {
+                val previousTodo = event.previousTodo
+                if (previousTodo != null) {
+                    todoRepository.updateTodo(previousTodo.copy(updatedAt = System.currentTimeMillis()))
+                } else {
+                    todoRepository.updateCompleted(event.block.todoId, false, null)
+                }
             }
             dailyGoalRepository.revertPlannedItemCompleted(
                 itemId = event.block.itemId,
@@ -1911,6 +1939,7 @@ class ActivityViewModel(
         startTime: Long,
         goalMillis: Long,
         linkedTodoId: Long? = null,
+        linkedPetiteId: String? = null,
         linkedTodoTitle: String? = null,
         pendingNote: String? = null,
         pendingTitle: String? = null,
@@ -1924,6 +1953,7 @@ class ActivityViewModel(
             startTime = startTime,
             goalMillis = goalMillis,
             linkedTodoId = linkedTodoId,
+            linkedPetiteId = linkedPetiteId,
             linkedTodoTitle = linkedTodoTitle,
             pendingNote = pendingNote,
             pendingTitle = pendingTitle,

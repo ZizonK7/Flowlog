@@ -27,7 +27,8 @@ data class TodoItem(
 data class RecommendedTodoBlock(
     val itemId: String,
     val recommendationId: String,
-    val todoId: Long,
+    val todoId: Long,        // 캘린더 petite 항목은 0L (petiteId가 non-null인 경우)
+    val petiteId: String?,   // 캘린더 petite 항목의 entity ID; TodoItem 기반 블록은 null
     val title: String,
     val category: TodoCategory? = null,
     val selectedDate: Long? = null,

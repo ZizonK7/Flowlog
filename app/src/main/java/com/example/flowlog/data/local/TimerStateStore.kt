@@ -11,6 +11,7 @@ data class ActiveTimerState(
     val status: TimerStatus = TimerStatus.RUNNING,
     val pausedElapsedMillis: Long = 0L,
     val linkedTodoId: Long? = null,
+    val linkedPetiteId: String? = null,
     val linkedTodoTitle: String? = null,
     val pendingNote: String? = null,
     val pendingTitle: String? = null,
@@ -48,6 +49,7 @@ object TimerStateStore {
     private const val KEY_ACTIVE_DAILY_CUE_ID = "active_daily_cue_id"
     private const val KEY_ACTIVE_SOURCE_TYPE = "active_source_type"
     private const val KEY_ACTIVE_SOURCE_ID = "active_source_id"
+    private const val KEY_ACTIVE_PETITE_ID = "active_petite_id"
     private const val KEY_ACTIVE_EXERCISE_SETS_JSON = "active_exercise_sets_json"
     private const val KEY_PINNED_CATEGORY = "pinned_category"
     private const val KEY_PINNED_START_TIME = "pinned_start_time"
@@ -80,6 +82,7 @@ object TimerStateStore {
         val sourceType = preferences.getString(KEY_ACTIVE_SOURCE_TYPE, ActivitySourceType.MANUAL)
             ?: ActivitySourceType.MANUAL
         val sourceId = preferences.getString(KEY_ACTIVE_SOURCE_ID, null)
+        val linkedPetiteId = preferences.getString(KEY_ACTIVE_PETITE_ID, null)
 
         return ActiveTimerState(
             category = category,
@@ -88,6 +91,7 @@ object TimerStateStore {
             status = status,
             pausedElapsedMillis = pausedElapsedMillis,
             linkedTodoId = linkedTodoId,
+            linkedPetiteId = linkedPetiteId,
             linkedTodoTitle = linkedTodoTitle,
             pendingNote = pendingNote,
             pendingTitle = pendingTitle,
@@ -103,6 +107,7 @@ object TimerStateStore {
         startTime: Long,
         goalMillis: Long = DEFAULT_GOAL_MILLIS,
         linkedTodoId: Long? = null,
+        linkedPetiteId: String? = null,
         linkedTodoTitle: String? = null,
         pendingNote: String? = null,
         pendingTitle: String? = null,
@@ -118,6 +123,7 @@ object TimerStateStore {
             .putString(KEY_ACTIVE_STATUS, TimerStatus.RUNNING.name)
             .remove(KEY_PAUSED_ELAPSED_MILLIS)
             .putLong(KEY_ACTIVE_TODO_ID, linkedTodoId ?: NO_TODO_ID)
+            .putString(KEY_ACTIVE_PETITE_ID, linkedPetiteId)
             .putString(KEY_ACTIVE_TODO_TITLE, linkedTodoTitle)
             .putString(KEY_ACTIVE_PENDING_NOTE, pendingNote)
             .putString(KEY_ACTIVE_PENDING_TITLE, pendingTitle)
@@ -192,6 +198,7 @@ object TimerStateStore {
             .remove(KEY_ACTIVE_DAILY_CUE_ID)
             .remove(KEY_ACTIVE_SOURCE_TYPE)
             .remove(KEY_ACTIVE_SOURCE_ID)
+            .remove(KEY_ACTIVE_PETITE_ID)
             .remove(KEY_ACTIVE_EXERCISE_SETS_JSON)
             .apply()
     }

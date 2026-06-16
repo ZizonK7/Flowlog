@@ -152,6 +152,7 @@ import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.ExerciseSetRecord
 import com.example.flowlog.ui.city.CityTimetableCard
 import com.example.flowlog.data.agent.OrganizedPetite
+import com.example.flowlog.data.agent.PetiteSourceType
 import com.example.flowlog.data.model.AutoButtonSchedule
 import com.example.flowlog.data.model.MainButtonConfig
 import com.example.flowlog.data.model.RecommendedTodoBlock
@@ -2820,7 +2821,8 @@ private fun ActivityRecommendationSheet(
     reasonText: String?,
     onDismiss: () -> Unit,
     onStart: () -> Unit,
-    onComplete: () -> Unit
+    onComplete: () -> Unit,
+    showPreviewSiteButton: Boolean = false
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
@@ -2884,27 +2886,29 @@ private fun ActivityRecommendationSheet(
                 )
             }
             val context = LocalContext.current
-            Spacer(Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = {
-                    val intent = android.content.Intent(
-                        android.content.Intent.ACTION_VIEW,
-                        android.net.Uri.parse("https://flowlog.pfkfks.org/preview/")
+            if (showPreviewSiteButton) {
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = {
+                        val intent = android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://flowlog.pfkfks.org/preview/")
+                        )
+                        context.startActivity(intent)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = FlowPurple),
+                    border = BorderStroke(1.dp, FlowPurple.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text(
+                        text = "예습 사이트 가기",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
-                    context.startActivity(intent)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = FlowPurple),
-                border = BorderStroke(1.dp, FlowPurple.copy(alpha = 0.5f)),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Text(
-                    text = "예습 사이트 가기",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                }
             }
             Spacer(Modifier.height(6.dp))
             TextButton(
@@ -4347,7 +4351,9 @@ private fun TimetableCard(
             onComplete = {
                 onCompleteRecommendation()
                 showActivityRecommendation = false
-            }
+            },
+            showPreviewSiteButton = flowRecommendation.sourceType == PetiteSourceType.CALENDAR
+                && flowRecommendation.sourceId?.startsWith("lecture_preview_") == true
         )
     }
 

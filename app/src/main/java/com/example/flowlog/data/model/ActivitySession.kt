@@ -25,6 +25,7 @@ data class ActivitySession(
     val exerciseSets: List<ExerciseSetRecord> = emptyList(),
     val isFavorite: Boolean = false,
     val linkedTodoId: Long? = null,
+    val linkedPetiteId: String? = null,
     val sourceType: String = ActivitySourceType.MANUAL,
     val sourceId: String? = null,
     val modifiedTime: Long = System.currentTimeMillis()

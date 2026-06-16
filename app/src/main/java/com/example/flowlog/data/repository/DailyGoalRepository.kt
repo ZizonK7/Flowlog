@@ -7,15 +7,19 @@ import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.constants.RecommendationReason
 import com.example.flowlog.data.constants.SyncStatus
 import com.example.flowlog.data.local.db.FlowlogDatabase
+import com.example.flowlog.data.agent.OrganizedPetite
 import com.example.flowlog.data.local.entity.DailyGoalItemEntity
 import com.example.flowlog.data.local.entity.DailyGoalRecommendationEntity
+import com.example.flowlog.data.local.entity.OrganizedPetiteEntity
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.RecommendedTodoBlock
+import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.notification.PlannedTodoReminderScheduler
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -33,13 +37,21 @@ import kotlin.math.max
 import kotlin.random.Random
 
 data class GoalItem(
-    val todo: TodoItem,
+    val todo: TodoItem? = null,
+    val petite: OrganizedPetite? = null,  // 캘린더 항목 전용; todo와 둘 중 하나만 non-null
     val reason: String,
     val burdenLevel: String? = null,
     val burdenGroupKey: String? = null,
     val burdenScore: Int? = null,
     val burdenReasonJson: String? = null
-)
+) {
+    // DailyGoalItemEntity.todoId에 저장되는 키
+    val entityTodoId: String get() = when {
+        petite != null -> "calendar_petite_${petite.id}"
+        todo != null -> "legacy_todo_${todo.id}"
+        else -> error("GoalItem: todo와 petite 모두 null")
+    }
+}
 
 @Serializable
 private data class TimeBlockSnapshot(
@@ -101,6 +113,7 @@ class DailyGoalRepository(context: Context) {
     private val dao = db.dailyGoalDao()
     private val autoButtonDao = db.autoButtonScheduleDao()
     private val todoDao = db.todoDao()
+    private val petiteDao = db.organizedPetiteDao()
     private val eventLogRepository = EventLogRepository(context)
     private val plannedTodoReminderScheduler = PlannedTodoReminderScheduler(context)
     private val json = Json { ignoreUnknownKeys = true }
@@ -119,14 +132,21 @@ class DailyGoalRepository(context: Context) {
         return combine(
             dao.observePlannedItemsForDate(userId, dateKey),
             todoDao.observeAllTodos(userId),
+            petiteDao.observeActive(userId).catch { emit(emptyList()) },
             minuteTicker()
-        ) { items, todos, now ->
+        ) { items, todos, petites, now ->
             val completedTodoIds = todos
                 .filter { it.isCompleted }
                 .map { it.todoId }
                 .toSet()
+            val petitesById = petites.associateBy { "calendar_petite_${it.id}" }
             items.mapNotNull { item ->
-                val block = item.toRecommendedBlock() ?: return@mapNotNull null
+                val block = if (item.todoId.startsWith("calendar_petite_")) {
+                    item.toRecommendedBlockFromPetite(petitesById[item.todoId])
+                } else {
+                    item.toRecommendedBlock()
+                }
+                if (block == null) return@mapNotNull null
                 if (block.userActionStatus !in VISIBLE_RECOMMENDED_BLOCK_STATUSES ||
                     item.wasCompleted ||
                     item.wasSkipped ||
@@ -136,7 +156,6 @@ class DailyGoalRepository(context: Context) {
                     return@mapNotNull null
                 }
                 val expired = block.plannedStartMillis + HOUR_MILLIS <= now
-                Log.d(TAG, "renderBlock: itemId=${item.itemId} todoId=${item.todoId} plannedStart=${fmtTime(item.plannedStartMillis)} plannedEnd=${fmtTime(item.plannedEndMillis)} notifAt=${fmtTime(item.notificationScheduledAtMillis)} userActionStatus=${item.userActionStatus} expired=$expired")
                 block.copy(isBubbleOnly = expired)
             }
         }
@@ -184,12 +203,10 @@ class DailyGoalRepository(context: Context) {
                     itemId = UUID.randomUUID().toString(),
                     recommendationId = recommendationId,
                     userId = currentUserId,
-                    todoId = "legacy_todo_${goalItem.todo.id}",
+                    todoId = goalItem.entityTodoId,
                     rank = index + 1,
                     reason = goalItem.reason,
-                    todoSnapshotJson = runCatching {
-                        json.encodeToString(goalItem.todo)
-                    }.getOrNull(),
+                    todoSnapshotJson = goalItem.todo?.let { runCatching { json.encodeToString(it) }.getOrNull() },
                     burdenLevel = goalItem.burdenLevel,
                     burdenReasonJson = goalItem.burdenReasonJson,
                     createdAt = now,
@@ -695,10 +712,38 @@ class DailyGoalRepository(context: Context) {
             itemId = itemId,
             recommendationId = recommendationId,
             todoId = legacyId,
+            petiteId = null,
             title = todoSnapshot?.title ?: displayTitle(),
             category = todoSnapshot?.category,
             selectedDate = todoSnapshot?.selectedDate,
             burdenLevel = burdenLevel ?: burdenLevel(this),
+            reason = reason,
+            plannedStartMillis = start,
+            plannedEndMillis = end,
+            recommendedDurationMinutes = recommendedDurationMinutes ?: ((end - start) / 60_000L).toInt().coerceAtLeast(1),
+            userActionStatus = userActionStatus,
+            notificationScheduledAtMillis = notificationScheduledAtMillis
+        )
+    }
+
+    private fun DailyGoalItemEntity.toRecommendedBlockFromPetite(
+        petiteEntity: OrganizedPetiteEntity?
+    ): RecommendedTodoBlock? {
+        val start = plannedStartMillis ?: return null
+        val end = plannedEndMillis ?: return null
+        val petiteId = todoId.removePrefix("calendar_petite_").takeIf { it != todoId } ?: return null
+        val parsedCategory = petiteEntity?.category?.let {
+            runCatching { TodoCategory.valueOf(it) }.getOrNull()
+        }
+        return RecommendedTodoBlock(
+            itemId = itemId,
+            recommendationId = recommendationId,
+            todoId = 0L,
+            petiteId = petiteId,
+            title = petiteEntity?.title ?: "캘린더 항목",
+            category = parsedCategory,
+            selectedDate = petiteEntity?.dateMillis,
+            burdenLevel = burdenLevel ?: "MEDIUM",
             reason = reason,
             plannedStartMillis = start,
             plannedEndMillis = end,

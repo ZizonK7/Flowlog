@@ -11,4 +11,5 @@ object RecommendationReason {
     const val EMPTY_GOAL_FILL       = "EMPTY_GOAL_FILL"
     const val MANUAL_REFRESH        = "MANUAL_REFRESH"
     const val USER_REPLACED         = "USER_REPLACED"
+    const val CALENDAR_TODAY        = "CALENDAR_TODAY"
 }

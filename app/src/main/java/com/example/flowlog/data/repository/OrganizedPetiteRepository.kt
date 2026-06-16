@@ -61,6 +61,14 @@ class OrganizedPetiteRepository(context: Context) {
         )
     }
 
+    suspend fun dismissTodoPetitesBySourceId(sourceId: String) {
+        dao.dismissTodoPetitesBySourceId(
+            userId = userId,
+            sourceId = sourceId,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
     suspend fun restore(item: OrganizedPetite) {
         dao.restoreBySource(
             userId = userId,
@@ -81,6 +89,10 @@ class OrganizedPetiteRepository(context: Context) {
 
     suspend fun loadDismissedSourceKeys(): Set<String> {
         return dao.getDismissed(userId).map { "${it.sourceType}:${it.sourceId}" }.toSet()
+    }
+
+    suspend fun completeById(id: String) {
+        dao.markCompletedById(id, System.currentTimeMillis())
     }
 
     private fun OrganizedPetite.toEntity(uid: String, rank: Int, now: Long): OrganizedPetiteEntity {
@@ -110,7 +122,8 @@ class OrganizedPetiteRepository(context: Context) {
             rank = rank,
             isDismissed = false,
             createdAt = now,
-            updatedAt = now
+            updatedAt = now,
+            calendarTaskType = calendarTaskType
         )
     }
 
@@ -138,7 +151,8 @@ class OrganizedPetiteRepository(context: Context) {
             steps = parseSteps(stepsJson),
             examDValue = examDValue,
             routineTimerDurationMillis = routineTimerDurationMillis,
-            routineTimerCategory = routineTimerCategory
+            routineTimerCategory = routineTimerCategory,
+            calendarTaskType = calendarTaskType
         )
     }
 

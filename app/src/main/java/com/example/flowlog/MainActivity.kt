@@ -197,7 +197,12 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     activityViewModel.recommendedTodoCompletionEvents.collect { event ->
-                        todoViewModel.dismissPetiteLinkedToTodo(event.block.todoId)
+                        val block = event.block
+                        if (block.petiteId != null) {
+                            todoViewModel.completePetiteById(block.petiteId)
+                        } else {
+                            todoViewModel.dismissPetiteLinkedToTodo(block.todoId)
+                        }
                     }
                 }
                 val auth = remember { FirebaseAuth.getInstance() }
@@ -310,7 +315,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val regenerateRecommendedTimePlan: () -> Unit = {
-                    activityViewModel.regenerateTodayRecommendedTimePlan()
+                    todoViewModel.refreshSort()
                     Toast.makeText(this@MainActivity, "오늘 추천 시간 계획을 다시 만들었습니다.", Toast.LENGTH_SHORT).show()
                 }
 

@@ -44,6 +44,17 @@ interface OrganizedPetiteDao {
     """)
     suspend fun dismissBySource(userId: String, sourceType: String, sourceId: String?, updatedAt: Long)
 
+    // TODO·PETITE 두 sourceType이 동일 todoId로 공존할 수 있으므로 한 번에 모두 dismiss.
+    @Query("""
+        UPDATE organized_petites
+        SET isDismissed = 1,
+            updatedAt = :updatedAt
+        WHERE userId = :userId
+          AND sourceType IN ('TODO', 'PETITE')
+          AND IFNULL(sourceId, '') = :sourceId
+    """)
+    suspend fun dismissTodoPetitesBySourceId(userId: String, sourceId: String, updatedAt: Long)
+
     @Query("""
         UPDATE organized_petites
         SET isDismissed = 0,

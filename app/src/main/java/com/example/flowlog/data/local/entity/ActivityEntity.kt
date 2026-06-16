@@ -28,6 +28,7 @@ data class ActivityEntity(
     val durationMillis: Long,
     val isFavorite: Boolean = false,
     val linkedTodoId: String? = null,       // "legacy_todo_${legacyLinkedTodoId}" 형태
+    val linkedPetiteId: String? = null,
     val legacyId: Long? = null,
     val legacyLinkedTodoId: Long? = null,   // 원본 Long linkedTodoId 보존용
     val tagsJson: String? = null,           // ActivitySession.tags → JSON 문자열로 보존

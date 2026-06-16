@@ -43,7 +43,9 @@ data class OrganizedPetite(
     val steps: List<String> = emptyList(),
     val examDValue: Int? = null,
     val routineTimerDurationMillis: Long? = null,
-    val routineTimerCategory: String? = null
+    val routineTimerCategory: String? = null,
+    // 미래 필터링용: "ACADEMIC"(공부/과제) / "DAILY"(일상) / null(미분류)
+    val calendarTaskType: String? = null
 )
 
 data class ExamStudyMetrics(

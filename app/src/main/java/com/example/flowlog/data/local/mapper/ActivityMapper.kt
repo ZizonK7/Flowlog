@@ -32,6 +32,7 @@ fun ActivitySession.toActivityEntity(userId: String): ActivityEntity {
         durationMillis = durationMillis,
         isFavorite = isFavorite,
         linkedTodoId = linkedTodoId?.let { "legacy_todo_$it" },
+        linkedPetiteId = linkedPetiteId,
         legacyLinkedTodoId = linkedTodoId,
         legacyId = if (id != 0L) id else null,
         tagsJson = if (tags.isNotEmpty()) mapperJson.encodeToString(tags) else null,
@@ -78,6 +79,7 @@ fun ActivityEntity.toActivitySession(): ActivitySession {
         } ?: emptyList(),
         isFavorite = isFavorite,
         linkedTodoId = legacyLinkedTodoId,
+        linkedPetiteId = linkedPetiteId,
         sourceType = sourceType,
         sourceId = sourceId,
         modifiedTime = updatedAt
