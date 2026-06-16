@@ -403,6 +403,10 @@ class MainActivity : ComponentActivity() {
                                         activityViewModel.startExamStudyActivity(todoId, subjectTitle, dValue)
                                         currentScreen = "home"
                                     },
+                                    onStartCalendarPetite = { item ->
+                                        activityViewModel.startCalendarPetiteActivity(item)
+                                        currentScreen = "home"
+                                    },
                                     routineTimerCategories = routineTimerCategories,
                                     modifier = Modifier.fillMaxSize()
                                 )

@@ -149,6 +149,7 @@ fun TodoScreen(
     onStartTodo: (TodoItem) -> Unit,
     onStartDailyCueRoutine: (Long, String, Long, String) -> Unit,
     onStartExamStudy: (todoId: Long, subjectTitle: String, dValue: Int) -> Unit = { _, _, _ -> },
+    onStartCalendarPetite: (OrganizedPetite) -> Unit = {},
     routineTimerCategories: List<String> = DefaultDailyCueTimerCategories,
     isDeveloperMode: Boolean = false,
     isAiOrganizerAllowed: Boolean = isDeveloperMode,
@@ -453,7 +454,7 @@ fun TodoScreen(
                                                 item.examDValue ?: 0
                                             )
                                         }
-                                    PetiteSourceType.CALENDAR -> {}
+                                    PetiteSourceType.CALENDAR -> onStartCalendarPetite(item)
                                 }
                             },
                             onComplete = { viewModel.completeOrganizedPetite(item) }

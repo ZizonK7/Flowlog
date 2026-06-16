@@ -525,6 +525,7 @@ fun HomeScreen(
             TodayFlowCard(
                 isRunning = uiState.isRunning,
                 currentCategory = uiState.currentCategory,
+                startTime = uiState.startTime,
                 timerDisplayStateFlow = viewModel.timerDisplayState,
                 statusMessage = uiState.statusMessage,
                 appliedTitle = uiState.pendingTitle.orEmpty(),
@@ -773,6 +774,7 @@ private fun HomeHeader(
 private fun TodayFlowCard(
     isRunning: Boolean,
     currentCategory: String,
+    startTime: Long,
     timerDisplayStateFlow: StateFlow<TimerDisplayState>,
     statusMessage: String?,
     appliedTitle: String,
@@ -843,6 +845,7 @@ private fun TodayFlowCard(
                 val timerDisplayState by timerDisplayStateFlow.collectAsState()
                 TimerPage(
                     currentCategory = currentCategory,
+                    startTime = startTime,
                     elapsedTime = timerDisplayState.elapsedTime,
                     timerGoalMillis = timerDisplayState.timerGoalMillis,
                     initialAppliedTitle = appliedTitle,
@@ -886,6 +889,7 @@ private fun TodayFlowCard(
 @Composable
 private fun TimerPage(
     currentCategory: String,
+    startTime: Long,
     elapsedTime: Long,
     timerGoalMillis: Long,
     initialAppliedTitle: String,
@@ -904,8 +908,8 @@ private fun TimerPage(
     isRoutineActive: Boolean = false,
     routineGoalMillis: Long = 0L
 ) {
-    var title by remember(currentCategory) { mutableStateOf("") }
-    var appliedTitle by remember(currentCategory) { mutableStateOf(initialAppliedTitle) }
+    var title by remember(currentCategory, startTime) { mutableStateOf("") }
+    var appliedTitle by remember(currentCategory, startTime) { mutableStateOf(initialAppliedTitle) }
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
     val isFocusCategory = remember(currentCategory) {

@@ -470,6 +470,47 @@ class ActivityViewModel(
         startTimer()
     }
 
+    fun startCalendarPetiteActivity(item: OrganizedPetite) {
+        if (_uiState.value.isRunning) return
+
+        val category = item.activityCategory?.takeIf { isTimedCategory(it) } ?: "TODO"
+        val startTime = System.currentTimeMillis()
+        val goalMillis = item.estimatedMinutes
+            ?.takeIf { it > 0 }
+            ?.let { TimeUnit.MINUTES.toMillis(it.toLong()) }
+            ?: defaultGoalMillisForCategory(category)
+        _timerDisplayState.value = TimerDisplayState(
+            elapsedTime = 0L,
+            timerGoalMillis = goalMillis
+        )
+        _uiState.update {
+            it.copy(
+                isRunning = true,
+                currentCategory = category,
+                elapsedTime = 0L,
+                timerGoalMillis = goalMillis,
+                startTime = startTime,
+                linkedTodoId = null,
+                sourceType = ActivitySourceType.MANUAL,
+                sourceId = item.id,
+                pendingTitle = item.title,
+                pendingNote = null,
+                dailyCueId = null,
+                statusMessage = null
+            )
+        }
+        saveActiveSession(
+            category = category,
+            startTime = startTime,
+            goalMillis = goalMillis,
+            linkedTodoTitle = item.title,
+            sourceType = ActivitySourceType.MANUAL,
+            sourceId = item.id
+        )
+        activityTimerNotifier.showRunningTimer(category, startTime)
+        startTimer()
+    }
+
     fun startRecommendedTodoActivity(block: RecommendedTodoBlock) {
         if (_uiState.value.isRunning) return
 
