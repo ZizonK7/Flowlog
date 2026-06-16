@@ -558,6 +558,8 @@ fun HomeScreen(
                 onStartFocusMode = { enableDnd -> viewModel.startFocusMode(enableDnd) },
                 onStopFocusMode = { viewModel.stopFocusMode() },
                 isFocusFireActive = isFocusFireActive,
+                isRoutineActive = uiState.isRoutineActive,
+                routineGoalMillis = uiState.routineGoalMillis,
                 isMainButtonReorderMode = uiState.isMainButtonReorderMode,
                 selectedMainButtonForSwapId = uiState.selectedMainButtonForSwapId,
                 onExitReorderMode = { viewModel.exitMainButtonReorderMode() },
@@ -791,6 +793,8 @@ private fun TodayFlowCard(
     onStartFocusMode: (enableDnd: Boolean) -> Unit = {},
     onStopFocusMode: () -> Unit = {},
     isFocusFireActive: Boolean = false,
+    isRoutineActive: Boolean = false,
+    routineGoalMillis: Long = 0L,
     isMainButtonReorderMode: Boolean = false,
     selectedMainButtonForSwapId: String? = null,
     onExitReorderMode: () -> Unit = {},
@@ -853,7 +857,9 @@ private fun TodayFlowCard(
                     focusModeEndsAtMillis = focusModeEndsAtMillis,
                     onStartFocusMode = onStartFocusMode,
                     onStopFocusMode = onStopFocusMode,
-                    isFocusFireActive = isFocusFireActive
+                    isFocusFireActive = isFocusFireActive,
+                    isRoutineActive = isRoutineActive,
+                    routineGoalMillis = routineGoalMillis
                 )
             } else if (showMainButtonSetup) {
                 MainButtonSetupPage(onComplete = onCompleteSetup)
@@ -894,7 +900,9 @@ private fun TimerPage(
     focusModeEndsAtMillis: Long = 0L,
     onStartFocusMode: (enableDnd: Boolean) -> Unit = {},
     onStopFocusMode: () -> Unit = {},
-    isFocusFireActive: Boolean = false
+    isFocusFireActive: Boolean = false,
+    isRoutineActive: Boolean = false,
+    routineGoalMillis: Long = 0L
 ) {
     var title by remember(currentCategory) { mutableStateOf("") }
     var appliedTitle by remember(currentCategory) { mutableStateOf(initialAppliedTitle) }
@@ -919,15 +927,16 @@ private fun TimerPage(
     // 시작됩니다 다이얼로그에서 DND 활성 여부 표시용
     var focusModeStartedWithDnd by remember { mutableStateOf(false) }
     val hasTimerGoal = timerGoalMillis > 0L
-    val progressCycleMillis = if (currentCategory == "EXPERIMENT_3") {
-        TimeUnit.SECONDS.toMillis(5)
-    } else {
-        timerGoalMillis.coerceAtLeast(1L)
-    }
     val usesFireCycle = currentCategory in FOCUS_FIRE_CATEGORIES && isFocusModeActive
+    val usesRoutineCycle = isRoutineActive && routineGoalMillis > 0L
+    val progressCycleMillis = when {
+        currentCategory == "EXPERIMENT_3" -> TimeUnit.SECONDS.toMillis(5)
+        usesRoutineCycle -> routineGoalMillis
+        else -> timerGoalMillis.coerceAtLeast(1L)
+    }
     val progress = if (elapsedTime <= 0L) {
         0f
-    } else if (!hasTimerGoal && !usesFireCycle) {
+    } else if (!hasTimerGoal && !usesFireCycle && !usesRoutineCycle) {
         0f
     } else if (usesFireCycle) {
         ((elapsedTime % progressCycleMillis).toFloat() / progressCycleMillis.toFloat()).coerceAtLeast(0.01f)

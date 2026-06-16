@@ -137,6 +137,8 @@ data class ActivityUiState(
     val promotedButtons: List<String> = emptyList(),
     val isFocusModeActive: Boolean = false,
     val focusModeEndsAtMillis: Long = 0L,
+    val isRoutineActive: Boolean = false,
+    val routineGoalMillis: Long = 0L,
     val isNotificationSoundEnabled: Boolean = true,
     val activeAutoButtonCategory: String? = null,
     val activeAutoButtonStartedAt: Long = 0L,
@@ -429,17 +431,20 @@ class ActivityViewModel(
         val cleanCategory = category.takeIf { isTimedCategory(it) } ?: "TODO"
 
         val startTime = System.currentTimeMillis()
-        val cleanGoalMillis = if (goalMillis > 0L) goalMillis else TimerStateStore.DEFAULT_GOAL_MILLIS
+        val routineGoalMillis = if (goalMillis > 0L) goalMillis else 0L
+        val mainGoalMillis = TimerStateStore.DEFAULT_GOAL_MILLIS
         _timerDisplayState.value = TimerDisplayState(
             elapsedTime = 0L,
-            timerGoalMillis = cleanGoalMillis
+            timerGoalMillis = mainGoalMillis
         )
         _uiState.update {
             it.copy(
                 isRunning = true,
                 currentCategory = cleanCategory,
                 elapsedTime = 0L,
-                timerGoalMillis = cleanGoalMillis,
+                timerGoalMillis = mainGoalMillis,
+                isRoutineActive = routineGoalMillis > 0L,
+                routineGoalMillis = routineGoalMillis,
                 startTime = startTime,
                 linkedTodoId = null,
                 sourceType = ActivitySourceType.DAILY_CUE_ROUTINE,
@@ -454,11 +459,12 @@ class ActivityViewModel(
         saveActiveSession(
             category = cleanCategory,
             startTime = startTime,
-            goalMillis = cleanGoalMillis,
+            goalMillis = mainGoalMillis,
             linkedTodoTitle = cleanTitle,
             dailyCueId = cueId,
             sourceType = ActivitySourceType.DAILY_CUE_ROUTINE,
-            sourceId = cueId.toString()
+            sourceId = cueId.toString(),
+            routineGoalMillis = routineGoalMillis
         )
         activityTimerNotifier.showRunningTimer(cleanCategory, startTime)
         startTimer()
@@ -883,9 +889,13 @@ class ActivityViewModel(
                 )
 
                 val cueId = state.dailyCueId
+                val goalToCheck = if (state.isRoutineActive && state.routineGoalMillis > 0L)
+                    state.routineGoalMillis
+                else
+                    state.timerGoalMillis
                 val shouldMarkCue = cueId != null &&
-                    state.timerGoalMillis > 0L &&
-                    elapsedTime >= state.timerGoalMillis &&
+                    goalToCheck > 0L &&
+                    elapsedTime >= goalToCheck &&
                     cueId !in state.completedDailyCueGoalIds
                 if (shouldMarkCue) {
                     _dailyCueGoalReachedEvents.tryEmit(
@@ -895,7 +905,10 @@ class ActivityViewModel(
                         if (cueId in it.completedDailyCueGoalIds) {
                             it
                         } else {
-                            it.copy(completedDailyCueGoalIds = it.completedDailyCueGoalIds + cueId)
+                            it.copy(
+                                completedDailyCueGoalIds = it.completedDailyCueGoalIds + cueId,
+                                isRoutineActive = false
+                            )
                         }
                     }
                 }
@@ -922,6 +935,8 @@ class ActivityViewModel(
         val startTime = activeTimer.startTime
         val elapsedTime = (System.currentTimeMillis() - startTime).coerceAtLeast(0L)
         val goalMillis = activeTimer.goalMillis
+        val routineGoalMillis = activeTimer.routineGoalMillis
+        val isRoutineActive = routineGoalMillis > 0L && elapsedTime < routineGoalMillis
         _timerDisplayState.value = TimerDisplayState(
             elapsedTime = elapsedTime,
             timerGoalMillis = goalMillis
@@ -939,6 +954,8 @@ class ActivityViewModel(
                 currentCategory = category,
                 elapsedTime = elapsedTime,
                 timerGoalMillis = goalMillis,
+                isRoutineActive = isRoutineActive,
+                routineGoalMillis = routineGoalMillis,
                 startTime = startTime,
                 linkedTodoId = activeTimer.linkedTodoId,
                 linkedPetiteId = activeTimer.linkedPetiteId,
@@ -1945,7 +1962,8 @@ class ActivityViewModel(
         pendingTitle: String? = null,
         dailyCueId: Long? = null,
         sourceType: String = ActivitySourceType.MANUAL,
-        sourceId: String? = null
+        sourceId: String? = null,
+        routineGoalMillis: Long = 0L
     ) {
         TimerStateStore.saveActiveTimer(
             context = appContext,
@@ -1959,7 +1977,8 @@ class ActivityViewModel(
             pendingTitle = pendingTitle,
             dailyCueId = dailyCueId,
             sourceType = sourceType,
-            sourceId = sourceId
+            sourceId = sourceId,
+            routineGoalMillis = routineGoalMillis
         )
         FlowStatusWidgetProvider.updateAll(appContext)
     }

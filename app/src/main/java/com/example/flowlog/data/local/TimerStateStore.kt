@@ -17,7 +17,8 @@ data class ActiveTimerState(
     val pendingTitle: String? = null,
     val dailyCueId: Long? = null,
     val sourceType: String = ActivitySourceType.MANUAL,
-    val sourceId: String? = null
+    val sourceId: String? = null,
+    val routineGoalMillis: Long = 0L
 ) {
     val elapsedMillis: Long
         get() = if (status == TimerStatus.PAUSED) {
@@ -51,6 +52,7 @@ object TimerStateStore {
     private const val KEY_ACTIVE_SOURCE_ID = "active_source_id"
     private const val KEY_ACTIVE_PETITE_ID = "active_petite_id"
     private const val KEY_ACTIVE_EXERCISE_SETS_JSON = "active_exercise_sets_json"
+    private const val KEY_ACTIVE_ROUTINE_GOAL_MILLIS = "active_routine_goal_millis"
     private const val KEY_PINNED_CATEGORY = "pinned_category"
     private const val KEY_PINNED_START_TIME = "pinned_start_time"
     private const val KEY_PINNED_GOAL_MILLIS = "pinned_goal_millis"
@@ -83,6 +85,8 @@ object TimerStateStore {
             ?: ActivitySourceType.MANUAL
         val sourceId = preferences.getString(KEY_ACTIVE_SOURCE_ID, null)
         val linkedPetiteId = preferences.getString(KEY_ACTIVE_PETITE_ID, null)
+        val routineGoalMillis = preferences.getLong(KEY_ACTIVE_ROUTINE_GOAL_MILLIS, 0L)
+            .coerceAtLeast(0L)
 
         return ActiveTimerState(
             category = category,
@@ -97,7 +101,8 @@ object TimerStateStore {
             pendingTitle = pendingTitle,
             dailyCueId = dailyCueId,
             sourceType = sourceType,
-            sourceId = sourceId
+            sourceId = sourceId,
+            routineGoalMillis = routineGoalMillis
         )
     }
 
@@ -113,7 +118,8 @@ object TimerStateStore {
         pendingTitle: String? = null,
         dailyCueId: Long? = null,
         sourceType: String = ActivitySourceType.MANUAL,
-        sourceId: String? = null
+        sourceId: String? = null,
+        routineGoalMillis: Long = 0L
     ) {
         context.applicationContext.getSharedPreferences(PREFS_TIMER_STATE, Context.MODE_PRIVATE)
             .edit()
@@ -130,6 +136,7 @@ object TimerStateStore {
             .putLong(KEY_ACTIVE_DAILY_CUE_ID, dailyCueId ?: NO_TODO_ID)
             .putString(KEY_ACTIVE_SOURCE_TYPE, sourceType)
             .putString(KEY_ACTIVE_SOURCE_ID, sourceId)
+            .putLong(KEY_ACTIVE_ROUTINE_GOAL_MILLIS, routineGoalMillis.coerceAtLeast(0L))
             .apply()
     }
 
