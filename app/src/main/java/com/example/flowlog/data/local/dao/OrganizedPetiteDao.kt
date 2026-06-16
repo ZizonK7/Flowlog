@@ -114,6 +114,9 @@ interface OrganizedPetiteDao {
         updatedAt: Long
     )
 
+    @Query("SELECT * FROM organized_petites WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): OrganizedPetiteEntity?
+
     @Query("UPDATE organized_petites SET isCompleted = 1, updatedAt = :updatedAt WHERE id = :id")
     suspend fun markCompletedById(id: String, updatedAt: Long)
 

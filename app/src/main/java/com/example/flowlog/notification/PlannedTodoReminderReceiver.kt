@@ -88,6 +88,10 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                     return@launch
                 }
 
+                val petiteTitle = item.todoId.removePrefix("calendar_petite_")
+                    .takeIf { it != item.todoId }
+                    ?.let { db.organizedPetiteDao().getById(it)?.title }
+
                 if (!canPostNotifications(context)) return@launch
                 val shouldSilence = SleepAlarmGuard.shouldSilenceAlerts(context) ||
                     !FocusModeStore.shouldPlayRegularSound(context)
@@ -95,7 +99,7 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                     SleepAlarmGuard.ensureSilentNotificationChannel(context)
                 }
 
-                val title = todo?.title ?: item.titleFromSnapshot() ?: "\uD560 \uC77C"
+                val title = todo?.title ?: item.titleFromSnapshot() ?: petiteTitle ?: "\uD560 \uC77C"
                 val notificationId = PlannedTodoReminderScheduler.notificationIdFor(itemId)
 
                 // Final DB re-check to catch race conditions between initial checks and notify()

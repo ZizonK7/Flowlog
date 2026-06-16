@@ -347,8 +347,7 @@ class DailyGoalRepository(context: Context) {
         val dayStart = startOfDay(now)
         val startMillis = dayStart + startHourOfDay * HOUR_MILLIS
         val endMillis = startMillis + HOUR_MILLIS
-        val workplaceBlocks = todayWorkplaceBlocks(dayStart)
-        val notificationScheduledAtMillis = randomNotificationTime(startMillis, workplaceBlocks)
+        val notificationScheduledAtMillis = startMillis.takeIf { it > now }
         Log.d(TAG, "setPlannedItemTime: itemId=$itemId startHour=$startHourOfDay plannedStart=${fmtTime(startMillis)} notifAt=${fmtTime(notificationScheduledAtMillis)}")
         dao.updateItemTimeManually(
             userId = userId,
@@ -658,7 +657,7 @@ class DailyGoalRepository(context: Context) {
                         mode = heavyMode
                     ),
                     mode = heavyMode,
-                    notificationScheduledAtMillis = randomNotificationTime(startMillis, workplaceBlocks)
+                    notificationScheduledAtMillis = startMillis.takeIf { it > System.currentTimeMillis() }
                 )
             }
             TimePlanSlot.LIGHT_LIKE -> {
@@ -683,7 +682,7 @@ class DailyGoalRepository(context: Context) {
                         mode = recommendationModeOverride ?: MODE_PERSONALIZED_DISTRIBUTION
                     ),
                     mode = recommendationModeOverride ?: MODE_PERSONALIZED_DISTRIBUTION,
-                    notificationScheduledAtMillis = randomNotificationTime(startMillis, workplaceBlocks)
+                    notificationScheduledAtMillis = startMillis.takeIf { it > System.currentTimeMillis() }
                 )
             }
         }
@@ -1010,21 +1009,5 @@ class DailyGoalRepository(context: Context) {
             }
         }
 
-        private fun randomNotificationTime(
-            plannedStartMillis: Long,
-            workplaceBlocks: List<TimeBlockSnapshot>
-        ): Long? {
-            val now = System.currentTimeMillis()
-            val windowEndExclusive = plannedStartMillis + HOUR_MILLIS
-            val candidates = (0 until 60).map { minute ->
-                plannedStartMillis + TimeUnit.MINUTES.toMillis(minute.toLong())
-            }.filter { candidate ->
-                candidate > now &&
-                    candidate < windowEndExclusive &&
-                    workplaceBlocks.none { block -> candidate >= block.startMillis && candidate < block.endMillis }
-            }
-            if (candidates.isEmpty()) return null
-            return candidates[Random(System.currentTimeMillis() xor plannedStartMillis).nextInt(candidates.size)]
-        }
     }
 }
