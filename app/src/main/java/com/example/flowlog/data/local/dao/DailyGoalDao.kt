@@ -382,6 +382,14 @@ interface DailyGoalDao {
     """)
     suspend fun markItemCompletedPending(recommendationId: String, todoId: String, updatedAt: Long)
 
+    // 캘린더 petite가 완료/dismiss될 때 해당 petite를 가리키는 모든 Anchors 항목(여러 추천 refresh로 누적된 row 포함)을 정리
+    @Query("""
+        UPDATE daily_goal_items
+        SET wasCompleted = 1, updatedAt = :updatedAt, syncStatus = '${SyncStatus.PENDING}'
+        WHERE userId = :userId AND todoId = :todoId
+    """)
+    suspend fun markCalendarPetiteItemsCompleted(userId: String, todoId: String, updatedAt: Long)
+
     @Query("""
         UPDATE daily_goal_items
         SET wasClicked = 1, updatedAt = :updatedAt, syncStatus = '${SyncStatus.PENDING}'

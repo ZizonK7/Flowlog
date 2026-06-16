@@ -252,7 +252,12 @@ class ActivityViewModel(
 
     fun completeFlowRecommendation() {
         val petite = _uiState.value.flowRecommendation ?: return
-        viewModelScope.launch { organizedPetiteRepository.dismiss(petite) }
+        viewModelScope.launch {
+            organizedPetiteRepository.dismiss(petite)
+            if (petite.sourceType == PetiteSourceType.CALENDAR) {
+                dailyGoalRepository.markCalendarPetiteCompleted(petite.id)
+            }
+        }
     }
 
     fun startActivity(category: String) {

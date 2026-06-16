@@ -497,6 +497,7 @@ class TodoViewModel(
                             TodoItem(title = item.title, category = TodoCategory.TODAY, isCompleted = true, createdAt = now, updatedAt = now)
                         )
                     }
+                    runCatching { dailyGoalRepository.markCalendarPetiteCompleted(item.id) }
                 }
             }
         }

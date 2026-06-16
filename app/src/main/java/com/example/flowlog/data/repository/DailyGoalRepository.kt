@@ -499,6 +499,18 @@ class DailyGoalRepository(context: Context) {
         )
     }
 
+    /**
+     * 캘린더 petite가 완료/dismiss될 때, 그 petite를 가리키는 Anchors 추천 시간 블록도 함께 정리.
+     * petiteId만으로 userId 전체 범위에서 매칭해 refresh로 누적된 row까지 모두 처리.
+     */
+    suspend fun markCalendarPetiteCompleted(petiteId: String) {
+        dao.markCalendarPetiteItemsCompleted(
+            userId = userId,
+            todoId = "calendar_petite_$petiteId",
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
     suspend fun markItemClicked(dateKey: String, todoLegacyId: Long) {
         val recommendation = dao.getRecommendationByDate(userId, dateKey) ?: return
         dao.markItemClicked(
