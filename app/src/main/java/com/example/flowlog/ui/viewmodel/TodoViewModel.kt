@@ -849,8 +849,9 @@ class TodoViewModel(
         return sortForTodayFocusDisplay(selected).map { it.toGoalItem() }
     }
 
-    // 미래 필터링 훅: 나중에 calendarTaskType == "ACADEMIC"인 것만 허용하도록 수정 예정
-    private fun isCalendarPetiteEligibleForRecommendation(petite: OrganizedPetite): Boolean = true
+    // 예습하기(lecture_preview_*)는 추천 흐름에는 표시되지만 타임 테이블 추천 활동에는 포함하지 않음
+    private fun isCalendarPetiteEligibleForRecommendation(petite: OrganizedPetite): Boolean =
+        petite.sourceId?.startsWith("lecture_preview_") != true
 
     private fun activeCalendarPetitesForRecommendation(): List<OrganizedPetite> =
         _organizedPetites.value.filter { it.sourceType == PetiteSourceType.CALENDAR }
