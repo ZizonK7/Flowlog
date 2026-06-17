@@ -75,6 +75,9 @@
             android:name=".notification.FocusModeAlarmReceiver"
             android:exported="false" />
         <receiver
+            android:name=".notification.RoutineGoalAlarmReceiver"
+            android:exported="false" />
+        <receiver
             android:name=".notification.FirebaseSyncReceiver"
             android:exported="false" />
         <service

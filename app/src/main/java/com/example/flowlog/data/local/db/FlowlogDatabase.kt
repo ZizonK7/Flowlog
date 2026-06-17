@@ -9,6 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.flowlog.data.local.dao.ActivityDao
 import com.example.flowlog.data.local.dao.AutoButtonScheduleDao
 import com.example.flowlog.data.local.dao.CalendarEventDao
+import com.example.flowlog.data.local.dao.DailyCueDao
 import com.example.flowlog.data.local.dao.DailyGoalDao
 import com.example.flowlog.data.local.dao.EventLogDao
 import com.example.flowlog.data.local.dao.ExamStrategyCheckDao
@@ -22,6 +23,7 @@ import com.example.flowlog.data.local.entity.AutoButtonScheduleEntity
 import com.example.flowlog.data.local.entity.AutoButtonSkipDateEntity
 import com.example.flowlog.data.local.entity.AutoButtonUndoSnapshotEntity
 import com.example.flowlog.data.local.entity.CalendarEventEntity
+import com.example.flowlog.data.local.entity.DailyCueEntity
 import com.example.flowlog.data.local.entity.DailyGoalItemEntity
 import com.example.flowlog.data.local.entity.DailyGoalRecommendationEntity
 import com.example.flowlog.data.local.entity.DailySummaryEntity
@@ -67,8 +69,9 @@ import com.example.flowlog.data.local.entity.UserEntity
         // Phase 5 — Calendar
         CalendarEventEntity::class,
         LectureCalendarInfoEntity::class,
+        DailyCueEntity::class,
     ],
-    version = 16,
+    version = 17,
     // 장기적으로는 schema export + Migration 검증을 붙이는 것이 바람직하지만,
     // 현재 단계에서는 개발 편의상 schema 파일 생성을 보류한다.
     exportSchema = false
@@ -95,6 +98,7 @@ abstract class FlowlogDatabase : RoomDatabase() {
     // Phase 5 DAOs
     abstract fun calendarEventDao(): CalendarEventDao
     abstract fun lectureCalendarInfoDao(): LectureCalendarInfoDao
+    abstract fun dailyCueDao(): DailyCueDao
 
     companion object {
         @Volatile
@@ -107,7 +111,7 @@ abstract class FlowlogDatabase : RoomDatabase() {
                     FlowlogDatabase::class.java,
                     "flowlog.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17)
                     .build().also { INSTANCE = it }
             }
         }
@@ -358,6 +362,31 @@ abstract class FlowlogDatabase : RoomDatabase() {
         private val MIGRATION_15_16 = object : Migration(15, 16) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE auto_button_schedules ADD COLUMN source TEXT NOT NULL DEFAULT 'MANUAL'")
+            }
+        }
+
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS daily_cues (
+                        userId TEXT NOT NULL,
+                        cueId INTEGER NOT NULL,
+                        label TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        timerDurationMillis INTEGER,
+                        timerCategory TEXT NOT NULL,
+                        sortOrder INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        archivedAt INTEGER,
+                        PRIMARY KEY(userId, cueId)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_daily_cues_userId ON daily_cues(userId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_daily_cues_archivedAt ON daily_cues(archivedAt)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_daily_cues_userId_archivedAt ON daily_cues(userId, archivedAt)")
             }
         }
 

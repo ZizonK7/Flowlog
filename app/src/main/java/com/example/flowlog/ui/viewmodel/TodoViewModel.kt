@@ -19,6 +19,8 @@ import com.example.flowlog.data.recommendation.TodoBurdenCalculator
 import com.example.flowlog.data.constants.EntityType
 import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.repository.ActivityRepository
+import com.example.flowlog.data.repository.DailyCueRecord
+import com.example.flowlog.data.repository.DailyCueRepository
 import com.example.flowlog.data.repository.DailyGoalRepository
 import com.example.flowlog.data.repository.EventLogRepository
 import com.example.flowlog.data.repository.GoalItem
@@ -71,6 +73,7 @@ class TodoViewModel(
     private val normalTodoOrderPrefs = context.getSharedPreferences("todo_normal_order", Context.MODE_PRIVATE)
     private val dailyGoalRepository = DailyGoalRepository(context.applicationContext)
     private val activityRepository = ActivityRepository(context.applicationContext)
+    private val dailyCueRepository = DailyCueRepository(context.applicationContext)
     private val eventLogRepository = EventLogRepository(context.applicationContext)
     private val organizedPetiteRepository = OrganizedPetiteRepository(context.applicationContext)
     private val todayOrganizer = TodayExamOrganizer(AiDecisionProviderFactory.create())
@@ -122,6 +125,9 @@ class TodoViewModel(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
+        viewModelScope.launch {
+            backfillDailyCueDefinitions()
+        }
         viewModelScope.launch {
             repository.getAllTodos().collect { todos ->
                 _todos.value = todos
@@ -567,6 +573,7 @@ class TodoViewModel(
         ))
         _dailyCues.value = updated
         saveDailyCues(updated)
+        syncDailyCueDefinitions(updated)
     }
 
     fun toggleDailyCue(cueId: Long) {
@@ -636,12 +643,16 @@ class TodoViewModel(
         })
         _dailyCues.value = updated
         saveDailyCues(updated)
+        syncDailyCueDefinitions(updated)
     }
 
     fun deleteDailyCue(cueId: Long) {
         val updated = _dailyCues.value.filter { it.id != cueId }
         _dailyCues.value = updated
         saveDailyCues(updated)
+        viewModelScope.launch {
+            dailyCueRepository.archiveCue(cueId)
+        }
     }
 
     private fun loadDailyCues(): List<DailyCueItem> {
@@ -695,6 +706,41 @@ class TodoViewModel(
             .apply()
     }
 
+    private suspend fun backfillDailyCueDefinitions() {
+        val fallbackCreatedAt = cuePrefs.getLong("date_key", 0L)
+            .takeIf { it > 0L }
+            ?: System.currentTimeMillis()
+        dailyCueRepository.backfillExistingCuesIfNeeded(
+            cues = _dailyCues.value.map { it.toDailyCueRecord(fallbackCreatedAt) },
+            fallbackCreatedAt = fallbackCreatedAt
+        )
+    }
+
+    private fun syncDailyCueDefinitions(cues: List<DailyCueItem>) {
+        val fallbackCreatedAt = cuePrefs.getLong("date_key", 0L)
+            .takeIf { it > 0L }
+            ?: System.currentTimeMillis()
+        viewModelScope.launch {
+            cues.forEach { cue ->
+                dailyCueRepository.upsertCue(cue.toDailyCueRecord(fallbackCreatedAt))
+            }
+        }
+    }
+
+    private fun DailyCueItem.toDailyCueRecord(fallbackCreatedAt: Long): DailyCueRecord {
+        val inferredCreatedAt = id.takeIf { it >= MIN_REASONABLE_CUE_TIMESTAMP } ?: fallbackCreatedAt
+        return DailyCueRecord(
+            id = id,
+            label = label,
+            title = title,
+            timerDurationMillis = timerDurationMillis,
+            timerCategory = timerCategory,
+            order = order,
+            createdAt = inferredCreatedAt,
+            updatedAt = inferredCreatedAt
+        )
+    }
+
     private fun defaultDailyCues(): List<DailyCueItem> = listOf(
         DailyCueItem(1L, "Routine", "물 마시기", order = 0),
         DailyCueItem(2L, "Routine", "스트레칭", order = 1),
@@ -719,6 +765,7 @@ class TodoViewModel(
         val updated = sortDailyCues(mutable)
         _dailyCues.value = updated
         saveDailyCues(updated)
+        syncDailyCueDefinitions(updated)
     }
 
     fun swapOrganizedPetite(itemId: String, direction: Int) {
@@ -755,6 +802,7 @@ class TodoViewModel(
         val reordered = sorted.mapIndexed { i, cue -> cue.copy(order = i) }
         _dailyCues.value = reordered
         saveDailyCues(reordered)
+        syncDailyCueDefinitions(reordered)
     }
 
     fun reorderNormalTodos(from: Int, to: Int) {
@@ -1053,5 +1101,6 @@ class TodoViewModel(
 
     companion object {
         private const val DAY_MILLIS = 24L * 60 * 60 * 1000
+        private const val MIN_REASONABLE_CUE_TIMESTAMP = 1_577_836_800_000L
     }
 }

@@ -207,6 +207,7 @@ object TimerStateStore {
             .remove(KEY_ACTIVE_SOURCE_ID)
             .remove(KEY_ACTIVE_PETITE_ID)
             .remove(KEY_ACTIVE_EXERCISE_SETS_JSON)
+            .remove(KEY_ACTIVE_ROUTINE_GOAL_MILLIS)
             .apply()
     }
 

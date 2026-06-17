@@ -91,7 +91,6 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
-import com.example.flowlog.notification.ActivityTimerNotifier
 import com.example.flowlog.notification.ReminderScheduler
 import com.example.flowlog.notification.AutoButtonScheduler
 import com.example.flowlog.notification.PlannedTodoReminderScheduler
@@ -189,11 +188,9 @@ class MainActivity : ComponentActivity() {
                     }.distinct()
                 }
                 LaunchedEffect(activityViewModel, todoViewModel) {
-                    val notifier = ActivityTimerNotifier(this@MainActivity)
                     launch {
                         activityViewModel.dailyCueGoalReachedEvents.collect { event ->
                             todoViewModel.completeDailyCue(event.cueId)
-                            notifier.showRoutineGoalAlert(event.title, event.category)
                         }
                     }
                     activityViewModel.recommendedTodoCompletionEvents.collect { event ->
@@ -274,17 +271,27 @@ class MainActivity : ComponentActivity() {
                         if (signedInUser != null) {
                             auth.signOut()
                             syncStatus = null
+                            Toast.makeText(this@MainActivity, "로그아웃되었습니다.", Toast.LENGTH_SHORT).show()
                             return@launch
                         }
 
                         syncStatus = "Signing in..."
+                        Toast.makeText(this@MainActivity, "Google 로그인 시작", Toast.LENGTH_SHORT).show()
                         val signInResult = runCatching {
                             signInWithGoogle()
                             uploadLocalFlowlogSnapshot()
                         }
-                        syncStatus = signInResult.exceptionOrNull()?.let { error ->
-                            error.localizedMessage ?: "Sign-in failed"
-                        }
+                        syncStatus = signInResult.fold(
+                            onSuccess = {
+                                Toast.makeText(this@MainActivity, "로그인되었습니다.", Toast.LENGTH_SHORT).show()
+                                null
+                            },
+                            onFailure = { error ->
+                                val message = error.localizedMessage ?: "Sign-in failed"
+                                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                                message
+                            }
+                        )
                     }
                 }
                 val openStatsSite: () -> Unit = {
@@ -703,14 +710,27 @@ private fun HeaderActions(
         }
 
         Box {
-            IconButton(
-                onClick = { menuExpanded = true },
-                modifier = Modifier.size(52.dp)
-            ) {
-                ProfileAvatar(
-                    profilePhotoUrl = profilePhotoUrl,
-                    isSignedIn = isSignedIn
-                )
+            if (isSignedIn) {
+                IconButton(
+                    onClick = { menuExpanded = true },
+                    modifier = Modifier.size(52.dp)
+                ) {
+                    ProfileAvatar(
+                        profilePhotoUrl = profilePhotoUrl,
+                        isSignedIn = true
+                    )
+                }
+            } else {
+                Button(
+                    onClick = onAccountClick,
+                    modifier = Modifier.height(44.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF5140D8),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text(accountActionLabel(isSignedIn, syncStatus))
+                }
             }
             DropdownMenu(
                 expanded = menuExpanded,

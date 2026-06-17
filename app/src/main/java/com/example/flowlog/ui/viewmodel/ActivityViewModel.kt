@@ -38,6 +38,7 @@ import com.example.flowlog.notification.AutoButtonScheduler
 import com.example.flowlog.notification.FocusDndController
 import com.example.flowlog.notification.FocusModeScheduler
 import com.example.flowlog.notification.ReminderScheduler
+import com.example.flowlog.notification.RoutineGoalAlarmScheduler
 import com.example.flowlog.widget.FlowStatusWidgetProvider
 import com.google.firebase.auth.FirebaseAuth
 import android.util.Log
@@ -174,6 +175,7 @@ class ActivityViewModel(
     private var focusModeJob: Job? = null
     private val activityTimerNotifier = ActivityTimerNotifier(appContext)
     private val focusModeScheduler = FocusModeScheduler(appContext)
+    private val routineGoalAlarmScheduler = RoutineGoalAlarmScheduler(appContext)
     private val eventLogRepository = EventLogRepository(appContext)
     private val autoButtonScheduleRepository = AutoButtonScheduleRepository(appContext)
     private val dailyGoalRepository = DailyGoalRepository(appContext)
@@ -451,6 +453,17 @@ class ActivityViewModel(
             sourceId = cueId.toString(),
             routineGoalMillis = routineGoalMillis
         )
+        if (routineGoalMillis > 0L) {
+            routineGoalAlarmScheduler.schedule(
+                cueId = cueId,
+                title = cleanTitle,
+                category = cleanCategory,
+                startedAtMillis = startTime,
+                goalMillis = routineGoalMillis
+            )
+        } else {
+            routineGoalAlarmScheduler.cancel()
+        }
         activityTimerNotifier.showRunningTimer(cleanCategory, startTime)
         startTimer()
     }
@@ -618,6 +631,7 @@ class ActivityViewModel(
         val elapsedTime = currentElapsedTime()
         _uiState.update { it.copy(isRunning = false) }
         TimerStateStore.pauseActiveTimer(appContext, elapsedTime)
+        routineGoalAlarmScheduler.cancel()
         FlowStatusWidgetProvider.updateAll(appContext)
         activityTimerNotifier.clearRunningTimer()
         return elapsedTime
@@ -912,10 +926,9 @@ class ActivityViewModel(
                 )
 
                 val cueId = state.dailyCueId
-                val goalToCheck = if (state.isRoutineActive && state.routineGoalMillis > 0L)
-                    state.routineGoalMillis
-                else
-                    currentGoalMillis
+                val goalToCheck = state.routineGoalMillis.takeIf {
+                    state.isRoutineActive && it > 0L
+                } ?: 0L
                 val shouldMarkCue = cueId != null &&
                     goalToCheck > 0L &&
                     elapsedTime >= goalToCheck &&
@@ -1085,6 +1098,9 @@ class ActivityViewModel(
                     pendingTitle = activeTimer.pendingTitle ?: activeTimer.linkedTodoTitle,
                     pendingNote = activeTimer.pendingNote,
                     dailyCueId = activeTimer.dailyCueId,
+                    isRoutineActive = activeTimer.routineGoalMillis > 0L &&
+                        activeTimer.elapsedMillis < activeTimer.routineGoalMillis,
+                    routineGoalMillis = activeTimer.routineGoalMillis,
                     statusMessage = null
                 )
             }
@@ -1985,6 +2001,7 @@ class ActivityViewModel(
     }
 
     private fun clearActiveSession() {
+        routineGoalAlarmScheduler.cancel()
         TimerStateStore.clearActiveTimer(appContext)
         FlowStatusWidgetProvider.updateAll(appContext)
     }
