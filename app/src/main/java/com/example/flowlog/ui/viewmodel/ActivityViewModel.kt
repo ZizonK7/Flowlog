@@ -701,7 +701,9 @@ class ActivityViewModel(
                 _uiState.update { it.copy(snackButtonEndsAtMillis = mealTimerEndsAt) }
             }
             rememberLastAddedActivity(savedActivity)
-            attemptDeferredSync()
+            if (shouldSyncExerciseImmediately(savedActivity)) {
+                attemptDeferredSync()
+            }
             _uiState.update {
                 it.copy(
                     pendingSavedActivity = null,
@@ -1944,6 +1946,12 @@ class ActivityViewModel(
         FirebaseSyncCoordinator(appContext).syncEligible(uid)
     }
 
+    private fun shouldSyncExerciseImmediately(activity: ActivitySession): Boolean {
+        return activity.category == "EXERCISE" &&
+            (activity.exerciseSets.isNotEmpty() ||
+                activity.durationMillis >= EXERCISE_IMMEDIATE_SYNC_MIN_DURATION_MILLIS)
+    }
+
     private fun saveActiveSession(
         category: String,
         startTime: Long,
@@ -2241,6 +2249,7 @@ class ActivityViewModel(
         private const val KEY_SLEEP_RECORD_2026_05_19 = "sleep_record_2026_05_19_212957"
         private val DEFAULT_SCHOOL_COMPANY_GOAL_MILLIS = TimeUnit.HOURS.toMillis(10)
         private val SEVENTY_FIVE_MINUTE_GOAL_MILLIS = TimeUnit.MINUTES.toMillis(75)
+        private val EXERCISE_IMMEDIATE_SYNC_MIN_DURATION_MILLIS = TimeUnit.MINUTES.toMillis(3)
         private val SEVENTY_FIVE_MINUTE_GOAL_CATEGORIES = setOf("STUDY", "TODO", "WORK", "DEVELOPMENT", "EXERCISE", "ETC")
     }
 }
