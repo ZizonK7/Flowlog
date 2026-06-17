@@ -99,6 +99,10 @@ interface OrganizedPetiteDao {
             aiComment = :aiComment,
             rank = :rank,
             priorityScore = :priorityScore,
+            activityCategory = :activityCategory,
+            autoStartEnabled = :autoStartEnabled,
+            autoStartTime24 = :autoStartTime24,
+            autoStartEndTime24 = :autoStartEndTime24,
             updatedAt = :updatedAt
         WHERE id = :id
     """)
@@ -111,11 +115,42 @@ interface OrganizedPetiteDao {
         aiComment: String?,
         rank: Int,
         priorityScore: Int,
+        activityCategory: String?,
+        autoStartEnabled: Boolean,
+        autoStartTime24: String,
+        autoStartEndTime24: String,
         updatedAt: Long
     )
 
+    @Query("""
+        SELECT * FROM organized_petites
+        WHERE userId = :userId
+          AND sourceType = 'CALENDAR'
+          AND autoStartEnabled = 1
+          AND autoStartTime24 != ''
+          AND autoStartEndTime24 != ''
+          AND isDismissed = 0
+          AND isCompleted = 0
+          AND dateMillis = :todayDateKey
+    """)
+    fun observeTodayCalendarAutoStartPetites(userId: String, todayDateKey: Long): Flow<List<OrganizedPetiteEntity>>
+
     @Query("SELECT * FROM organized_petites WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): OrganizedPetiteEntity?
+
+    @Query("""
+        UPDATE organized_petites SET
+            autoStartTime24 = :startTime24,
+            autoStartEndTime24 = :endTime24,
+            updatedAt = :updatedAt
+        WHERE id = :id
+    """)
+    suspend fun updateCalendarPetiteAutoStartTimes(
+        id: String,
+        startTime24: String,
+        endTime24: String,
+        updatedAt: Long
+    )
 
     @Query("UPDATE organized_petites SET isCompleted = 1, updatedAt = :updatedAt WHERE id = :id")
     suspend fun markCompletedById(id: String, updatedAt: Long)
@@ -153,6 +188,10 @@ interface OrganizedPetiteDao {
                 aiComment = entity.aiComment,
                 rank = entity.rank,
                 priorityScore = entity.priorityScore,
+                activityCategory = entity.activityCategory,
+                autoStartEnabled = entity.autoStartEnabled,
+                autoStartTime24 = entity.autoStartTime24,
+                autoStartEndTime24 = entity.autoStartEndTime24,
                 updatedAt = entity.updatedAt
             )
         }

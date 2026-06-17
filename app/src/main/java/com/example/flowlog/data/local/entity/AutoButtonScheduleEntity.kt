@@ -25,5 +25,6 @@ data class AutoButtonScheduleEntity(
     val notifyOnEnd: Boolean = true,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val isDeleted: Boolean = false
+    val isDeleted: Boolean = false,
+    val source: String = "MANUAL"
 )

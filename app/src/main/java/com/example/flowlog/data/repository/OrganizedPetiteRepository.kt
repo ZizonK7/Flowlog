@@ -95,6 +95,26 @@ class OrganizedPetiteRepository(context: Context) {
         dao.markCompletedById(id, System.currentTimeMillis())
     }
 
+    fun observeTodayCalendarAutoStartPetites(todayDateKey: Long): Flow<List<OrganizedPetiteEntity>> {
+        return dao.observeTodayCalendarAutoStartPetites(userId, todayDateKey)
+    }
+
+    suspend fun updateCalendarPetiteAutoStartTimes(petiteId: String, startTime24: String, endTime24: String): String? {
+        dao.updateCalendarPetiteAutoStartTimes(petiteId, startTime24, endTime24, System.currentTimeMillis())
+        return dao.getById(petiteId)?.sourceId
+    }
+
+    suspend fun dismissCalendarPetiteById(petiteId: String): String? {
+        val petite = dao.getById(petiteId) ?: return null
+        dao.dismissBySource(
+            userId = userId,
+            sourceType = "CALENDAR",
+            sourceId = petite.sourceId,
+            updatedAt = System.currentTimeMillis()
+        )
+        return petite.sourceId
+    }
+
     private fun OrganizedPetite.toEntity(uid: String, rank: Int, now: Long): OrganizedPetiteEntity {
         return OrganizedPetiteEntity(
             id = id,

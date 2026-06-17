@@ -23,6 +23,7 @@ import com.example.flowlog.data.recommendation.ButtonRecommendationEngine
 import com.example.flowlog.data.constants.EntityType
 import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.agent.OrganizedPetite
+import com.example.flowlog.data.local.entity.OrganizedPetiteEntity
 import com.example.flowlog.data.agent.PetiteSourceType
 import com.example.flowlog.data.repository.ActivityRepository
 import com.example.flowlog.data.repository.AutoButtonScheduleRepository
@@ -60,16 +61,6 @@ import java.util.Calendar
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 
-data class DailyReport(
-    val sessionCount: Int = 0,
-    val totalMillis: Long = 0L,
-    val sleepMillis: Long = 0L,
-    val mealCount: Int = 0,
-    val snackCount: Int = 0,
-    val topCategory: String = "NONE",
-    val topCategoryMillis: Long = 0L
-)
-
 data class CategoryStat(
     val category: String,
     val totalMillis: Long,
@@ -105,13 +96,8 @@ data class AiMessengerUiState(
 data class ActivityUiState(
     val isRunning: Boolean = false,
     val currentCategory: String = "",
-    val elapsedTime: Long = 0L,
-    val timerGoalMillis: Long = TimerStateStore.DEFAULT_GOAL_MILLIS,
     val todayActivities: List<ActivitySession> = emptyList(),
     val allActivities: List<ActivitySession> = emptyList(),
-    val dailyReport: DailyReport = DailyReport(),
-    val favoriteActivities: List<ActivitySession> = emptyList(),
-    val lastTimedActivity: ActivitySession? = null,
     val analytics: AnalyticsState = AnalyticsState(),
     val startTime: Long = 0L,
     val linkedTodoId: Long? = null,
@@ -132,14 +118,13 @@ data class ActivityUiState(
     val snackButtonEndsAtMillis: Long = 0L,
     val autoButtonSchedules: List<AutoButtonSchedule> = emptyList(),
     val scheduledAutoButtonBlocks: List<ScheduledAutoButtonBlock> = emptyList(),
+    val todayCalendarPetites: List<OrganizedPetiteEntity> = emptyList(),
     val recommendedTodoBlocks: List<RecommendedTodoBlock> = emptyList(),
     val incompleteTodos: List<TodoItem> = emptyList(),
-    val promotedButtons: List<String> = emptyList(),
     val isFocusModeActive: Boolean = false,
     val focusModeEndsAtMillis: Long = 0L,
     val isRoutineActive: Boolean = false,
     val routineGoalMillis: Long = 0L,
-    val isNotificationSoundEnabled: Boolean = true,
     val activeAutoButtonCategory: String? = null,
     val activeAutoButtonStartedAt: Long = 0L,
     val exerciseSets: List<ExerciseSetRecord> = emptyList(),
@@ -231,6 +216,7 @@ class ActivityViewModel(
         observeTodayActivities()
         observeAutoButtonSchedules()
         observeScheduledAutoButtonBlocks()
+        observeTodayCalendarAutoStartPetites()
         observeRecommendedTodoBlocks()
         observeIncompleteTodos()
         watchActiveSessionStore()
@@ -283,8 +269,6 @@ class ActivityViewModel(
             it.copy(
                 isRunning = true,
                 currentCategory = category,
-                elapsedTime = 0L,
-                timerGoalMillis = goalMillis,
                 startTime = startTime,
                 linkedTodoId = null,
                 sourceType = ActivitySourceType.MANUAL,
@@ -382,7 +366,7 @@ class ActivityViewModel(
         saveActiveSession(
             category = state.currentCategory,
             startTime = state.startTime,
-            goalMillis = state.timerGoalMillis,
+            goalMillis = _timerDisplayState.value.timerGoalMillis,
             linkedTodoId = state.linkedTodoId,
             linkedPetiteId = state.linkedPetiteId,
             pendingNote = state.pendingNote,
@@ -406,8 +390,6 @@ class ActivityViewModel(
             it.copy(
                 isRunning = true,
                 currentCategory = "TODO",
-                elapsedTime = 0L,
-                timerGoalMillis = goalMillis,
                 startTime = startTime,
                 linkedTodoId = todoId,
                 sourceType = ActivitySourceType.MANUAL,
@@ -446,8 +428,6 @@ class ActivityViewModel(
             it.copy(
                 isRunning = true,
                 currentCategory = cleanCategory,
-                elapsedTime = 0L,
-                timerGoalMillis = mainGoalMillis,
                 isRoutineActive = routineGoalMillis > 0L,
                 routineGoalMillis = routineGoalMillis,
                 startTime = startTime,
@@ -492,8 +472,6 @@ class ActivityViewModel(
             it.copy(
                 isRunning = true,
                 currentCategory = category,
-                elapsedTime = 0L,
-                timerGoalMillis = goalMillis,
                 startTime = startTime,
                 linkedTodoId = null,
                 sourceType = ActivitySourceType.MANUAL,
@@ -530,8 +508,6 @@ class ActivityViewModel(
             it.copy(
                 isRunning = true,
                 currentCategory = "TODO",
-                elapsedTime = 0L,
-                timerGoalMillis = goalMillis,
                 startTime = startTime,
                 linkedTodoId = linkedTodoId,
                 linkedPetiteId = block.petiteId,
@@ -689,8 +665,6 @@ class ActivityViewModel(
             it.copy(
                 isRunning = false,
                 currentCategory = "",
-                elapsedTime = 0L,
-                timerGoalMillis = TimerStateStore.DEFAULT_GOAL_MILLIS,
                 startTime = 0L,
                 linkedTodoId = null,
                 sourceType = ActivitySourceType.MANUAL,
@@ -929,16 +903,17 @@ class ActivityViewModel(
             while (_uiState.value.isRunning) {
                 val state = _uiState.value
                 val elapsedTime = System.currentTimeMillis() - state.startTime
+                val currentGoalMillis = _timerDisplayState.value.timerGoalMillis
                 _timerDisplayState.value = TimerDisplayState(
                     elapsedTime = elapsedTime,
-                    timerGoalMillis = state.timerGoalMillis
+                    timerGoalMillis = currentGoalMillis
                 )
 
                 val cueId = state.dailyCueId
                 val goalToCheck = if (state.isRoutineActive && state.routineGoalMillis > 0L)
                     state.routineGoalMillis
                 else
-                    state.timerGoalMillis
+                    currentGoalMillis
                 val shouldMarkCue = cueId != null &&
                     goalToCheck > 0L &&
                     elapsedTime >= goalToCheck &&
@@ -998,8 +973,6 @@ class ActivityViewModel(
             it.copy(
                 isRunning = true,
                 currentCategory = category,
-                elapsedTime = elapsedTime,
-                timerGoalMillis = goalMillis,
                 isRoutineActive = isRoutineActive,
                 routineGoalMillis = routineGoalMillis,
                 startTime = startTime,
@@ -1053,8 +1026,6 @@ class ActivityViewModel(
                     it.copy(
                         isRunning = false,
                         currentCategory = "",
-                        elapsedTime = 0L,
-                        timerGoalMillis = TimerStateStore.DEFAULT_GOAL_MILLIS,
                         startTime = 0L,
                         linkedTodoId = null,
                         sourceType = ActivitySourceType.MANUAL,
@@ -1069,6 +1040,7 @@ class ActivityViewModel(
         }
 
         if (activeTimer.sourceType == ActivitySourceType.AUTO_BUTTON) {
+            val isPinnedCategory = activeTimer.category == "SCHOOL" || activeTimer.category == "COMPANY"
             val changed = state.activeAutoButtonCategory != activeTimer.category ||
                 state.activeAutoButtonStartedAt != activeTimer.startTime
             if (changed) {
@@ -1079,7 +1051,8 @@ class ActivityViewModel(
                     )
                 }
             }
-            return
+            if (isPinnedCategory) return
+            // 비 SCHOOL/COMPANY AUTO_BUTTON은 도넛 타이머에도 표시
         }
 
         if (state.activeAutoButtonCategory != null) {
@@ -1102,8 +1075,6 @@ class ActivityViewModel(
                 it.copy(
                     isRunning = true,
                     currentCategory = activeTimer.category,
-                    elapsedTime = activeTimer.elapsedMillis,
-                    timerGoalMillis = activeTimer.goalMillis,
                     startTime = activeTimer.startTime,
                     linkedTodoId = activeTimer.linkedTodoId,
                     linkedPetiteId = activeTimer.linkedPetiteId,
@@ -1262,8 +1233,6 @@ class ActivityViewModel(
             it.copy(
                 isRunning = true,
                 currentCategory = "STUDY",
-                elapsedTime = 0L,
-                timerGoalMillis = goalMillis,
                 startTime = startTime,
                 linkedTodoId = todoId,
                 sourceType = ActivitySourceType.MANUAL,
@@ -1558,7 +1527,7 @@ class ActivityViewModel(
                 .filter { it.status == RecommendationStatus.PENDING }
                 .map { it.category }
                 .toSet()
-            val newRecommendations = _uiState.value.promotedButtons
+            val newRecommendations = _promotedButtons.value
                 .filter { category ->
                     category !in configuredCategories &&
                         category !in pendingCategories &&
@@ -1746,10 +1715,7 @@ class ActivityViewModel(
                 _uiState.update {
                     it.copy(
                         allActivities = activities,
-                        favoriteActivities = timedActivities.filter { activity -> activity.isFavorite },
-                        lastTimedActivity = timedActivities.maxByOrNull { activity -> activity.startTime },
-                        analytics = analytics,
-                        promotedButtons = promotedButtons
+                        analytics = analytics
                     )
                 }
             }
@@ -1810,28 +1776,11 @@ class ActivityViewModel(
                 val timedActivities = activities.filter { isTimedCategory(it.category) }
                 _uiState.update {
                     it.copy(
-                        todayActivities = timedActivities,
-                        dailyReport = buildDailyReport(timedActivities)
+                        todayActivities = timedActivities
                     )
                 }
             }
         }
-    }
-
-    private fun buildDailyReport(activities: List<ActivitySession>): DailyReport {
-        val totalsByCategory = activities.groupBy { it.category }
-            .mapValues { entry -> entry.value.sumOf { it.durationMillis } }
-        val topCategory = totalsByCategory.maxByOrNull { it.value }
-
-        return DailyReport(
-            sessionCount = activities.size,
-            totalMillis = activities.sumOf { it.durationMillis },
-            sleepMillis = totalsByCategory["SLEEP"] ?: 0L,
-            mealCount = activities.count { it.category == "MEAL" },
-            snackCount = 0,
-            topCategory = topCategory?.key ?: "NONE",
-            topCategoryMillis = topCategory?.value ?: 0L
-        )
     }
 
     private fun buildAnalytics(activities: List<ActivitySession>): AnalyticsState {
@@ -1976,8 +1925,6 @@ class ActivityViewModel(
             it.copy(
                 isRunning = false,
                 currentCategory = "",
-                elapsedTime = 0L,
-                timerGoalMillis = TimerStateStore.DEFAULT_GOAL_MILLIS,
                 startTime = 0L,
                 linkedTodoId = null,
                 sourceType = ActivitySourceType.MANUAL,
@@ -2066,6 +2013,45 @@ class ActivityViewModel(
                 _uiState.update { it.copy(scheduledAutoButtonBlocks = blocks) }
             }
         }
+    }
+
+    private fun observeTodayCalendarAutoStartPetites() {
+        viewModelScope.launch {
+            val todayDateKey = AutoButtonScheduleRepository.todayDateKey()
+            organizedPetiteRepository.observeTodayCalendarAutoStartPetites(todayDateKey).collect { petites ->
+                _uiState.update { it.copy(todayCalendarPetites = petites) }
+            }
+        }
+    }
+
+    fun updateCalendarPetiteTime(petiteId: String, startTime24: String, endTime24: String) {
+        viewModelScope.launch {
+            val sourceId = organizedPetiteRepository.updateCalendarPetiteAutoStartTimes(petiteId, startTime24, endTime24)
+            if (sourceId != null) {
+                val scheduleId = "cal-$sourceId"
+                val startMinute = parseTime24ToMinute(startTime24) ?: return@launch
+                val endMinute = parseTime24ToMinute(endTime24) ?: return@launch
+                autoButtonScheduleRepository.updateScheduleTime(scheduleId, startMinute, endMinute)
+                autoButtonScheduler.reschedule(scheduleId)
+            }
+        }
+    }
+
+    fun dismissCalendarPetiteToday(petiteId: String) {
+        viewModelScope.launch {
+            val sourceId = organizedPetiteRepository.dismissCalendarPetiteById(petiteId)
+            if (sourceId != null) {
+                autoButtonScheduleRepository.skipToday("cal-$sourceId")
+            }
+        }
+    }
+
+    private fun parseTime24ToMinute(time24: String): Int? {
+        val parts = time24.split(":")
+        val h = parts.getOrNull(0)?.toIntOrNull() ?: return null
+        val m = parts.getOrNull(1)?.toIntOrNull() ?: return null
+        if (h !in 0..23 || m !in 0..59) return null
+        return h * 60 + m
     }
 
     private fun observeRecommendedTodoBlocks() {
@@ -2181,10 +2167,9 @@ class ActivityViewModel(
     }
 
     fun toggleNotificationSound() {
-        val next = !_uiState.value.isNotificationSoundEnabled
+        val next = !_isNotificationSoundEnabled.value
         FocusModeStore.setNotificationSoundEnabled(appContext, next)
         _isNotificationSoundEnabled.value = next
-        _uiState.update { it.copy(isNotificationSoundEnabled = next) }
     }
 
     private fun restoreFocusModeState() {
@@ -2196,8 +2181,7 @@ class ActivityViewModel(
             _uiState.update {
                 it.copy(
                     isFocusModeActive = true,
-                    focusModeEndsAtMillis = state.endsAtMillis,
-                    isNotificationSoundEnabled = soundEnabled
+                    focusModeEndsAtMillis = state.endsAtMillis
                 )
             }
             startFocusModeCountdownJob(state.endsAtMillis)
@@ -2207,7 +2191,6 @@ class ActivityViewModel(
                 FocusDndController.restoreDnd(appContext)
                 FocusModeStore.clearFocusMode(appContext)
             }
-            _uiState.update { it.copy(isNotificationSoundEnabled = soundEnabled) }
         }
     }
 

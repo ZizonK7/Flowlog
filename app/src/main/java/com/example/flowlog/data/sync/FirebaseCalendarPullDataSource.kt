@@ -5,9 +5,11 @@ import android.util.Log
 import androidx.room.withTransaction
 import com.example.flowlog.data.agent.PetiteSourceType
 import com.example.flowlog.data.local.db.FlowlogDatabase
+import com.example.flowlog.data.local.entity.AutoButtonScheduleEntity
 import com.example.flowlog.data.local.entity.CalendarEventEntity
 import com.example.flowlog.data.local.entity.LectureCalendarInfoEntity
 import com.example.flowlog.data.local.entity.OrganizedPetiteEntity
+import com.example.flowlog.notification.AutoButtonScheduler
 import com.example.flowlog.data.remote.awaitResult
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
@@ -38,9 +40,11 @@ class FirebaseCalendarPullDataSource(context: Context) {
     private val appContext = context.applicationContext
     private val db = FlowlogDatabase.getInstance(appContext)
     private val petiteDao = db.organizedPetiteDao()
+    private val scheduleDao = db.autoButtonScheduleDao()
     private val calendarEventDao = db.calendarEventDao()
     private val lectureInfoDao = db.lectureCalendarInfoDao()
     private val firestore = FirebaseFirestore.getInstance()
+    private val autoButtonScheduler = AutoButtonScheduler(appContext)
 
     suspend fun pullTodayCalendar(userId: String): CalendarPullOutcome = withContext(Dispatchers.IO) {
         val (dayStart, dayEnd) = todayRange()
@@ -89,6 +93,9 @@ class FirebaseCalendarPullDataSource(context: Context) {
                         val title = doc.getString("title") ?: return@runCatching
                         val durationMinutes = endTime
                             ?.let { end -> ((end - startTime) / 60_000L).toInt().coerceAtLeast(1) }
+                        val autoStartEnabled = doc.getBoolean("autoStartEnabled") ?: false
+                        val autoStartTime24 = doc.getString("autoStartTime24") ?: ""
+                        val autoStartEndTime24 = doc.getString("autoStartEndTime24") ?: ""
                         petiteEntities.add(
                             OrganizedPetiteEntity(
                                 id = "calendar_$eventId",
@@ -100,7 +107,7 @@ class FirebaseCalendarPullDataSource(context: Context) {
                                 // #6: dateMillis = 오늘 자정(day-level, 다른 Petite 타입과 일관)
                                 dateMillis = dayStart,
                                 linkedActivityName = null,
-                                activityCategory = null,
+                                activityCategory = doc.getString("activityCategory"),
                                 isCompleted = false,          // 신규 삽입 시 초기값; 재-pull 시 보존됨
                                 priorityScore = (doc.getLong("priorityScore") ?: 0L).toInt(),
                                 burdenScore = null,
@@ -117,7 +124,10 @@ class FirebaseCalendarPullDataSource(context: Context) {
                                 rank = (doc.getLong("rank") ?: 0L).toInt(),
                                 isDismissed = false,          // 신규 삽입 시 초기값; 재-pull 시 보존됨
                                 createdAt = now,
-                                updatedAt = updatedAt
+                                updatedAt = updatedAt,
+                                autoStartEnabled = autoStartEnabled,
+                                autoStartTime24 = autoStartTime24,
+                                autoStartEndTime24 = autoStartEndTime24
                             )
                         )
                     }
@@ -201,6 +211,40 @@ class FirebaseCalendarPullDataSource(context: Context) {
             }
         }
 
+        // ── 4b. CALENDAR_PETITE: autoStart → auto_button_schedules 임시 row 동기화 ──
+        runCatching {
+            val todayDayOfWeek = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+            val todayMask = 1 shl todayDayOfWeek
+            scheduleDao.deleteCalendarSourcedForUser(userId)
+            petiteEntities.filter { it.autoStartEnabled && it.autoStartTime24.isNotEmpty() && it.autoStartEndTime24.isNotEmpty() }
+                .forEach { petite ->
+                    val startMinute = parseTime24ToMinute(petite.autoStartTime24) ?: return@forEach
+                    val endMinute = parseTime24ToMinute(petite.autoStartEndTime24) ?: return@forEach
+                    val scheduleId = "cal-${petite.sourceId}"
+                    scheduleDao.upsertCalendarSchedule(
+                        AutoButtonScheduleEntity(
+                            scheduleId = scheduleId,
+                            userId = userId,
+                            title = petite.title,
+                            category = petite.activityCategory?.ifBlank { null } ?: "STUDY",
+                            repeatDaysMask = todayMask,
+                            startMinuteOfDay = startMinute,
+                            endMinuteOfDay = endMinute,
+                            isEnabled = true,
+                            notifyOnStart = true,
+                            notifyOnEnd = false,
+                            createdAt = now,
+                            updatedAt = now,
+                            isDeleted = false,
+                            source = "CALENDAR"
+                        )
+                    )
+                }
+            autoButtonScheduler.rescheduleAll()
+        }.onFailure { e ->
+            Log.w(TAG, "Calendar schedule sync failed: ${e.message}")
+        }
+
         // ── 5. Lecture + GeneralEvent: atomic replace ──────────────────────
         // #5: pull 성공 시 항상 오늘 범위를 replace (서버 기준 — 비어있어도 로컬 정리)
         // #8: 두 테이블을 하나의 트랜잭션으로 묶어 partial 상태 방지
@@ -238,7 +282,7 @@ class FirebaseCalendarPullDataSource(context: Context) {
         )
     }
 
-    // users/{uid}/flowlog/calender 문서의 lessons 배열에서 오늘 날짜 항목을 lecture_calendar_infos에 저장
+    // users/{uid}/flowlog/calendar 문서의 lessons 배열에서 오늘 날짜 항목을 lecture_calendar_infos에 저장
     private suspend fun pullTodaySyllabusLessons(userId: String, dayStart: Long, dayEnd: Long): Int {
         val todayDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(dayStart))
 
@@ -371,6 +415,14 @@ class FirebaseCalendarPullDataSource(context: Context) {
         val dayEnd = cal.timeInMillis
 
         return dayStart to dayEnd
+    }
+
+    private fun parseTime24ToMinute(time24: String): Int? {
+        val parts = time24.split(":")
+        val h = parts.getOrNull(0)?.toIntOrNull() ?: return null
+        val m = parts.getOrNull(1)?.toIntOrNull() ?: return null
+        if (h !in 0..23 || m !in 0..59) return null
+        return h * 60 + m
     }
 
     companion object {

@@ -19,5 +19,6 @@ data class ScheduledAutoButtonBlock(
     val category: String,
     val startTime: Long,
     val endTime: Long,
-    val isSkippedToday: Boolean
+    val isSkippedToday: Boolean,
+    val isCalendarPetite: Boolean = false
 )

@@ -22,6 +22,7 @@ class AutoButtonScheduleRepository(context: Context) {
     private val db = FlowlogDatabase.getInstance(context)
     private val dao = db.autoButtonScheduleDao()
     private val activityDao = db.activityDao()
+    private val petiteDao = db.organizedPetiteDao()
 
     private val userId: String
         get() = FirebaseAuth.getInstance().currentUser?.uid ?: "anonymous"
@@ -44,13 +45,14 @@ class AutoButtonScheduleRepository(context: Context) {
             val dayOfWeek = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.DAY_OF_WEEK)
             combine(
                 observeSchedules(dateKey),
-                activityDao.observeTodayActivities(userId, dateKey, endOfDay)
-            ) { schedules, activities ->
+                activityDao.observeTodayActivities(userId, dateKey, endOfDay),
+                petiteDao.observeTodayCalendarAutoStartPetites(userId, dateKey)
+            ) { schedules, activities, calendarPetites ->
                 val completedAutoScheduleIds = activities
                     .filter { it.sourceType == ActivitySourceType.AUTO_BUTTON }
                     .mapNotNull { it.sourceId }
                     .toSet()
-                schedules.mapNotNull { schedule ->
+                val routineBlocks = schedules.mapNotNull { schedule ->
                     val startTime = dateKey + schedule.startMinuteOfDay * MILLIS_PER_MINUTE
                     val endTime = dateKey + schedule.endMinuteOfDay * MILLIS_PER_MINUTE
                     if (!schedule.isEnabled ||
@@ -70,6 +72,22 @@ class AutoButtonScheduleRepository(context: Context) {
                         isSkippedToday = false
                     )
                 }
+                val calendarBlocks = calendarPetites.mapNotNull { petite ->
+                    val startTime = time24ToMillis(petite.autoStartTime24, dateKey)
+                    val endTime = time24ToMillis(petite.autoStartEndTime24, dateKey)
+                    if (startTime == dateKey || endTime == dateKey || endTime <= now) return@mapNotNull null
+                    val scheduleId = "cal-${petite.sourceId}"
+                    ScheduledAutoButtonBlock(
+                        scheduleId = scheduleId,
+                        title = petite.title,
+                        category = petite.activityCategory ?: "STUDY",
+                        startTime = startTime,
+                        endTime = endTime,
+                        isSkippedToday = scheduleId in completedAutoScheduleIds,
+                        isCalendarPetite = true
+                    )
+                }
+                routineBlocks + calendarBlocks
             }
         }
     }
@@ -120,6 +138,10 @@ class AutoButtonScheduleRepository(context: Context) {
         dao.deleteSkipDatesForSchedule(scheduleId)
     }
 
+    suspend fun updateScheduleTime(scheduleId: String, startMinuteOfDay: Int, endMinuteOfDay: Int) {
+        dao.updateScheduleTime(scheduleId, startMinuteOfDay, endMinuteOfDay, System.currentTimeMillis())
+    }
+
     companion object {
         private const val MILLIS_PER_MINUTE = 60_000L
         private const val DAY_MILLIS = 24L * 60L * 60L * 1000L
@@ -133,6 +155,13 @@ class AutoButtonScheduleRepository(context: Context) {
         }
 
         fun todayDateKey(): Long = dateKey(System.currentTimeMillis())
+
+        fun time24ToMillis(time24: String, dateKey: Long): Long {
+            val parts = time24.split(":")
+            val hours = parts.getOrNull(0)?.toIntOrNull() ?: return dateKey
+            val minutes = parts.getOrNull(1)?.toIntOrNull() ?: return dateKey
+            return dateKey + (hours * 60 + minutes) * MILLIS_PER_MINUTE
+        }
 
         fun dateKey(timestamp: Long): Long {
             return Calendar.getInstance().apply {

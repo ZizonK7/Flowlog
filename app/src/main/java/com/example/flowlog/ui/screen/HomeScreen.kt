@@ -1,5 +1,6 @@
 package com.example.flowlog.ui.screen
 
+import android.content.Context
 import android.graphics.Paint
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -106,6 +107,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -128,6 +130,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
@@ -152,6 +155,7 @@ import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.ExerciseSetRecord
 import com.example.flowlog.ui.city.CityTimetableCard
 import com.example.flowlog.data.agent.OrganizedPetite
+import com.example.flowlog.data.local.entity.OrganizedPetiteEntity
 import com.example.flowlog.data.agent.PetiteSourceType
 import com.example.flowlog.data.model.AutoButtonSchedule
 import com.example.flowlog.data.model.MainButtonConfig
@@ -698,6 +702,7 @@ fun HomeScreen(
     if (autoButtonManagerOpen || localAutoButtonManagerOpen) {
         AutoButtonManagerSheet(
             schedules = uiState.autoButtonSchedules,
+            calendarPetites = uiState.todayCalendarPetites,
             categories = activityCategories,
             onDismiss = {
                 localAutoButtonManagerOpen = false
@@ -707,7 +712,9 @@ fun HomeScreen(
             onToggleEnabled = viewModel::setAutoButtonEnabled,
             onSkipToday = viewModel::skipAutoButtonToday,
             onUnskipToday = viewModel::unskipAutoButtonToday,
-            onDelete = viewModel::deleteAutoButtonSchedule
+            onDelete = viewModel::deleteAutoButtonSchedule,
+            onCalendarPetiteTimeUpdate = viewModel::updateCalendarPetiteTime,
+            onCalendarPetiteDismiss = viewModel::dismissCalendarPetiteToday
         )
     }
 
@@ -908,48 +915,30 @@ private fun TimerPage(
     isRoutineActive: Boolean = false,
     routineGoalMillis: Long = 0L
 ) {
-    var title by remember(currentCategory, startTime) { mutableStateOf("") }
-    var appliedTitle by remember(currentCategory, startTime) { mutableStateOf(initialAppliedTitle) }
+    val titleState = remember(currentCategory, startTime) { mutableStateOf("") }
+    val appliedTitleState = remember(currentCategory, startTime) { mutableStateOf(initialAppliedTitle) }
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
     val isFocusCategory = remember(currentCategory) {
         currentCategory in FOCUS_FIRE_CATEGORIES
     }
-    var showFocusConfirmDialog by remember { mutableStateOf(false) }
-    var showFocusStartedDialog by remember { mutableStateOf(false) }
-    var showFocusStopConfirmDialog by remember { mutableStateOf(false) }
-    var showDndPermissionDialog by remember { mutableStateOf(false) }
-    var doNotShowAgain by remember { mutableStateOf(false) }
-    var showExerciseAddSheet by remember { mutableStateOf(false) }
-    var exerciseSheetName by remember { mutableStateOf("팔굽혀펴기") }
-    var exercisePrefillRecord by remember { mutableStateOf<ExerciseSetRecord?>(null) }
-    var editingExerciseSetIndex by remember { mutableStateOf<Int?>(null) }
-    var activeTimedExerciseSet by remember { mutableStateOf<ExerciseTimedSetState?>(null) }
-    var showExerciseSummaryDialog by remember { mutableStateOf(false) }
+    val showFocusConfirmDialog = remember { mutableStateOf(false) }
+    val showFocusStartedDialog = remember { mutableStateOf(false) }
+    val showFocusStopConfirmDialog = remember { mutableStateOf(false) }
+    val showDndPermissionDialog = remember { mutableStateOf(false) }
+    val doNotShowAgain = remember { mutableStateOf(false) }
+    val showExerciseAddSheet = remember { mutableStateOf(false) }
+    val exerciseSheetName = remember { mutableStateOf("팔굽혀펴기") }
+    val exercisePrefillRecord = remember { mutableStateOf<ExerciseSetRecord?>(null) }
+    val editingExerciseSetIndex = remember { mutableStateOf<Int?>(null) }
+    val activeTimedExerciseSet = remember { mutableStateOf<ExerciseTimedSetState?>(null) }
+    val showExerciseSummaryDialog = remember { mutableStateOf(false) }
     // DND 체크박스 상태: 저장된 선호값으로 초기화
-    var enableDnd by remember { mutableStateOf(FocusModeStore.getEnableSystemDndForFocus(context)) }
+    val enableDnd = remember { mutableStateOf(FocusModeStore.getEnableSystemDndForFocus(context)) }
     // 시작됩니다 다이얼로그에서 DND 활성 여부 표시용
-    var focusModeStartedWithDnd by remember { mutableStateOf(false) }
-    val hasTimerGoal = timerGoalMillis > 0L
-    val usesFireCycle = currentCategory in FOCUS_FIRE_CATEGORIES && isFocusModeActive
-    val usesRoutineCycle = isRoutineActive && routineGoalMillis > 0L
-    val progressCycleMillis = when {
-        currentCategory == "EXPERIMENT_3" -> TimeUnit.SECONDS.toMillis(5)
-        usesRoutineCycle -> routineGoalMillis
-        else -> timerGoalMillis.coerceAtLeast(1L)
-    }
-    val progress = if (elapsedTime <= 0L) {
-        0f
-    } else if (!hasTimerGoal && !usesFireCycle && !usesRoutineCycle) {
-        0f
-    } else if (usesFireCycle) {
-        ((elapsedTime % progressCycleMillis).toFloat() / progressCycleMillis.toFloat()).coerceAtLeast(0.01f)
-    } else {
-        (elapsedTime.toFloat() / progressCycleMillis.toFloat()).coerceIn(0f, 1f)
-    }
-    val isOnFire = usesFireCycle
+    val focusModeStartedWithDnd = remember { mutableStateOf(false) }
 
-    activeTimedExerciseSet?.let { timedState ->
+    activeTimedExerciseSet.value?.let { timedState ->
         LaunchedEffect(timedState.token) {
             val startDelay = (timedState.startsAtMillis - System.currentTimeMillis()).coerceAtLeast(0L)
             kotlinx.coroutines.delay(startDelay)
@@ -957,118 +946,48 @@ private fun TimerPage(
             val endDelay = (timedState.endsAtMillis - System.currentTimeMillis()).coerceAtLeast(0L)
             kotlinx.coroutines.delay(endDelay)
             KakaoStyleAlertPlayer.play(context)
-            if (activeTimedExerciseSet?.token == timedState.token) {
-                activeTimedExerciseSet = null
+            if (activeTimedExerciseSet.value?.token == timedState.token) {
+                activeTimedExerciseSet.value = null
             }
         }
     }
-    val accentColor by animateColorAsState(
-        targetValue = if (isFocusFireActive) FocusFire else FlowPurple,
-        animationSpec = tween(durationMillis = 420),
-        label = "timer-accent-color"
-    )
-    val accentSoftColor by animateColorAsState(
-        targetValue = if (isFocusFireActive) FocusFireSoft else FlowPurpleSoft,
-        animationSpec = tween(durationMillis = 420),
-        label = "timer-accent-soft-color"
-    )
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(24.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "진행 중",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = accentColor
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 14.dp)
-                ) {
-                    Text(
-                        text = displayCategory(currentCategory),
-                        fontSize = 27.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = accentColor
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    CategoryGlyph(
-                        category = currentCategory,
-                        tint = accentColor,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-                val formattedTime = formatTime(elapsedTime)
-                val timeFontSize = when {
-                    formattedTime.length <= 5 -> 34.sp   // MM:SS
-                    formattedTime.length <= 7 -> 26.sp   // H:MM:SS (1–9시간)
-                    else -> 22.sp                         // HH:MM:SS (10시간+)
-                }
-                Box(
-                    modifier = Modifier
-                        .padding(top = 30.dp)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Text(
-                        text = formattedTime,
-                        fontSize = timeFontSize,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontFamily = FontFamily.Monospace,
-                        color = FlowInk,
-                        maxLines = 1,
-                        overflow = TextOverflow.Clip
-                    )
-                }
-                if (appliedTitle.isNotBlank()) {
-                    Text(
-                        text = appliedTitle,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = FlowMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 12.dp)
-                    )
-                }
-            }
-            FlowProgressRing(
-                progress = progress,
-                isOnFire = isOnFire,
-                isRunning = true,
-                modifier = Modifier.size(150.dp)
-            )
-        }
+        TimerRingSection(
+            currentCategory = currentCategory,
+            elapsedTime = elapsedTime,
+            timerGoalMillis = timerGoalMillis,
+            routineGoalMillis = routineGoalMillis,
+            isRoutineActive = isRoutineActive,
+            isFocusFireActive = isFocusFireActive,
+            appliedTitle = appliedTitleState.value
+        )
 
         Spacer(modifier = Modifier.height(22.dp))
         if (currentCategory == "EXERCISE") {
             ExerciseSetControls(
                 sets = exerciseSets,
-                timedSetState = activeTimedExerciseSet,
+                timedSetState = activeTimedExerciseSet.value,
                 onAddSameExercise = {
                     val recentSet = exerciseSets.lastOrNull()
-                    exercisePrefillRecord = recentSet
-                    exerciseSheetName = recentSet?.name ?: appliedTitle.ifBlank { "팔굽혀펴기" }
-                    showExerciseAddSheet = true
+                    exercisePrefillRecord.value = recentSet
+                    exerciseSheetName.value = recentSet?.name ?: appliedTitleState.value.ifBlank { "팔굽혀펴기" }
+                    showExerciseAddSheet.value = true
                 },
                 onAddOtherExercise = {
-                    exercisePrefillRecord = null
-                    exerciseSheetName = "팔굽혀펴기"
-                    showExerciseAddSheet = true
+                    exercisePrefillRecord.value = null
+                    exerciseSheetName.value = "팔굽혀펴기"
+                    showExerciseAddSheet.value = true
                 },
                 onEditSet = { index ->
-                    editingExerciseSetIndex = index
+                    editingExerciseSetIndex.value = index
                 },
                 onCompleteTimedSet = {
-                    val timedState = activeTimedExerciseSet
+                    val timedState = activeTimedExerciseSet.value
                     if (timedState != null && timedState.setIndex in exerciseSets.indices) {
                         val plannedDuration = timedState.record.durationMillis ?: 0L
                         val actualDuration = (System.currentTimeMillis() - timedState.startsAtMillis)
@@ -1080,237 +999,510 @@ private fun TimerPage(
                             )
                         })
                     }
-                    activeTimedExerciseSet = null
+                    activeTimedExerciseSet.value = null
                 }
             )
             Spacer(modifier = Modifier.height(16.dp))
-        } else if (titleSuggestions.isNotEmpty()) {
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(end = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(
-                    items = titleSuggestions,
-                    key = { suggestion -> suggestion }
-                ) { suggestion ->
-                    SuggestionChip(
-                        onClick = {
-                            title = suggestion
-                            appliedTitle = suggestion
-                            onApplyTitle(suggestion)
-                        },
-                        label = {
-                            Text(
-                                text = suggestion,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        },
-                        colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = accentSoftColor,
-                            labelColor = accentColor
-                        ),
-                        border = null
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-        }
-        if (currentCategory != "EXERCISE") {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-            BasicTextField(
-                value = title,
-                onValueChange = { title = it },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(46.dp)
-                    .border(1.dp, FlowDivider, RoundedCornerShape(13.dp))
-                    .background(Color.White, RoundedCornerShape(13.dp))
-                    .padding(horizontal = 14.dp),
-                singleLine = true,
-                textStyle = TextStyle(
-                    color = FlowInk,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                ),
-                cursorBrush = SolidColor(accentColor),
-                decorationBox = { innerTextField ->
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Edit,
-                            contentDescription = null,
-                            tint = accentColor.copy(alpha = 0.58f),
-                            modifier = Modifier.size(19.dp)
-                        )
-                        Spacer(modifier = Modifier.width(9.dp))
-                        Box(
-                            modifier = Modifier.weight(1f),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            if (title.isEmpty()) {
-                                Text(
-                                    text = "직접 입력",
-                                    color = FlowMuted.copy(alpha = 0.78f),
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                            innerTextField()
-                        }
-                    }
+        } else {
+            TitleInputSection(
+                titleSuggestions = titleSuggestions,
+                title = titleState.value,
+                isFocusFireActive = isFocusFireActive,
+                focusManager = focusManager,
+                onTitleChange = { titleState.value = it },
+                onSuggestionSelected = { suggestion ->
+                    titleState.value = suggestion
+                    appliedTitleState.value = suggestion
+                    onApplyTitle(suggestion)
+                },
+                onApply = {
+                    val cleanTitle = titleState.value.trim()
+                    titleState.value = cleanTitle
+                    appliedTitleState.value = cleanTitle
+                    onApplyTitle(cleanTitle)
                 }
             )
-            Button(
-                onClick = {
-                    val cleanTitle = title.trim()
-                    title = cleanTitle
-                    appliedTitle = cleanTitle
-                    onApplyTitle(cleanTitle)
-                    focusManager.clearFocus()
-                },
-                modifier = Modifier
-                    .width(66.dp)
-                    .height(46.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = accentColor,
-                    contentColor = Color.White
-                ),
-                elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
-                contentPadding = PaddingValues(horizontal = 0.dp)
-            ) {
-                Text(
-                    text = "적용",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 1
-                )
-            }
-            }
         }
         if (currentCategory != "EXERCISE" && isFocusCategory) {
             Spacer(modifier = Modifier.height(10.dp))
-            if (isFocusModeActive) {
-                val focusRemainingMillis = (focusModeEndsAtMillis - System.currentTimeMillis())
-                    .coerceAtLeast(0L)
-                OutlinedButton(
-                    onClick = { showFocusStopConfirmDialog = true },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = accentSoftColor,
-                        contentColor = accentColor
-                    ),
-                    border = BorderStroke(1.dp, accentColor.copy(alpha = 0.4f)),
-                    contentPadding = PaddingValues(horizontal = 16.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Bedtime,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "집중 중  ·  ${formatCountdown(focusRemainingMillis)}  남음",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            } else {
-                OutlinedButton(
-                    onClick = {
-                        if (FocusModeStore.isFocusConfirmAcknowledged(context)) {
-                            val dndPref = FocusModeStore.getEnableSystemDndForFocus(context)
-                            // 권한 만료 시 DND 없이 시작 (사용자 차단 방지)
-                            val effectiveDnd = dndPref && FocusDndController.hasPolicyAccess(context)
-                            focusModeStartedWithDnd = effectiveDnd
-                            onStartFocusMode(effectiveDnd)
-                            showFocusStartedDialog = true
-                        } else {
-                            enableDnd = FocusModeStore.getEnableSystemDndForFocus(context)
-                            doNotShowAgain = false
-                            showFocusConfirmDialog = true
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = Color.Transparent,
-                        contentColor = accentColor
-                    ),
-                    border = BorderStroke(1.dp, accentColor.copy(alpha = 0.4f)),
-                    contentPadding = PaddingValues(horizontal = 16.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Bedtime,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "집중하기 (${FocusModeStore.FOCUS_DURATION_LABEL})",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+            FocusBannerSection(
+                isFocusModeActive = isFocusModeActive,
+                focusModeEndsAtMillis = focusModeEndsAtMillis,
+                isFocusFireActive = isFocusFireActive,
+                onStart = {
+                    if (FocusModeStore.isFocusConfirmAcknowledged(context)) {
+                        val dndPref = FocusModeStore.getEnableSystemDndForFocus(context)
+                        // 권한 만료 시 DND 없이 시작 (사용자 차단 방지)
+                        val effectiveDnd = dndPref && FocusDndController.hasPolicyAccess(context)
+                        focusModeStartedWithDnd.value = effectiveDnd
+                        onStartFocusMode(effectiveDnd)
+                        showFocusStartedDialog.value = true
+                    } else {
+                        enableDnd.value = FocusModeStore.getEnableSystemDndForFocus(context)
+                        doNotShowAgain.value = false
+                        showFocusConfirmDialog.value = true
+                    }
+                },
+                onRequestStop = { showFocusStopConfirmDialog.value = true }
+            )
             Spacer(modifier = Modifier.height(12.dp))
         } else {
             Spacer(modifier = Modifier.height(22.dp))
         }
-        Box(
+        StopActionSection(
+            currentCategory = currentCategory,
+            title = titleState.value,
+            appliedTitle = appliedTitleState.value,
+            onApplyTitle = onApplyTitle,
+            onStop = onStop,
+            onShowExerciseSummary = { showExerciseSummaryDialog.value = true }
+        )
+    }
+
+    // ExerciseFinishDialog는 운동 종료 확인 중 실시간으로 늘어나는 총 시간을 보여줘야 해서
+    // elapsedTime을 그대로 받는다 — TimerDialogsSection(elapsedTime 비의존)에는 포함하지 않음.
+    if (showExerciseSummaryDialog.value) {
+        ExerciseFinishDialog(
+            sets = exerciseSets,
+            elapsedTime = elapsedTime,
+            memo = exerciseMemo,
+            onMemoChange = { onExerciseMemoChanged(it) },
+            onDismiss = { showExerciseSummaryDialog.value = false },
+            onSave = {
+                val finalTitle = exerciseSets.firstOrNull()?.name
+                    ?: appliedTitleState.value.ifBlank { titleState.value }.ifBlank { "운동" }
+                onApplyTitle(finalTitle)
+                onStop(finalTitle, exerciseMemo.trim().ifBlank { null }, exerciseSets)
+                showExerciseSummaryDialog.value = false
+            }
+        )
+    }
+
+    TimerDialogsSection(
+        context = context,
+        isFocusFireActive = isFocusFireActive,
+        exerciseSets = exerciseSets,
+        onExerciseSetsChanged = onExerciseSetsChanged,
+        onApplyTitle = onApplyTitle,
+        onStartFocusMode = onStartFocusMode,
+        onStopFocusMode = onStopFocusMode,
+        titleState = titleState,
+        appliedTitleState = appliedTitleState,
+        showExerciseAddSheetState = showExerciseAddSheet,
+        editingExerciseSetIndexState = editingExerciseSetIndex,
+        exerciseSheetNameState = exerciseSheetName,
+        exercisePrefillRecordState = exercisePrefillRecord,
+        activeTimedExerciseSetState = activeTimedExerciseSet,
+        showFocusConfirmDialogState = showFocusConfirmDialog,
+        showFocusStartedDialogState = showFocusStartedDialog,
+        showFocusStopConfirmDialogState = showFocusStopConfirmDialog,
+        showDndPermissionDialogState = showDndPermissionDialog,
+        enableDndState = enableDnd,
+        doNotShowAgainState = doNotShowAgain,
+        focusModeStartedWithDndState = focusModeStartedWithDnd
+    )
+}
+
+// elapsedTime이 실제로 필요한 유일한 섹션 — 진행률 링과 시간 텍스트만 담당.
+// 타이머가 도는 동안 1초마다 재구성되는 범위를 이 섹션 하나로 한정한다.
+@Composable
+private fun TimerRingSection(
+    currentCategory: String,
+    elapsedTime: Long,
+    timerGoalMillis: Long,
+    routineGoalMillis: Long,
+    isRoutineActive: Boolean,
+    isFocusFireActive: Boolean,
+    appliedTitle: String
+) {
+    val accentColor by animateColorAsState(
+        targetValue = if (isFocusFireActive) FocusFire else FlowPurple,
+        animationSpec = tween(durationMillis = 420),
+        label = "timer-ring-accent-color"
+    )
+    val hasTimerGoal = timerGoalMillis > 0L
+    val usesRoutineCycle = isRoutineActive && routineGoalMillis > 0L
+    val progressCycleMillis = when {
+        currentCategory == "EXPERIMENT_3" -> TimeUnit.SECONDS.toMillis(5)
+        usesRoutineCycle -> routineGoalMillis
+        else -> timerGoalMillis.coerceAtLeast(1L)
+    }
+    // TimerPage는 isRunning=true일 때만 보이므로 isFocusFireActive는 곧
+    // "currentCategory in FOCUS_FIRE_CATEGORIES && isFocusModeActive"와 동치다.
+    val progress = if (elapsedTime <= 0L) {
+        0f
+    } else if (!hasTimerGoal && !isFocusFireActive && !usesRoutineCycle) {
+        0f
+    } else if (isFocusFireActive) {
+        ((elapsedTime % progressCycleMillis).toFloat() / progressCycleMillis.toFloat()).coerceAtLeast(0.01f)
+    } else {
+        (elapsedTime.toFloat() / progressCycleMillis.toFloat()).coerceIn(0f, 1f)
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "진행 중",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = accentColor
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 14.dp)
+            ) {
+                Text(
+                    text = displayCategory(currentCategory),
+                    fontSize = 27.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = accentColor
+                )
+                Spacer(Modifier.width(10.dp))
+                CategoryGlyph(
+                    category = currentCategory,
+                    tint = accentColor,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+            val formattedTime = formatTime(elapsedTime)
+            val timeFontSize = when {
+                formattedTime.length <= 5 -> 34.sp   // MM:SS
+                formattedTime.length <= 7 -> 26.sp   // H:MM:SS (1–9시간)
+                else -> 22.sp                         // HH:MM:SS (10시간+)
+            }
+            Box(
+                modifier = Modifier
+                    .padding(top = 30.dp)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    text = formattedTime,
+                    fontSize = timeFontSize,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontFamily = FontFamily.Monospace,
+                    color = FlowInk,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip
+                )
+            }
+            if (appliedTitle.isNotBlank()) {
+                Text(
+                    text = appliedTitle,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = FlowMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+            }
+        }
+        FlowProgressRing(
+            progress = progress,
+            isOnFire = isFocusFireActive,
+            isRunning = true,
+            modifier = Modifier.size(150.dp)
+        )
+    }
+}
+
+// elapsedTime을 받지 않음 — title/appliedTitle/titleSuggestions에만 의존.
+@Composable
+private fun TitleInputSection(
+    titleSuggestions: List<String>,
+    title: String,
+    isFocusFireActive: Boolean,
+    focusManager: FocusManager,
+    onTitleChange: (String) -> Unit,
+    onSuggestionSelected: (String) -> Unit,
+    onApply: () -> Unit
+) {
+    val accentColor by animateColorAsState(
+        targetValue = if (isFocusFireActive) FocusFire else FlowPurple,
+        animationSpec = tween(durationMillis = 420),
+        label = "title-input-accent-color"
+    )
+    val accentSoftColor by animateColorAsState(
+        targetValue = if (isFocusFireActive) FocusFireSoft else FlowPurpleSoft,
+        animationSpec = tween(durationMillis = 420),
+        label = "title-input-accent-soft-color"
+    )
+    if (titleSuggestions.isNotEmpty()) {
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(end = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(
+                items = titleSuggestions,
+                key = { suggestion -> suggestion }
+            ) { suggestion ->
+                SuggestionChip(
+                    onClick = { onSuggestionSelected(suggestion) },
+                    label = {
+                        Text(
+                            text = suggestion,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    },
+                    colors = SuggestionChipDefaults.suggestionChipColors(
+                        containerColor = accentSoftColor,
+                        labelColor = accentColor
+                    ),
+                    border = null
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        BasicTextField(
+            value = title,
+            onValueChange = onTitleChange,
             modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(FlowDivider)
+                .weight(1f)
+                .height(46.dp)
+                .border(1.dp, FlowDivider, RoundedCornerShape(13.dp))
+                .background(Color.White, RoundedCornerShape(13.dp))
+                .padding(horizontal = 14.dp),
+            singleLine = true,
+            textStyle = TextStyle(
+                color = FlowInk,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            ),
+            cursorBrush = SolidColor(accentColor),
+            decorationBox = { innerTextField ->
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Edit,
+                        contentDescription = null,
+                        tint = accentColor.copy(alpha = 0.58f),
+                        modifier = Modifier.size(19.dp)
+                    )
+                    Spacer(modifier = Modifier.width(9.dp))
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (title.isEmpty()) {
+                            Text(
+                                text = "직접 입력",
+                                color = FlowMuted.copy(alpha = 0.78f),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        innerTextField()
+                    }
+                }
+            }
         )
         Button(
             onClick = {
-                val finalTitle = appliedTitle.ifBlank { title }.trim()
-                onApplyTitle(finalTitle)
-                if (currentCategory == "EXERCISE") {
-                    showExerciseSummaryDialog = true
-                } else {
-                    onStop(finalTitle, null, emptyList())
-                }
+                onApply()
+                focusManager.clearFocus()
             },
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 14.dp),
+                .width(66.dp)
+                .height(46.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = Color.Transparent,
-                contentColor = Color(0xFFFF4D5E)
+                containerColor = accentColor,
+                contentColor = Color.White
             ),
             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
-            contentPadding = PaddingValues(vertical = 4.dp)
+            contentPadding = PaddingValues(horizontal = 0.dp)
         ) {
             Text(
-                text = if (currentCategory == "EXERCISE") "운동 종료하기" else "종료하기",
-                fontSize = 17.sp,
-                fontWeight = FontWeight.ExtraBold
+                text = "적용",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1
             )
         }
     }
+}
 
-    if (showExerciseAddSheet || editingExerciseSetIndex != null) {
-        val editingIndex = editingExerciseSetIndex
+// elapsedTime을 받지 않음 — focusModeEndsAtMillis 기준으로 자체 1초 tick을 갖는다.
+@Composable
+private fun FocusBannerSection(
+    isFocusModeActive: Boolean,
+    focusModeEndsAtMillis: Long,
+    isFocusFireActive: Boolean,
+    onStart: () -> Unit,
+    onRequestStop: () -> Unit
+) {
+    val accentColor by animateColorAsState(
+        targetValue = if (isFocusFireActive) FocusFire else FlowPurple,
+        animationSpec = tween(durationMillis = 420),
+        label = "focus-banner-accent-color"
+    )
+    val accentSoftColor by animateColorAsState(
+        targetValue = if (isFocusFireActive) FocusFireSoft else FlowPurpleSoft,
+        animationSpec = tween(durationMillis = 420),
+        label = "focus-banner-accent-soft-color"
+    )
+    if (isFocusModeActive) {
+        var remainingLabel by remember(focusModeEndsAtMillis) {
+            mutableStateOf(formatCountdown((focusModeEndsAtMillis - System.currentTimeMillis()).coerceAtLeast(0L)))
+        }
+        LaunchedEffect(focusModeEndsAtMillis) {
+            while (focusModeEndsAtMillis > System.currentTimeMillis()) {
+                kotlinx.coroutines.delay(1_000L)
+                remainingLabel = formatCountdown((focusModeEndsAtMillis - System.currentTimeMillis()).coerceAtLeast(0L))
+            }
+            remainingLabel = formatCountdown(0L)
+        }
+        OutlinedButton(
+            onClick = onRequestStop,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = accentSoftColor,
+                contentColor = accentColor
+            ),
+            border = BorderStroke(1.dp, accentColor.copy(alpha = 0.4f)),
+            contentPadding = PaddingValues(horizontal = 16.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Bedtime,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "집중 중  ·  $remainingLabel  남음",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    } else {
+        OutlinedButton(
+            onClick = onStart,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = Color.Transparent,
+                contentColor = accentColor
+            ),
+            border = BorderStroke(1.dp, accentColor.copy(alpha = 0.4f)),
+            contentPadding = PaddingValues(horizontal = 16.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Bedtime,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "집중하기 (${FocusModeStore.FOCUS_DURATION_LABEL})",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+// elapsedTime을 받지 않음 — currentCategory/title/appliedTitle만으로 종료 처리.
+@Composable
+private fun StopActionSection(
+    currentCategory: String,
+    title: String,
+    appliedTitle: String,
+    onApplyTitle: (String) -> Unit,
+    onStop: (String, String?, List<ExerciseSetRecord>) -> Unit,
+    onShowExerciseSummary: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(FlowDivider)
+    )
+    Button(
+        onClick = {
+            val finalTitle = appliedTitle.ifBlank { title }.trim()
+            onApplyTitle(finalTitle)
+            if (currentCategory == "EXERCISE") {
+                onShowExerciseSummary()
+            } else {
+                onStop(finalTitle, null, emptyList())
+            }
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 14.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.Transparent,
+            contentColor = Color(0xFFFF4D5E)
+        ),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
+        contentPadding = PaddingValues(vertical = 4.dp)
+    ) {
+        Text(
+            text = if (currentCategory == "EXERCISE") "운동 종료하기" else "종료하기",
+            fontSize = 17.sp,
+            fontWeight = FontWeight.ExtraBold
+        )
+    }
+}
+
+// elapsedTime을 받지 않음 — ExerciseAddSetSheet + 포커스/DND 다이얼로그 4종만 묶는다.
+// (ExerciseFinishDialog는 elapsedTime이 꼭 필요해서 TimerPage에 별도로 남겨둠)
+@Composable
+private fun TimerDialogsSection(
+    context: Context,
+    isFocusFireActive: Boolean,
+    exerciseSets: List<ExerciseSetRecord>,
+    onExerciseSetsChanged: (List<ExerciseSetRecord>) -> Unit,
+    onApplyTitle: (String) -> Unit,
+    onStartFocusMode: (enableDnd: Boolean) -> Unit,
+    onStopFocusMode: () -> Unit,
+    titleState: MutableState<String>,
+    appliedTitleState: MutableState<String>,
+    showExerciseAddSheetState: MutableState<Boolean>,
+    editingExerciseSetIndexState: MutableState<Int?>,
+    exerciseSheetNameState: MutableState<String>,
+    exercisePrefillRecordState: MutableState<ExerciseSetRecord?>,
+    activeTimedExerciseSetState: MutableState<ExerciseTimedSetState?>,
+    showFocusConfirmDialogState: MutableState<Boolean>,
+    showFocusStartedDialogState: MutableState<Boolean>,
+    showFocusStopConfirmDialogState: MutableState<Boolean>,
+    showDndPermissionDialogState: MutableState<Boolean>,
+    enableDndState: MutableState<Boolean>,
+    doNotShowAgainState: MutableState<Boolean>,
+    focusModeStartedWithDndState: MutableState<Boolean>
+) {
+    val accentColor by animateColorAsState(
+        targetValue = if (isFocusFireActive) FocusFire else FlowPurple,
+        animationSpec = tween(durationMillis = 420),
+        label = "timer-dialogs-accent-color"
+    )
+
+    if (showExerciseAddSheetState.value || editingExerciseSetIndexState.value != null) {
+        val editingIndex = editingExerciseSetIndexState.value
         val editingRecord = editingIndex?.let { exerciseSets.getOrNull(it) }
         ExerciseAddSetSheet(
-            initialName = editingRecord?.name ?: exerciseSheetName,
+            initialName = editingRecord?.name ?: exerciseSheetNameState.value,
             initialRecord = editingRecord,
-            prefillRecord = if (editingRecord == null) exercisePrefillRecord else null,
+            prefillRecord = if (editingRecord == null) exercisePrefillRecordState.value else null,
             onDismiss = {
-                showExerciseAddSheet = false
-                editingExerciseSetIndex = null
-                exercisePrefillRecord = null
+                showExerciseAddSheetState.value = false
+                editingExerciseSetIndexState.value = null
+                exercisePrefillRecordState.value = null
             },
             onSave = { record ->
                 val timedSetIndex = if (editingIndex != null && editingIndex in exerciseSets.indices) {
@@ -1329,46 +1521,29 @@ private fun TimerPage(
                     updatedExerciseSets.isNotEmpty() -> updatedExerciseSets.first().name
                     else -> record.name
                 }
-                title = nextTitle
-                appliedTitle = nextTitle
+                titleState.value = nextTitle
+                appliedTitleState.value = nextTitle
                 onApplyTitle(nextTitle)
                 val isAddingNewSet = editingIndex == null || editingIndex !in exerciseSets.indices
                 if (isAddingNewSet && record.mode == "TIME" && record.durationMillis != null) {
                     val startsAt = System.currentTimeMillis() + 5_000L
-                    activeTimedExerciseSet = ExerciseTimedSetState(
+                    activeTimedExerciseSetState.value = ExerciseTimedSetState(
                         setIndex = timedSetIndex,
                         record = record,
                         startsAtMillis = startsAt,
                         endsAtMillis = startsAt + record.durationMillis
                     )
                 }
-                showExerciseAddSheet = false
-                editingExerciseSetIndex = null
-                exercisePrefillRecord = null
+                showExerciseAddSheetState.value = false
+                editingExerciseSetIndexState.value = null
+                exercisePrefillRecordState.value = null
             }
         )
     }
 
-    if (showExerciseSummaryDialog) {
-        ExerciseFinishDialog(
-            sets = exerciseSets,
-            elapsedTime = elapsedTime,
-            memo = exerciseMemo,
-            onMemoChange = { onExerciseMemoChanged(it) },
-            onDismiss = { showExerciseSummaryDialog = false },
-            onSave = {
-                val finalTitle = exerciseSets.firstOrNull()?.name
-                    ?: appliedTitle.ifBlank { title }.ifBlank { "운동" }
-                onApplyTitle(finalTitle)
-                onStop(finalTitle, exerciseMemo.trim().ifBlank { null }, exerciseSets)
-                showExerciseSummaryDialog = false
-            }
-        )
-    }
-
-    if (showFocusConfirmDialog) {
+    if (showFocusConfirmDialogState.value) {
         AlertDialog(
-            onDismissRequest = { showFocusConfirmDialog = false },
+            onDismissRequest = { showFocusConfirmDialogState.value = false },
             containerColor = Color.White,
             title = {
                 Text(
@@ -1391,13 +1566,13 @@ private fun TimerPage(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Checkbox(
-                            checked = enableDnd,
+                            checked = enableDndState.value,
                             onCheckedChange = { checked ->
                                 if (checked && !FocusDndController.hasPolicyAccess(context)) {
-                                    showDndPermissionDialog = true
+                                    showDndPermissionDialogState.value = true
                                     // 권한 없으면 체크 반영 안 함
                                 } else {
-                                    enableDnd = checked
+                                    enableDndState.value = checked
                                 }
                             },
                             colors = CheckboxDefaults.colors(
@@ -1417,8 +1592,8 @@ private fun TimerPage(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Checkbox(
-                            checked = doNotShowAgain,
-                            onCheckedChange = { doNotShowAgain = it },
+                            checked = doNotShowAgainState.value,
+                            onCheckedChange = { doNotShowAgainState.value = it },
                             colors = CheckboxDefaults.colors(
                                 checkedColor = accentColor,
                                 uncheckedColor = FlowMuted
@@ -1434,18 +1609,18 @@ private fun TimerPage(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showFocusConfirmDialog = false }) {
+                TextButton(onClick = { showFocusConfirmDialogState.value = false }) {
                     Text("취소", color = FlowMuted, fontWeight = FontWeight.Bold)
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        if (doNotShowAgain) FocusModeStore.setFocusConfirmAcknowledged(context)
-                        showFocusConfirmDialog = false
-                        focusModeStartedWithDnd = enableDnd
-                        onStartFocusMode(enableDnd)
-                        showFocusStartedDialog = true
+                        if (doNotShowAgainState.value) FocusModeStore.setFocusConfirmAcknowledged(context)
+                        showFocusConfirmDialogState.value = false
+                        focusModeStartedWithDndState.value = enableDndState.value
+                        onStartFocusMode(enableDndState.value)
+                        showFocusStartedDialogState.value = true
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = accentColor,
@@ -1459,9 +1634,9 @@ private fun TimerPage(
         )
     }
 
-    if (showFocusStartedDialog) {
+    if (showFocusStartedDialogState.value) {
         AlertDialog(
-            onDismissRequest = { showFocusStartedDialog = false },
+            onDismissRequest = { showFocusStartedDialogState.value = false },
             containerColor = Color.White,
             title = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
@@ -1482,7 +1657,7 @@ private fun TimerPage(
                 }
             },
             text = {
-                val startedText = if (focusModeStartedWithDnd) {
+                val startedText = if (focusModeStartedWithDndState.value) {
                     "${FocusModeStore.FOCUS_DURATION_LABEL} 동안 알림음과 시스템 방해금지가 켜지고,\n${FocusModeStore.FOCUS_DURATION_LABEL} 뒤에 알람이 울립니다."
                 } else {
                     "${FocusModeStore.FOCUS_DURATION_LABEL} 동안 알림음이 꺼지고,\n${FocusModeStore.FOCUS_DURATION_LABEL} 뒤에 알람이 울립니다."
@@ -1497,7 +1672,7 @@ private fun TimerPage(
             },
             confirmButton = {
                 Button(
-                    onClick = { showFocusStartedDialog = false },
+                    onClick = { showFocusStartedDialogState.value = false },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = FlowPurple,
@@ -1511,9 +1686,9 @@ private fun TimerPage(
         )
     }
 
-    if (showFocusStopConfirmDialog) {
+    if (showFocusStopConfirmDialogState.value) {
         AlertDialog(
-            onDismissRequest = { showFocusStopConfirmDialog = false },
+            onDismissRequest = { showFocusStopConfirmDialogState.value = false },
             containerColor = Color.White,
             title = {
                 Text(
@@ -1531,7 +1706,7 @@ private fun TimerPage(
                 )
             },
             dismissButton = {
-                TextButton(onClick = { showFocusStopConfirmDialog = false }) {
+                TextButton(onClick = { showFocusStopConfirmDialogState.value = false }) {
                     Text("취소", color = FlowMuted, fontWeight = FontWeight.Bold)
                 }
             },
@@ -1539,7 +1714,7 @@ private fun TimerPage(
                 Button(
                     onClick = {
                         onStopFocusMode()
-                        showFocusStopConfirmDialog = false
+                        showFocusStopConfirmDialogState.value = false
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = FlowPurple,
@@ -1553,9 +1728,9 @@ private fun TimerPage(
         )
     }
 
-    if (showDndPermissionDialog) {
+    if (showDndPermissionDialogState.value) {
         AlertDialog(
-            onDismissRequest = { showDndPermissionDialog = false },
+            onDismissRequest = { showDndPermissionDialogState.value = false },
             containerColor = Color.White,
             title = {
                 Text(
@@ -1573,14 +1748,14 @@ private fun TimerPage(
                 )
             },
             dismissButton = {
-                TextButton(onClick = { showDndPermissionDialog = false }) {
+                TextButton(onClick = { showDndPermissionDialogState.value = false }) {
                     Text("나중에", color = FlowMuted, fontWeight = FontWeight.Bold)
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        showDndPermissionDialog = false
+                        showDndPermissionDialogState.value = false
                         FocusDndController.openPolicyAccessSettings(context)
                     },
                     colors = ButtonDefaults.buttonColors(
@@ -2605,8 +2780,9 @@ private fun FlowStartPage(
     }
 
     val visibleCategories = remember(displayCategories, activeCategory, pinnedQuickCategory) {
+        val pinIsSchoolOrCompany = pinnedQuickCategory == "SCHOOL" || pinnedQuickCategory == "COMPANY"
         displayCategories.filterNot { category ->
-            category == activeCategory || category == pinnedQuickCategory
+            category == activeCategory || (pinIsSchoolOrCompany && category == pinnedQuickCategory)
         }
     }
 
@@ -2982,7 +3158,7 @@ private fun QuickTimerSection(
             .fillMaxWidth()
             .padding(horizontal = 18.dp, vertical = 8.dp)
     ) {
-        pinnedCategory?.let { category ->
+        pinnedCategory?.takeIf { it == "SCHOOL" || it == "COMPANY" }?.let { category ->
             CategoryButton(
                 category = category,
                 isSelected = true,
@@ -5795,13 +5971,16 @@ private fun MainButtonMenuRow(
 @Composable
 private fun AutoButtonManagerSheet(
     schedules: List<AutoButtonSchedule>,
+    calendarPetites: List<OrganizedPetiteEntity>,
     categories: List<String>,
     onDismiss: () -> Unit,
     onSave: (AutoButtonSchedule) -> Unit,
     onToggleEnabled: (String, Boolean) -> Unit,
     onSkipToday: (String) -> Unit,
     onUnskipToday: (String) -> Unit,
-    onDelete: (String) -> Unit
+    onDelete: (String) -> Unit,
+    onCalendarPetiteTimeUpdate: (String, String, String) -> Unit,
+    onCalendarPetiteDismiss: (String) -> Unit
 ) {
     var editing by remember { mutableStateOf<AutoButtonSchedule?>(null) }
     var confirmDeleteId by remember { mutableStateOf<String?>(null) }
@@ -5869,7 +6048,33 @@ private fun AutoButtonManagerSheet(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                if (calendarPetites.isNotEmpty()) {
+                    Text(
+                        "오늘 고정 시간",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = FlowMuted
+                    )
+                    calendarPetites.forEach { petite ->
+                        CalendarPetiteRow(
+                            petite = petite,
+                            onEditTime = { onCalendarPetiteTimeUpdate(petite.id, it.first, it.second) },
+                            onDismiss = { onCalendarPetiteDismiss(petite.id) }
+                        )
+                    }
+                    if (schedules.isNotEmpty()) {
+                        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(FlowDivider))
+                    }
+                }
                 if (schedules.isNotEmpty()) {
+                    if (calendarPetites.isNotEmpty()) {
+                        Text(
+                            "반복 루틴",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = FlowMuted
+                        )
+                    }
                     schedules.forEach { schedule ->
                         AutoButtonScheduleRow(
                             schedule = schedule,
@@ -5949,6 +6154,168 @@ private fun AutoButtonManagerSheet(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun CalendarPetiteRow(
+    petite: OrganizedPetiteEntity,
+    onEditTime: (Pair<String, String>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var editingTime by remember { mutableStateOf(false) }
+    val accent = Color(0xFF00897B)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White, RoundedCornerShape(16.dp))
+            .border(1.dp, FlowDivider, RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        "오늘만",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier
+                            .background(accent, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    )
+                    Text(
+                        "캘린더",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = accent
+                    )
+                }
+                Text(
+                    petite.title,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = FlowInk,
+                    modifier = Modifier.padding(top = 6.dp),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "${petite.autoStartTime24} - ${petite.autoStartEndTime24}",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = FlowMuted,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+            IconButton(onClick = { editingTime = true }) {
+                Icon(
+                    Icons.Filled.Edit,
+                    contentDescription = "시간 수정",
+                    tint = FlowMuted,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = "오늘 삭제",
+                    tint = FlowMuted,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+    if (editingTime) {
+        CalendarPetiteTimeEditSheet(
+            initialStart = petite.autoStartTime24,
+            initialEnd = petite.autoStartEndTime24,
+            onDismiss = { editingTime = false },
+            onSave = { start, end ->
+                onEditTime(start to end)
+                editingTime = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CalendarPetiteTimeEditSheet(
+    initialStart: String,
+    initialEnd: String,
+    onDismiss: () -> Unit,
+    onSave: (String, String) -> Unit
+) {
+    var startMinute by remember { mutableStateOf(parseMinuteOfDay(initialStart) ?: 0) }
+    var endMinute by remember { mutableStateOf(parseMinuteOfDay(initialEnd) ?: 0) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFFFCFCFF),
+        contentColor = FlowInk
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 22.dp)
+                .navigationBarsPadding()
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            Text(
+                "오늘 시간 수정",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = FlowInk,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            Text(
+                "오늘 하루만 적용됩니다.",
+                fontSize = 13.sp,
+                color = FlowMuted
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                TimePickerCard(
+                    label = "시작",
+                    minuteOfDay = startMinute,
+                    onChange = { startMinute = it },
+                    modifier = Modifier.weight(1f)
+                )
+                Text("~", fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = FlowMuted)
+                TimePickerCard(
+                    label = "종료",
+                    minuteOfDay = endMinute,
+                    onChange = { endMinute = it },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Button(
+                onClick = {
+                    onSave(
+                        formatMinuteOfDay(startMinute),
+                        formatMinuteOfDay(endMinute)
+                    )
+                },
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = FlowPurple,
+                    contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                Text("저장", fontWeight = FontWeight.ExtraBold)
+            }
+        }
     }
 }
 

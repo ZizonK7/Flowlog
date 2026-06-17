@@ -22,6 +22,7 @@ interface AutoButtonScheduleDao {
         SELECT * FROM auto_button_schedules
         WHERE userId = :userId
           AND isDeleted = 0
+          AND source != 'CALENDAR'
         ORDER BY startMinuteOfDay ASC, title ASC
     """)
     fun observeSchedules(userId: String): Flow<List<AutoButtonScheduleEntity>>
@@ -34,6 +35,21 @@ interface AutoButtonScheduleDao {
         ORDER BY startMinuteOfDay ASC
     """)
     suspend fun getActiveSchedules(userId: String): List<AutoButtonScheduleEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertCalendarSchedule(schedule: AutoButtonScheduleEntity)
+
+    @Query("DELETE FROM auto_button_schedules WHERE userId = :userId AND source = 'CALENDAR'")
+    suspend fun deleteCalendarSourcedForUser(userId: String)
+
+    @Query("""
+        UPDATE auto_button_schedules SET
+            startMinuteOfDay = :startMinuteOfDay,
+            endMinuteOfDay = :endMinuteOfDay,
+            updatedAt = :updatedAt
+        WHERE scheduleId = :scheduleId
+    """)
+    suspend fun updateScheduleTime(scheduleId: String, startMinuteOfDay: Int, endMinuteOfDay: Int, updatedAt: Long)
 
     @Query("""
         SELECT * FROM auto_button_schedules

@@ -68,7 +68,7 @@ import com.example.flowlog.data.local.entity.UserEntity
         CalendarEventEntity::class,
         LectureCalendarInfoEntity::class,
     ],
-    version = 14,
+    version = 16,
     // 장기적으로는 schema export + Migration 검증을 붙이는 것이 바람직하지만,
     // 현재 단계에서는 개발 편의상 schema 파일 생성을 보류한다.
     exportSchema = false
@@ -107,7 +107,7 @@ abstract class FlowlogDatabase : RoomDatabase() {
                     FlowlogDatabase::class.java,
                     "flowlog.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
                     .build().also { INSTANCE = it }
             }
         }
@@ -344,6 +344,20 @@ abstract class FlowlogDatabase : RoomDatabase() {
         private val MIGRATION_13_14 = object : Migration(13, 14) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE activities ADD COLUMN linkedPetiteId TEXT")
+            }
+        }
+
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE organized_petites ADD COLUMN autoStartEnabled INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE organized_petites ADD COLUMN autoStartTime24 TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE organized_petites ADD COLUMN autoStartEndTime24 TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE auto_button_schedules ADD COLUMN source TEXT NOT NULL DEFAULT 'MANUAL'")
             }
         }
 
