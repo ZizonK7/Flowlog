@@ -118,6 +118,37 @@ class ActivityRepository(context: Context) {
         }
     }
 
+    suspend fun hasActivityBySourceToday(sourceType: String, sourceId: String): Boolean {
+        val (startOfDay, endOfDay) = dayRange(System.currentTimeMillis())
+        return roomDataSource.countBySourceForDate(
+            userId = userId,
+            sourceType = sourceType,
+            sourceId = sourceId,
+            startOfDay = startOfDay,
+            endOfDay = endOfDay
+        ) > 0
+    }
+
+    suspend fun deleteActivitiesBySourceToday(sourceType: String, sourceId: String) {
+        val (startOfDay, endOfDay) = dayRange(System.currentTimeMillis())
+        runCatching {
+            roomDataSource.softDeleteBySourceForDate(
+                userId = userId,
+                sourceType = sourceType,
+                sourceId = sourceId,
+                startOfDay = startOfDay,
+                endOfDay = endOfDay
+            )
+        }
+        runCatching {
+            eventLogRepository.log(
+                eventType = EventType.ACTIVITY_DELETED,
+                entityType = EntityType.ACTIVITY,
+                entityId = "$sourceType:$sourceId"
+            )
+        }
+    }
+
     // ── 유틸리티 ─────────────────────────────────────────────────────────
 
     private fun dayRange(timestamp: Long): Pair<Long, Long> {

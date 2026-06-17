@@ -74,6 +74,41 @@ class RoomActivityLocalDataSource(context: Context) {
         softDelete("legacy_activity_$legacyId")
     }
 
+    suspend fun softDeleteBySourceForDate(
+        userId: String,
+        sourceType: String,
+        sourceId: String,
+        startOfDay: Long,
+        endOfDay: Long
+    ) {
+        val now = System.currentTimeMillis()
+        dao.softDeleteActivitiesBySourceForDate(
+            userId = userId,
+            sourceType = sourceType,
+            sourceId = sourceId,
+            startOfDay = startOfDay,
+            endOfDay = endOfDay,
+            deletedAt = now,
+            updatedAt = now
+        )
+    }
+
+    suspend fun countBySourceForDate(
+        userId: String,
+        sourceType: String,
+        sourceId: String,
+        startOfDay: Long,
+        endOfDay: Long
+    ): Int {
+        return dao.countActivitiesBySourceForDate(
+            userId = userId,
+            sourceType = sourceType,
+            sourceId = sourceId,
+            startOfDay = startOfDay,
+            endOfDay = endOfDay
+        )
+    }
+
     /**
      * 전체 활동 실시간 관찰 (isDeleted = 0). 통계/분석/getAllActivities 읽기 경로용.
      */

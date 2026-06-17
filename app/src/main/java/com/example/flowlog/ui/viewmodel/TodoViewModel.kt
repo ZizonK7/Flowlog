@@ -9,6 +9,7 @@ import com.example.flowlog.data.agent.OrganizerRoutine
 import com.example.flowlog.data.agent.PetiteSourceType
 import com.example.flowlog.data.agent.TodayExamOrganizer
 import com.example.flowlog.data.agent.TodayOrganizerRules
+import com.example.flowlog.data.constants.ActivitySourceType
 import com.example.flowlog.data.constants.RecommendationReason
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.TodoCategory
@@ -569,11 +570,25 @@ class TodoViewModel(
     }
 
     fun toggleDailyCue(cueId: Long) {
+        val currentCue = _dailyCues.value.firstOrNull { it.id == cueId }
+        val willComplete = currentCue?.isCompleted != true
         val updated = sortDailyCues(_dailyCues.value.map { cue ->
-            if (cue.id == cueId) cue.copy(isCompleted = !cue.isCompleted) else cue
+            if (cue.id == cueId) cue.copy(isCompleted = willComplete) else cue
         })
         _dailyCues.value = updated
         saveDailyCues(updated)
+        currentCue?.takeIf { it.label == "Routine" }?.let { cue ->
+            viewModelScope.launch {
+                if (willComplete) {
+                    recordDailyCueCheck(cue)
+                } else {
+                    activityRepository.deleteActivitiesBySourceToday(
+                        sourceType = ActivitySourceType.DAILY_CUE_CHECK,
+                        sourceId = cue.id.toString()
+                    )
+                }
+            }
+        }
     }
 
     fun completeDailyCue(cueId: Long) {
@@ -582,6 +597,23 @@ class TodoViewModel(
         })
         _dailyCues.value = updated
         saveDailyCues(updated)
+    }
+
+    private suspend fun recordDailyCueCheck(cue: DailyCueItem) {
+        val sourceId = cue.id.toString()
+        if (activityRepository.hasActivityBySourceToday(ActivitySourceType.DAILY_CUE_CHECK, sourceId)) return
+        val now = System.currentTimeMillis()
+        activityRepository.insertActivity(
+            ActivitySession(
+                category = cue.timerCategory.ifBlank { "TODO" },
+                title = cue.title,
+                startTime = now,
+                endTime = now,
+                durationMillis = 0L,
+                sourceType = ActivitySourceType.DAILY_CUE_CHECK,
+                sourceId = sourceId
+            )
+        )
     }
 
     fun updateDailyCue(cueId: Long, title: String, label: String, timerDurationMillis: Long?, timerCategory: String) {
