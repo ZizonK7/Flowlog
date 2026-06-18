@@ -11,13 +11,21 @@ import com.example.flowlog.data.local.entity.LectureCalendarInfoEntity
 import com.example.flowlog.data.local.entity.OrganizedPetiteEntity
 import com.example.flowlog.notification.AutoButtonScheduler
 import com.example.flowlog.data.remote.awaitResult
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Firestore calendarEvents 컬렉션에서 오늘 범위 문서를 pull하고
@@ -45,6 +53,8 @@ class FirebaseCalendarPullDataSource(context: Context) {
     private val lectureInfoDao = db.lectureCalendarInfoDao()
     private val firestore = FirebaseFirestore.getInstance()
     private val autoButtonScheduler = AutoButtonScheduler(appContext)
+    private val listenerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val calendarApplyMutex = Mutex()
 
     suspend fun pullTodayCalendar(userId: String): CalendarPullOutcome = withContext(Dispatchers.IO) {
         val (dayStart, dayEnd) = todayRange()
@@ -66,7 +76,64 @@ class FirebaseCalendarPullDataSource(context: Context) {
         }
 
         Log.i(TAG, "Calendar pull fetched ${docs.size} docs — userId=$userId dayStart=$dayStart")
+        calendarApplyMutex.withLock {
+            applyTodayCalendarDocuments(userId, dayStart, dayEnd, docs)
+        }
+    }
 
+    fun listenTodayCalendar(
+        userId: String,
+        onOutcome: (CalendarPullOutcome) -> Unit = {}
+    ): CalendarSubscription {
+        val (dayStart, dayEnd) = todayRange()
+        val eventRegistration = firestore.collection("users").document(userId)
+            .collection("flowlog").document("data")
+            .collection("calendarEvents")
+            .whereGreaterThanOrEqualTo("startTime", dayStart)
+            .whereLessThan("startTime", dayEnd)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.w(TAG, "Calendar listener failed: ${error.message}", error)
+                    onOutcome(CalendarPullOutcome(failed = true))
+                    return@addSnapshotListener
+                }
+                val docs = snapshot?.documents ?: return@addSnapshotListener
+                listenerScope.launch {
+                    val outcome = runCatching {
+                        calendarApplyMutex.withLock {
+                            applyTodayCalendarDocuments(userId, dayStart, dayEnd, docs)
+                        }
+                    }.getOrElse { e ->
+                        Log.w(TAG, "Calendar listener apply failed: ${e.message}", e)
+                        CalendarPullOutcome(failed = true)
+                    }
+                    onOutcome(outcome)
+                }
+            }
+
+        val syllabusInitialSnapshot = AtomicBoolean(true)
+        val syllabusRegistration = firestore.collection("users").document(userId)
+            .collection("flowlog").document("calendar")
+            .addSnapshotListener { _, error ->
+                if (error != null) {
+                    Log.w(TAG, "Syllabus listener failed: ${error.message}", error)
+                    return@addSnapshotListener
+                }
+                if (syllabusInitialSnapshot.getAndSet(false)) return@addSnapshotListener
+                listenerScope.launch {
+                    onOutcome(pullTodayCalendar(userId))
+                }
+            }
+
+        return CalendarSubscription(listOf(eventRegistration, syllabusRegistration))
+    }
+
+    private suspend fun applyTodayCalendarDocuments(
+        userId: String,
+        dayStart: Long,
+        dayEnd: Long,
+        docs: List<DocumentSnapshot>
+    ): CalendarPullOutcome = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val petiteEntities = mutableListOf<OrganizedPetiteEntity>()
         val petiteDeletedEventIds = mutableListOf<String>()   // deletedAt 있는 CALENDAR_PETITE
@@ -428,6 +495,14 @@ class FirebaseCalendarPullDataSource(context: Context) {
         val m = parts.getOrNull(1)?.toIntOrNull() ?: return null
         if (h !in 0..23 || m !in 0..59) return null
         return h * 60 + m
+    }
+
+    class CalendarSubscription internal constructor(
+        private val registrations: List<ListenerRegistration>
+    ) {
+        fun remove() {
+            registrations.forEach { it.remove() }
+        }
     }
 
     companion object {

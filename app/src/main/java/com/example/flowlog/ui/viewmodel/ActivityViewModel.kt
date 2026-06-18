@@ -705,7 +705,6 @@ class ActivityViewModel(
             rememberLastAddedActivity(activity.copy(id = newId))
             TimerStateStore.clearPinnedTimer(appContext)
             FlowStatusWidgetProvider.updateAll(appContext)
-            attemptDeferredSync()
         }
     }
 
@@ -722,7 +721,6 @@ class ActivityViewModel(
         viewModelScope.launch {
             val newId = repository.insertActivity(activity)
             rememberLastAddedActivity(activity.copy(id = newId))
-            attemptDeferredSync()
         }
     }
 
@@ -1193,7 +1191,7 @@ class ActivityViewModel(
             }
             rememberLastAddedActivity(savedActivity)
             if (shouldSyncExerciseImmediately(savedActivity)) {
-                attemptDeferredSync()
+                syncAllPendingChanges()
             }
             _uiState.update {
                 it.copy(
@@ -1257,9 +1255,6 @@ class ActivityViewModel(
                 _uiState.update { it.copy(snackButtonEndsAtMillis = mealTimerEndsAt) }
             }
             rememberLastAddedActivity(savedActivity)
-            if (cleanCategory != "ETC") {
-                attemptDeferredSync()
-            }
             clearPendingActivity()
         }
     }
@@ -1285,7 +1280,6 @@ class ActivityViewModel(
             )
             repository.updateActivity(updatedActivity)
             rememberLastAddedActivity(updatedActivity)
-            attemptDeferredSync()
             _uiState.update {
                 it.copy(
                     pendingSavedActivity = null,
@@ -2435,9 +2429,9 @@ class ActivityViewModel(
         }
     }
 
-    private suspend fun attemptDeferredSync() {
+    private suspend fun syncAllPendingChanges() {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
-        FirebaseSyncCoordinator(appContext).syncEligible(uid)
+        FirebaseSyncCoordinator(appContext).syncAll(uid)
     }
 
     private suspend fun completeLearningPlanAfterStudyIfNeeded(activity: ActivitySession) {
@@ -2449,8 +2443,7 @@ class ActivityViewModel(
 
     private fun shouldSyncExerciseImmediately(activity: ActivitySession): Boolean {
         return activity.category == "EXERCISE" &&
-            (activity.exerciseSets.isNotEmpty() ||
-                activity.durationMillis >= EXERCISE_IMMEDIATE_SYNC_MIN_DURATION_MILLIS)
+            activity.exerciseSets.isNotEmpty()
     }
 
     private fun saveActiveSession(
@@ -2752,7 +2745,6 @@ class ActivityViewModel(
         private const val KEY_SLEEP_RECORD_2026_05_19 = "sleep_record_2026_05_19_212957"
         private val DEFAULT_SCHOOL_COMPANY_GOAL_MILLIS = TimeUnit.HOURS.toMillis(10)
         private val SEVENTY_FIVE_MINUTE_GOAL_MILLIS = TimeUnit.MINUTES.toMillis(75)
-        private val EXERCISE_IMMEDIATE_SYNC_MIN_DURATION_MILLIS = TimeUnit.MINUTES.toMillis(3)
         private val SEVENTY_FIVE_MINUTE_GOAL_CATEGORIES = setOf("STUDY", "TODO", "WORK", "DEVELOPMENT", "EXERCISE", "ETC")
     }
 }

@@ -8,6 +8,8 @@ import android.os.Build
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
 import com.example.flowlog.notification.FirebaseSyncReceiver
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.Calendar
 
 data class CalendarPullOutcome(
@@ -111,15 +113,19 @@ class FirebaseSyncCoordinator(context: Context) {
     private val dataSource = FirebaseSyncDataSource(appContext)
 
     suspend fun syncAll(userId: String): SyncOutcome {
-        return dataSource.syncAll(userId)
+        return globalSyncMutex.withLock {
+            dataSource.syncAll(userId)
+        }
     }
 
     suspend fun syncEligible(userId: String): SyncOutcome {
-        val activeTimer = TimerStateStore.getActiveTimer(appContext)
-        if (activeTimer?.status == TimerStatus.RUNNING) {
-            return SyncOutcome(deferred = true)
+        return globalSyncMutex.withLock {
+            val activeTimer = TimerStateStore.getActiveTimer(appContext)
+            if (activeTimer?.status == TimerStatus.RUNNING) {
+                return@withLock SyncOutcome(deferred = true)
+            }
+            dataSource.syncEligible(userId)
         }
-        return dataSource.syncEligible(userId)
     }
 
     /**
@@ -144,5 +150,9 @@ class FirebaseSyncCoordinator(context: Context) {
             FirebaseCalendarPullDataSource(appContext).pullTodayCalendar(userId)
         }.getOrElse { CalendarPullOutcome(failed = true) }
         return uploadResult.copy(calendarPull = pullResult)
+    }
+
+    companion object {
+        private val globalSyncMutex = Mutex()
     }
 }

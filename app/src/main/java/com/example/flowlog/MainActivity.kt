@@ -82,6 +82,7 @@ import com.example.flowlog.data.local.UserRole
 import com.example.flowlog.data.local.UserRoleStore
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.remote.awaitResult
+import com.example.flowlog.data.sync.FirebaseCalendarPullDataSource
 import com.example.flowlog.data.sync.FirebaseRestoreDataSource
 import com.example.flowlog.data.sync.FirebaseSyncAlarmScheduler
 import com.example.flowlog.data.sync.FirebaseSyncCoordinator
@@ -105,11 +106,14 @@ import com.example.flowlog.ui.viewmodel.ActivityViewModelFactory
 import com.example.flowlog.ui.viewmodel.TodoViewModel
 import com.example.flowlog.ui.viewmodel.TodoViewModelFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.net.URL
+import java.util.Calendar
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -144,6 +148,10 @@ import com.example.flowlog.ui.viewmodel.AiMessengerUiState
 class MainActivity : ComponentActivity() {
     private var requestedScreen by mutableStateOf(SCREEN_HOME)
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var calendarDataSource: FirebaseCalendarPullDataSource? = null
+    private var calendarSubscription: FirebaseCalendarPullDataSource.CalendarSubscription? = null
+    private var calendarSubscriptionUserId: String? = null
+    private var calendarRolloverJob: Job? = null
     // 로그인·네트워크 복구 시 uploadLocalFlowlogSnapshot이 동시에 여러 번 호출되는 것을 방지
     private val syncMutex = Mutex()
 
@@ -264,6 +272,9 @@ class MainActivity : ComponentActivity() {
                         runCatching {
                             PlannedTodoReminderScheduler(applicationContext).rescheduleAll()
                         }
+                        startCalendarSubscription(user.uid)
+                    } else {
+                        stopCalendarSubscription()
                     }
                 }
                 val runAccountSync: () -> Unit = {
@@ -484,9 +495,11 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         registerNetworkSync()
+        FirebaseAuth.getInstance().currentUser?.uid?.let(::startCalendarSubscription)
     }
 
     override fun onStop() {
+        stopCalendarSubscription()
         unregisterNetworkSync()
         super.onStop()
     }
@@ -532,6 +545,43 @@ class MainActivity : ComponentActivity() {
         } finally {
             syncMutex.unlock()
         }
+    }
+
+    private fun startCalendarSubscription(userId: String) {
+        if (calendarSubscription != null && calendarSubscriptionUserId == userId) return
+        stopCalendarSubscription()
+
+        val dataSource = FirebaseCalendarPullDataSource(applicationContext)
+        calendarDataSource = dataSource
+        calendarSubscriptionUserId = userId
+        calendarSubscription = dataSource.listenTodayCalendar(userId)
+
+        calendarRolloverJob = lifecycleScope.launch {
+            val now = System.currentTimeMillis()
+            val nextMidnight = Calendar.getInstance().apply {
+                add(Calendar.DAY_OF_YEAR, 1)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            delay((nextMidnight - now).coerceAtLeast(1L))
+            if (FirebaseAuth.getInstance().currentUser?.uid == userId) {
+                calendarSubscription?.remove()
+                calendarSubscription = null
+                calendarSubscriptionUserId = null
+                startCalendarSubscription(userId)
+            }
+        }
+    }
+
+    private fun stopCalendarSubscription() {
+        calendarRolloverJob?.cancel()
+        calendarRolloverJob = null
+        calendarSubscription?.remove()
+        calendarSubscription = null
+        calendarSubscriptionUserId = null
+        calendarDataSource = null
     }
 
     private fun registerNetworkSync() {
