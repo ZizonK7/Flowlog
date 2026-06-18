@@ -313,6 +313,7 @@ class ActivityViewModel(
                     now = now
                 )
             }.collect { inputs ->
+                repairAccidentalLearningPlanPreviewCompletion(inputs.activities)
                 val decision = flowRecommendationEngine.recommend(
                     now = inputs.now,
                     routines = inputs.routines,
@@ -537,6 +538,45 @@ class ActivityViewModel(
             .removeSuffix(" 공부하기")
             .trim()
             .ifBlank { title }
+    }
+
+    private var lastLearningPlanRepairCheckMinute: Long = Long.MIN_VALUE
+
+    private suspend fun repairAccidentalLearningPlanPreviewCompletion(
+        activities: List<ActivitySession>
+    ) {
+        val currentMinute = System.currentTimeMillis() / TimeUnit.MINUTES.toMillis(1)
+        if (lastLearningPlanRepairCheckMinute == currentMinute) return
+        lastLearningPlanRepairCheckMinute = currentMinute
+
+        val items = dailyGoalRepository.getTodayItems()
+        items.asSequence()
+            .filter {
+                it.todoId.startsWith("calendar_petite_") &&
+                    it.userActionStatus == "COMPLETED" &&
+                    it.wasCompleted &&
+                    it.actualCompletedAt != null
+            }
+            .forEach { item ->
+                val petiteId = item.todoId.removePrefix("calendar_petite_")
+                val petite = organizedPetiteRepository.getById(petiteId) ?: return@forEach
+                if (!petite.isLearningPlan()) return@forEach
+                val hasStageActivity = activities.any { activity ->
+                    activity.linkedPetiteId == petiteId &&
+                        activity.sourceType in setOf(
+                            ActivitySourceType.LEARNING_PLAN_PREVIEW,
+                            ActivitySourceType.LEARNING_PLAN_STUDY
+                        )
+                }
+                if (hasStageActivity) return@forEach
+
+                val preview = buildRecommendationsForPetite(petite, activities)
+                    .firstOrNull { it.stage == FlowRecommendationStage.PREVIEW }
+                    ?: return@forEach
+                recordFlowStageCompletion(preview)
+                dailyGoalRepository.revertPlannedItemCompleted(item.itemId, "PLANNED")
+                organizedPetiteRepository.reopenById(petiteId)
+            }
     }
 
     fun completeFlowRecommendation(recommendation: FlowActivityRecommendation) {
@@ -836,6 +876,14 @@ class ActivityViewModel(
 
     fun startCalendarPetiteActivity(item: OrganizedPetite) {
         if (_uiState.value.isRunning) return
+        if (item.isLearningPlan()) {
+            val stage = buildRecommendationsForPetite(item, _uiState.value.allActivities)
+                .firstOrNull { it.isEnabled && !it.isCompleted }
+            if (stage != null) {
+                startFlowRecommendation(stage)
+            }
+            return
+        }
 
         val category = item.activityCategory?.takeIf { isTimedCategory(it) } ?: "TODO"
         val startTime = System.currentTimeMillis()
@@ -1651,12 +1699,32 @@ class ActivityViewModel(
         Log.d(TAG, "user completeRecommendedTodo: itemId=${block.itemId} todoId=${block.todoId} title=${block.title}")
         viewModelScope.launch {
             if (block.petiteId != null) {
-                // 캘린더 petite — TodoItem 없으므로 todo 완료 처리 생략
-                dailyGoalRepository.markPlannedItemCompleted(
-                    itemId = block.itemId,
-                    todoLegacyId = 0L,
-                    activityLegacyId = null
-                )
+                val petite = _uiState.value.activePetites.firstOrNull { it.id == block.petiteId }
+                    ?: organizedPetiteRepository.getById(block.petiteId)
+                if (petite?.isLearningPlan() == true) {
+                    val stage = buildRecommendationsForPetite(petite, _uiState.value.allActivities)
+                        .firstOrNull { it.isEnabled && !it.isCompleted }
+                    if (stage != null) {
+                        recordFlowStageCompletion(stage)
+                        if (stage.stage == FlowRecommendationStage.STUDY) {
+                            organizedPetiteRepository.completeById(petite.id)
+                            dailyGoalRepository.markCalendarPetiteCompleted(petite.id)
+                            dailyGoalRepository.markPlannedItemCompleted(
+                                itemId = block.itemId,
+                                todoLegacyId = 0L,
+                                activityLegacyId = null
+                            )
+                        }
+                    }
+                    return@launch
+                } else {
+                    // 일반 캘린더 petite — TodoItem 없으므로 todo 완료 처리 생략
+                    dailyGoalRepository.markPlannedItemCompleted(
+                        itemId = block.itemId,
+                        todoLegacyId = 0L,
+                        activityLegacyId = null
+                    )
+                }
             } else {
                 val todo = _uiState.value.incompleteTodos.firstOrNull { it.id == block.todoId }
                 if (todo?.category == TodoCategory.REVIEW && todo.reviewStage < 2) {

@@ -151,6 +151,10 @@ class TodoViewModel(
         viewModelScope.launch {
             activityRepository.getAllActivities().collect { activities ->
                 latestActivities = activities
+                _organizedPetites.value = decorateLearningPlanStages(
+                    _organizedPetites.value,
+                    activities
+                )
                 _yesterdaySuggestion.value = buildYesterdaySuggestion(_todos.value, activities)
             }
         }
@@ -158,7 +162,7 @@ class TodoViewModel(
             hiddenAiSourceKeys.clear()
             hiddenAiSourceKeys += organizedPetiteRepository.loadDismissedSourceKeys()
             organizedPetiteRepository.observeActivePetites().collect { saved ->
-                _organizedPetites.value = saved
+                _organizedPetites.value = decorateLearningPlanStages(saved, latestActivities)
             }
         }
     }
@@ -472,6 +476,35 @@ class TodoViewModel(
     }
 
     fun completeOrganizedPetite(item: OrganizedPetite) {
+        if (item.isCalendarStudyPlan()) {
+            val previewDone = latestActivities.any {
+                it.linkedPetiteId == item.id &&
+                    it.sourceType == ActivitySourceType.LEARNING_PLAN_PREVIEW
+            }
+            if (!previewDone) {
+                val now = System.currentTimeMillis()
+                val baseTitle = item.learningPlanBaseTitle()
+                viewModelScope.launch {
+                    activityRepository.insertActivity(
+                        ActivitySession(
+                            category = "STUDY",
+                            title = "$baseTitle 예습하기",
+                            startTime = now,
+                            endTime = now,
+                            durationMillis = 0L,
+                            linkedPetiteId = item.id,
+                            sourceType = ActivitySourceType.LEARNING_PLAN_PREVIEW,
+                            sourceId = item.id
+                        )
+                    )
+                }
+                _organizedPetites.value = _organizedPetites.value.map {
+                    if (it.id == item.id) it.copy(title = "$baseTitle 공부하기") else it
+                }
+                return
+            }
+        }
+
         val previousCompletedState = when (item.sourceType) {
             PetiteSourceType.PETITE,
             PetiteSourceType.TODO -> item.sourceId
@@ -985,6 +1018,29 @@ class TodoViewModel(
                 calendarTaskType.equals("ACADEMIC", ignoreCase = true) ||
                     category == TodoCategory.NORMAL
                 )
+    }
+
+    private fun OrganizedPetite.learningPlanBaseTitle(): String {
+        return title
+            .removeSuffix(" 예습하기")
+            .removeSuffix(" 공부하기")
+            .trim()
+            .ifBlank { title }
+    }
+
+    private fun decorateLearningPlanStages(
+        petites: List<OrganizedPetite>,
+        activities: List<ActivitySession>
+    ): List<OrganizedPetite> {
+        return petites.map { petite ->
+            if (!petite.isCalendarStudyPlan()) return@map petite
+            val previewDone = activities.any {
+                it.linkedPetiteId == petite.id &&
+                    it.sourceType == ActivitySourceType.LEARNING_PLAN_PREVIEW
+            }
+            val suffix = if (previewDone) "공부하기" else "예습하기"
+            petite.copy(title = "${petite.learningPlanBaseTitle()} $suffix")
+        }
     }
 
     private fun OrganizedPetite.syntheticTodoId(): Long {

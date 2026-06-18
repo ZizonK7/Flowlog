@@ -173,6 +173,10 @@ class DailyGoalRepository(context: Context) {
             )
         }
 
+    suspend fun getTodayItems(dateKey: String = todayDateKey()): List<DailyGoalItemEntity> {
+        return dao.getItemsForDate(userId, dateKey)
+    }
+
     /**
      * 오늘의 목표 추천 결과를 저장.
      * refresh 시에도 새 row로 누적 저장 (audit trail).

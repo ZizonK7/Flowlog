@@ -157,6 +157,15 @@ interface OrganizedPetiteDao {
     @Query("UPDATE organized_petites SET isCompleted = 1, updatedAt = :updatedAt WHERE id = :id")
     suspend fun markCompletedById(id: String, updatedAt: Long)
 
+    @Query("""
+        UPDATE organized_petites
+        SET isCompleted = 0,
+            isDismissed = 0,
+            updatedAt = :updatedAt
+        WHERE id = :id
+    """)
+    suspend fun reopenById(id: String, updatedAt: Long)
+
     /**
      * sourceType/sourceId 조합이 없을 때만 삽입.
      * 기존 row가 있으면 (dismissed/completed 포함) 아무것도 하지 않는다 — 사용자 상태 보존.
