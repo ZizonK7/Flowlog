@@ -179,7 +179,8 @@ fun TodoScreen(
     val normalTodos = normalTodosOrdered
     val activeTodos   = remember(todos, todayStart) {
         todos.filter { todo ->
-            !todo.isCompleted &&
+            (!todo.isCompleted ||
+                (todo.category == TodoCategory.REVIEW && todo.reviewStage == 1)) &&
             todo.category != TodoCategory.TODAY &&
             !(todo.category == TodoCategory.UNIVERSITY_EXAM &&
               todo.selectedDate != null &&
@@ -2141,6 +2142,10 @@ private fun TodoCard(
                             color = TextPrimary,
                             lineHeight = if (isFocus) 18.sp else 20.sp
                         )
+                        if (todo.category == TodoCategory.REVIEW) {
+                            Spacer(Modifier.height(6.dp))
+                            ReviewProgressRow(reviewStage = todo.reviewStage)
+                        }
                         if (todo.accumulatedSeconds > 0 || todo.selectedDate != null) {
                             Spacer(Modifier.height(3.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2197,7 +2202,8 @@ private fun TodoCard(
 
             // 인라인 수정 패널 (완료된 항목은 숨김)
             AnimatedVisibility(
-                visible = isEditing && !todo.isCompleted,
+                visible = isEditing && (!todo.isCompleted ||
+                    (todo.category == TodoCategory.REVIEW && todo.reviewStage == 1)),
                 enter = expandVertically(tween(250)) + fadeIn(tween(200)),
                 exit  = shrinkVertically(tween(200)) + fadeOut(tween(150))
             ) {
@@ -2299,6 +2305,66 @@ private fun TodoCard(
     }
 }
 
+@Composable
+private fun ReviewProgressRow(
+    reviewStage: Int,
+    muted: Boolean = false
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        ReviewProgressChip(
+            label = "1회",
+            isCompleted = reviewStage >= 1,
+            muted = muted
+        )
+        ReviewProgressChip(
+            label = "2회",
+            isCompleted = reviewStage >= 2,
+            muted = muted
+        )
+    }
+}
+
+@Composable
+private fun ReviewProgressChip(
+    label: String,
+    isCompleted: Boolean,
+    muted: Boolean
+) {
+    val background = when {
+        muted && isCompleted -> GreenSoft.copy(alpha = 0.45f)
+        muted -> Color(0xFFF0EFF5)
+        isCompleted -> GreenSoft
+        else -> PurpleSoft.copy(alpha = 0.55f)
+    }
+    val foreground = when {
+        muted -> TextMuted
+        isCompleted -> GreenTint
+        else -> Purple
+    }
+    Row(
+        modifier = Modifier
+            .background(background, RoundedCornerShape(10.dp))
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        if (isCompleted) {
+            Icon(
+                Icons.Filled.Check,
+                contentDescription = null,
+                tint = foreground,
+                modifier = Modifier.size(12.dp)
+            )
+        }
+        Text(
+            text = "$label ${if (isCompleted) "완료" else "대기"}",
+            color = foreground,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
 // ── 완료됨 카드 ───────────────────────────────────────────────────────────────
 @Composable
 private fun CompletedCard(
@@ -2328,6 +2394,10 @@ private fun CompletedCard(
                     color = TextMuted,
                     textDecoration = TextDecoration.LineThrough
                 )
+                if (todo.category == TodoCategory.REVIEW) {
+                    Spacer(Modifier.height(6.dp))
+                    ReviewProgressRow(reviewStage = todo.reviewStage, muted = true)
+                }
                 todo.completedAt?.let {
                     Spacer(Modifier.height(2.dp))
                     Text("완료 ${fmtDate(it)}", fontSize = 11.sp, color = TextMuted.copy(alpha = 0.7f))

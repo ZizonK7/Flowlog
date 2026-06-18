@@ -17,6 +17,7 @@ import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.data.recommendation.TodoBurdenAnalysis
 import com.example.flowlog.data.recommendation.TodoBurdenCalculator
+import com.example.flowlog.data.recommendation.ReviewRecommendationPolicy
 import com.example.flowlog.data.constants.EntityType
 import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.repository.ActivityRepository
@@ -924,31 +925,23 @@ class TodoViewModel(
                     }
                 }
                 TodoCategory.REVIEW -> {
-                    val base = todo.selectedDate ?: todo.createdAt
-                    val daysSince = daysDiff(startOfDay(base), todayStart)
-                    when {
-                        todo.reviewStage == 0 -> when (daysSince) {
-                            1L       -> 2 to RecommendationReason.REVIEW_D_PLUS_1
-                            2L, 3L   -> 3 to RecommendationReason.REVIEW_D_PLUS_1_LATE
-                            else     -> return@mapNotNull null
-                        }
-                        todo.reviewStage == 1 -> when (daysSince) {
-                            7L              -> 5 to RecommendationReason.REVIEW_D_PLUS_7
-                            8L, 9L, 10L     -> 6 to RecommendationReason.REVIEW_D_PLUS_7_LATE
-                            else            -> return@mapNotNull null
-                        }
-                        else -> return@mapNotNull null
-                    }
+                    val eligibility = ReviewRecommendationPolicy.eligibility(todo, todayStart)
+                        ?: return@mapNotNull null
+                    eligibility.priority to eligibility.reason
                 }
                 TodoCategory.NORMAL, TodoCategory.TODAY -> return@mapNotNull null
                 TodoCategory.UNIVERSITY_EXAM -> return@mapNotNull null
             }
             Candidate(todo, priority, reason)
         }
-        val candidatesById = active.associate { todo ->
+        val candidatesById = active.mapNotNull { todo ->
             val priorityCandidate = priorityCandidates.firstOrNull { it.todo.id == todo.id }
-            todo.id to (priorityCandidate ?: Candidate(todo, 99, RecommendationReason.EMPTY_GOAL_FILL))
-        }
+            if (todo.category == TodoCategory.REVIEW && priorityCandidate == null) {
+                null
+            } else {
+                todo.id to (priorityCandidate ?: Candidate(todo, 99, RecommendationReason.EMPTY_GOAL_FILL))
+            }
+        }.toMap()
 
         val petiteCandidates = calendarPetites
             .filter { isCalendarPetiteEligibleForRecommendation(it) }

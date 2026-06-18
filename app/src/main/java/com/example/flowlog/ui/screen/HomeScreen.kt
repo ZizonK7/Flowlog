@@ -5508,8 +5508,10 @@ private fun RecommendedTodoActionSheet(
     onSetTime: (hourOfDay: Int) -> Unit,
     onReplaceItem: (TodoItem) -> Unit
 ) {
+    val context = LocalContext.current
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val todoDateFormat = remember { SimpleDateFormat("M월 d일", Locale.KOREAN) }
+    val showPreviewSiteButton = block.petiteId != null && block.title.endsWith("예습하기")
     val initialHour = remember(block.plannedStartMillis) {
         val cal = java.util.Calendar.getInstance()
         cal.timeInMillis = block.plannedStartMillis
@@ -5768,6 +5770,23 @@ private fun RecommendedTodoActionSheet(
                         )
                     ) {
                         Text("시작하기", fontWeight = FontWeight.Bold)
+                    }
+                    if (showPreviewSiteButton) {
+                        OutlinedButton(
+                            onClick = {
+                                context.startActivity(
+                                    android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse("https://flowlog.pfkfks.org/preview/")
+                                    )
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = FlowPurple),
+                            border = BorderStroke(1.dp, FlowPurple.copy(alpha = 0.5f))
+                        ) {
+                            Text("예습 사이트 가기", fontWeight = FontWeight.Bold)
+                        }
                     }
                     Button(
                         onClick = onComplete,
