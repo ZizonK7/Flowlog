@@ -19,6 +19,8 @@ data class DailyCueEntity(
     val title: String,
     val timerDurationMillis: Long?,
     val timerCategory: String,
+    val recommendationTiming: String,
+    val note: String,
     val sortOrder: Int,
     val createdAt: Long,
     val updatedAt: Long,

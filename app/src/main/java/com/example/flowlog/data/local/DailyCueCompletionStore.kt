@@ -1,6 +1,11 @@
 package com.example.flowlog.data.local
 
 import android.content.Context
+import android.content.SharedPreferences
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import org.json.JSONArray
 import java.util.Calendar
 
@@ -30,6 +35,33 @@ object DailyCueCompletionStore {
             changed
         }.getOrDefault(false)
     }
+
+    fun completedIdsToday(context: Context): Set<Long> {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_DAILY_CUES, Context.MODE_PRIVATE)
+        if (prefs.getLong(KEY_DATE, 0L) != startOfDay(System.currentTimeMillis())) return emptySet()
+        val rawItems = prefs.getString(KEY_ITEMS, null) ?: return emptySet()
+        return runCatching {
+            val items = JSONArray(rawItems)
+            buildSet {
+                for (index in 0 until items.length()) {
+                    val item = items.getJSONObject(index)
+                    if (item.optBoolean("isCompleted", false)) add(item.optLong("id"))
+                }
+            }
+        }.getOrDefault(emptySet())
+    }
+
+    fun observeCompletedIdsToday(context: Context): Flow<Set<Long>> = callbackFlow {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_DAILY_CUES, Context.MODE_PRIVATE)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_DATE || key == KEY_ITEMS) {
+                trySend(completedIdsToday(context))
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        trySend(completedIdsToday(context))
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }.distinctUntilChanged()
 
     private fun startOfDay(millis: Long): Long {
         return Calendar.getInstance().apply {

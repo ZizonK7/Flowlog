@@ -15,6 +15,7 @@ import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
+import com.example.flowlog.data.recommendation.TimetableProgress
 import com.example.flowlog.notification.PlannedTodoReminderScheduler
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.delay
@@ -160,6 +161,17 @@ class DailyGoalRepository(context: Context) {
             }
         }
     }
+
+    fun observeTodayTimetableProgress(dateKey: String = todayDateKey()): Flow<TimetableProgress> =
+        dao.observePlannedItemsForDate(userId, dateKey).map { items ->
+            TimetableProgress(
+                total = items.count { !it.wasDeleted && !it.wasSkipped },
+                completed = items.count {
+                    !it.wasDeleted && !it.wasSkipped &&
+                        (it.wasCompleted || it.userActionStatus == "COMPLETED")
+                }
+            )
+        }
 
     /**
      * 오늘의 목표 추천 결과를 저장.

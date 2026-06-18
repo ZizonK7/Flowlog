@@ -24,7 +24,8 @@ class EventLogRepository(context: Context) {
         entityType: String? = null,
         entityId: String? = null,
         source: String = EventSource.APP,
-        metadataJson: String? = null
+        metadataJson: String? = null,
+        algorithmVersion: String? = null
     ) {
         val now = System.currentTimeMillis()
         dao.insertEvent(
@@ -37,6 +38,7 @@ class EventLogRepository(context: Context) {
                 source = source,
                 metadataJson = metadataJson,
                 appVersion = appVersion,
+                algorithmVersion = algorithmVersion,
                 timestamp = now,
                 createdAt = now
             )

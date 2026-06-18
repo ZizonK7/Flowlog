@@ -1,6 +1,7 @@
 package com.example.flowlog.data.agent
 
 import com.example.flowlog.data.model.ActivitySession
+import com.example.flowlog.data.model.DailyCueRecommendationTiming
 import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
 import java.util.Calendar
@@ -19,7 +20,8 @@ data class OrganizerRoutine(
     val title: String,
     val isCompleted: Boolean,
     val timerDurationMillis: Long?,
-    val timerCategory: String
+    val timerCategory: String,
+    val recommendationTiming: DailyCueRecommendationTiming = DailyCueRecommendationTiming.default
 )
 
 data class OrganizedPetite(

@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -42,11 +43,20 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.AccessTime
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.CardGiftcard
+import androidx.compose.material.icons.outlined.Coffee
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Loop
+import androidx.compose.material.icons.outlined.TrackChanges
+import androidx.compose.material.icons.outlined.WbSunny
 
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -85,6 +95,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -109,6 +120,7 @@ import com.example.flowlog.data.agent.OrganizedPetite
 import com.example.flowlog.data.agent.PetiteSourceType
 import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
+import com.example.flowlog.data.model.DailyCueRecommendationTiming
 import com.example.flowlog.ui.component.PickerWaveBackground
 import com.example.flowlog.ui.component.WheelPickerColumn
 import com.example.flowlog.ui.component.CategoryPicker
@@ -1087,8 +1099,8 @@ private fun examDdayLabel(dValue: Int?): String = when (dValue) {
 private fun DailyCuesSection(
     cues: List<DailyCueItem>,
     onToggleCue: (Long) -> Unit,
-    onAddCue: (String, String, Long?, String) -> Unit,
-    onUpdateCue: (Long, String, String, Long?, String) -> Unit,
+    onAddCue: (String, String, Long?, String, DailyCueRecommendationTiming, String) -> Unit,
+    onUpdateCue: (Long, String, String, Long?, String, DailyCueRecommendationTiming, String) -> Unit,
     onDeleteCue: (Long) -> Unit,
     onStartRoutine: (Long, String, Long, String) -> Unit,
     onReorderCue: (Int, Int) -> Unit,
@@ -1107,8 +1119,8 @@ private fun DailyCuesSection(
             timerCategories = timerCategories,
             onDismiss = { showAddDialog = false },
             onDelete = null,
-            onSave = { title, label, timerDurationMillis, timerCategory ->
-                onAddCue(title, label, timerDurationMillis, timerCategory)
+            onSave = { title, label, timerDurationMillis, timerCategory, timing, note ->
+                onAddCue(title, label, timerDurationMillis, timerCategory, timing, note)
                 showAddDialog = false
                 isShowingAll = true
             }
@@ -1123,8 +1135,8 @@ private fun DailyCuesSection(
                 onDeleteCue(cue.id)
                 editingCue = null
             },
-            onSave = { title, label, timerDurationMillis, timerCategory ->
-                onUpdateCue(cue.id, title, label, timerDurationMillis, timerCategory)
+            onSave = { title, label, timerDurationMillis, timerCategory, timing, note ->
+                onUpdateCue(cue.id, title, label, timerDurationMillis, timerCategory, timing, note)
                 editingCue = null
             }
         )
@@ -1208,11 +1220,16 @@ private fun DailyCueEditorDialog(
     timerCategories: List<String>,
     onDismiss: () -> Unit,
     onDelete: (() -> Unit)?,
-    onSave: (String, String, Long?, String) -> Unit
+    onSave: (String, String, Long?, String, DailyCueRecommendationTiming, String) -> Unit
 ) {
     var title by remember(cue?.id) { mutableStateOf(cue?.title ?: "") }
     var label by remember(cue?.id) { mutableStateOf(cue?.label ?: "Routine") }
     var timerDurationMillis by remember(cue?.id) { mutableStateOf(cue?.timerDurationMillis) }
+    var recommendationTiming by remember(cue?.id) {
+        mutableStateOf(cue?.recommendationTiming ?: DailyCueRecommendationTiming.default)
+    }
+    var note by remember(cue?.id) { mutableStateOf(cue?.note.orEmpty()) }
+    var isTimingExpanded by remember(cue?.id) { mutableStateOf(false) }
     val categoryOptions = remember(timerCategories) {
         timerCategories.distinct().filter { it.isNotBlank() }.ifEmpty { DefaultDailyCueTimerCategories }
     }
@@ -1255,7 +1272,11 @@ private fun DailyCueEditorDialog(
             }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 620.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                item {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -1281,6 +1302,8 @@ private fun DailyCueEditorDialog(
                         cursorColor = Purple
                     )
                 )
+                }
+                item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1301,7 +1324,9 @@ private fun DailyCueEditorDialog(
                         timerDurationMillis = null
                     }
                 }
+                }
                 if (isRoutine) {
+                    item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             "Timer",
@@ -1359,6 +1384,44 @@ private fun DailyCueEditorDialog(
                             }
                         }
                     }
+                    }
+                    item {
+                        DailyCueRecommendationTimingSection(
+                            selected = recommendationTiming,
+                            expanded = isTimingExpanded,
+                            onExpandedChange = { isTimingExpanded = it },
+                            onSelect = {
+                                recommendationTiming = it
+                                isTimingExpanded = false
+                            }
+                        )
+                    }
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "메모 (선택)",
+                                color = TextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            OutlinedTextField(
+                                value = note,
+                                onValueChange = { note = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 2,
+                                maxLines = 4,
+                                placeholder = {
+                                    Text("이 루틴에 대한 메모를 남겨보세요.", color = TextMuted)
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Purple,
+                                    unfocusedBorderColor = BorderLight,
+                                    cursorColor = Purple
+                                )
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -1366,7 +1429,7 @@ private fun DailyCueEditorDialog(
             Button(
                 onClick = {
                     val duration = timerDurationMillis?.takeIf { label == "Routine" && it > 0L }
-                    onSave(title, label, duration, timerCategory)
+                    onSave(title, label, duration, timerCategory, recommendationTiming, note)
                 },
                 enabled = title.isNotBlank(),
                 shape = RoundedCornerShape(12.dp),
@@ -1394,6 +1457,170 @@ private fun DailyCueEditorDialog(
             }
         }
     )
+}
+
+@Composable
+private fun DailyCueRecommendationTimingSection(
+    selected: DailyCueRecommendationTiming,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onSelect: (DailyCueRecommendationTiming) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(BorderStroke(1.dp, BorderLight), RoundedCornerShape(14.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            "추천 타이밍",
+            color = TextPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            "언제 추천받고 싶나요?",
+            color = TextMuted,
+            fontSize = 11.sp
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    if (expanded) PurpleSoft.copy(alpha = 0.55f) else Color.White,
+                    RoundedCornerShape(12.dp)
+                )
+                .border(
+                    BorderStroke(1.dp, if (expanded) Purple.copy(alpha = 0.55f) else BorderLight),
+                    RoundedCornerShape(12.dp)
+                )
+                .clickable { onExpandedChange(!expanded) }
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = timingIcon(selected),
+                contentDescription = null,
+                tint = Purple,
+                modifier = Modifier.size(21.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                selected.title,
+                modifier = Modifier.weight(1f),
+                color = TextPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Icon(
+                imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = null,
+                tint = TextPrimary
+            )
+        }
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(BorderStroke(1.dp, BorderLight), RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(12.dp))
+            ) {
+                DailyCueRecommendationTiming.entries.forEach { timing ->
+                    val isSelected = timing == selected
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(if (isSelected) PurpleSoft else Color.White)
+                            .clickable { onSelect(timing) }
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = timingIcon(timing),
+                            contentDescription = null,
+                            tint = timingAccent(timing),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(11.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                timing.title,
+                                color = TextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                timing.description,
+                                color = TextMuted,
+                                fontSize = 10.sp,
+                                lineHeight = 13.sp
+                            )
+                        }
+                        if (isSelected) {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = null,
+                                tint = Purple,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(PurpleSoft.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                .padding(horizontal = 11.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                Icons.Outlined.Info,
+                contentDescription = null,
+                tint = Purple,
+                modifier = Modifier.size(17.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (selected == DailyCueRecommendationTiming.NONE) {
+                    "이 Routine은 특정 추천 타이밍 없이 저장돼요."
+                } else {
+                    "선택한 타이밍을 기준으로 Flowlog가 상황을 보고 추천할 수 있도록 저장해둘게요."
+                },
+                color = TextMuted,
+                fontSize = 10.sp,
+                lineHeight = 14.sp
+            )
+        }
+    }
+}
+
+private fun timingIcon(timing: DailyCueRecommendationTiming): ImageVector = when (timing) {
+    DailyCueRecommendationTiming.NONE -> Icons.Outlined.AccessTime
+    DailyCueRecommendationTiming.AFTER_WAKING -> Icons.Outlined.WbSunny
+    DailyCueRecommendationTiming.FOCUS_READY -> Icons.Outlined.TrackChanges
+    DailyCueRecommendationTiming.AFTER_FOCUS -> Icons.Outlined.Loop
+    DailyCueRecommendationTiming.SOFT_TRANSITION -> Icons.Outlined.Coffee
+    DailyCueRecommendationTiming.FLOW_RESET -> Icons.Outlined.Bolt
+    DailyCueRecommendationTiming.AFTER_MAIN_TASKS -> Icons.Outlined.CardGiftcard
+}
+
+private fun timingAccent(timing: DailyCueRecommendationTiming): Color = when (timing) {
+    DailyCueRecommendationTiming.NONE -> TextMuted
+    DailyCueRecommendationTiming.AFTER_WAKING -> Color(0xFFF5A623)
+    DailyCueRecommendationTiming.FOCUS_READY,
+    DailyCueRecommendationTiming.AFTER_FOCUS -> Purple
+    DailyCueRecommendationTiming.SOFT_TRANSITION -> Color(0xFF55545D)
+    DailyCueRecommendationTiming.FLOW_RESET -> Color(0xFFFF9800)
+    DailyCueRecommendationTiming.AFTER_MAIN_TASKS -> Color(0xFFE0B000)
 }
 
 @Composable

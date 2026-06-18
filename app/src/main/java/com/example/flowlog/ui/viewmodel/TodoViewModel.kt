@@ -12,6 +12,7 @@ import com.example.flowlog.data.agent.TodayOrganizerRules
 import com.example.flowlog.data.constants.ActivitySourceType
 import com.example.flowlog.data.constants.RecommendationReason
 import com.example.flowlog.data.model.ActivitySession
+import com.example.flowlog.data.model.DailyCueRecommendationTiming
 import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.data.recommendation.TodoBurdenAnalysis
@@ -48,6 +49,8 @@ data class DailyCueItem(
     val isCompleted: Boolean = false,
     val timerDurationMillis: Long? = null,
     val timerCategory: String = "TODO",
+    val recommendationTiming: DailyCueRecommendationTiming = DailyCueRecommendationTiming.default,
+    val note: String = "",
     val order: Int = 0
 )
 
@@ -414,7 +417,8 @@ class TodoViewModel(
                             title = it.title,
                             isCompleted = it.isCompleted,
                             timerDurationMillis = it.timerDurationMillis,
-                            timerCategory = it.timerCategory
+                            timerCategory = it.timerCategory,
+                            recommendationTiming = it.recommendationTiming
                         )
                     },
                     activities = latestActivities,
@@ -556,7 +560,14 @@ class TodoViewModel(
 
     private fun OrganizedPetite.sourceKey(): String = "$sourceType:$sourceId"
 
-    fun addDailyCue(title: String, label: String, timerDurationMillis: Long?, timerCategory: String) {
+    fun addDailyCue(
+        title: String,
+        label: String,
+        timerDurationMillis: Long?,
+        timerCategory: String,
+        recommendationTiming: DailyCueRecommendationTiming,
+        note: String
+    ) {
         val cleanTitle = title.trim()
         if (cleanTitle.isEmpty()) return
         val cleanLabel = if (label == "Memo") "Memo" else "Routine"
@@ -569,6 +580,8 @@ class TodoViewModel(
             title = cleanTitle,
             timerDurationMillis = cleanTimerDurationMillis,
             timerCategory = cleanTimerCategory,
+            recommendationTiming = recommendationTiming,
+            note = note.trim(),
             order = newOrder
         ))
         _dailyCues.value = updated
@@ -623,7 +636,15 @@ class TodoViewModel(
         )
     }
 
-    fun updateDailyCue(cueId: Long, title: String, label: String, timerDurationMillis: Long?, timerCategory: String) {
+    fun updateDailyCue(
+        cueId: Long,
+        title: String,
+        label: String,
+        timerDurationMillis: Long?,
+        timerCategory: String,
+        recommendationTiming: DailyCueRecommendationTiming,
+        note: String
+    ) {
         val cleanTitle = title.trim()
         if (cleanTitle.isEmpty()) return
         val cleanLabel = if (label == "Memo") "Memo" else "Routine"
@@ -635,7 +656,9 @@ class TodoViewModel(
                     title = cleanTitle,
                     label = cleanLabel,
                     timerDurationMillis = cleanTimerDurationMillis,
-                    timerCategory = cleanTimerCategory
+                    timerCategory = cleanTimerCategory,
+                    recommendationTiming = recommendationTiming,
+                    note = note.trim()
                 )
             } else {
                 cue
@@ -670,6 +693,10 @@ class TodoViewModel(
                     isCompleted = item.optBoolean("isCompleted", false),
                     timerDurationMillis = item.optLong("timerDurationMillis", 0L).takeIf { it > 0L },
                     timerCategory = item.optString("timerCategory", "TODO").ifBlank { "TODO" },
+                    recommendationTiming = DailyCueRecommendationTiming.fromStorage(
+                        item.optString("recommendationTiming", "")
+                    ),
+                    note = item.optString("note", ""),
                     order = item.optInt("order", index)
                 )
             }.filter { it.title.isNotBlank() }
@@ -697,6 +724,8 @@ class TodoViewModel(
                 put("isCompleted", cue.isCompleted)
                 cue.timerDurationMillis?.let { put("timerDurationMillis", it) }
                 put("timerCategory", cue.timerCategory)
+                put("recommendationTiming", cue.recommendationTiming.name)
+                put("note", cue.note)
                 put("order", cue.order)
             })
         }
@@ -735,6 +764,8 @@ class TodoViewModel(
             title = title,
             timerDurationMillis = timerDurationMillis,
             timerCategory = timerCategory,
+            recommendationTiming = recommendationTiming.name,
+            note = note,
             order = order,
             createdAt = inferredCreatedAt,
             updatedAt = inferredCreatedAt

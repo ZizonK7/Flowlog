@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.flowlog.data.constants.ActivitySourceType
 import com.example.flowlog.data.local.FocusModeStore
+import com.example.flowlog.data.local.DailyCueCompletionStore
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
 import com.example.flowlog.data.model.AutoButtonSchedule
@@ -20,6 +21,10 @@ import com.example.flowlog.data.model.ScheduledAutoButtonBlock
 import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.data.recommendation.ButtonRecommendationEngine
+import com.example.flowlog.data.recommendation.FlowRecommendationDecision
+import com.example.flowlog.data.recommendation.FlowRecommendationEngine
+import com.example.flowlog.data.recommendation.FlowRecommendationSource
+import com.example.flowlog.data.recommendation.TimetableProgress
 import com.example.flowlog.data.constants.EntityType
 import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.agent.OrganizedPetite
@@ -28,6 +33,8 @@ import com.example.flowlog.data.agent.PetiteSourceType
 import com.example.flowlog.data.repository.ActivityRepository
 import com.example.flowlog.data.repository.AutoButtonScheduleRepository
 import com.example.flowlog.data.repository.DailyGoalRepository
+import com.example.flowlog.data.repository.DailyCueRecord
+import com.example.flowlog.data.repository.DailyCueRepository
 import com.example.flowlog.data.repository.EventLogRepository
 import com.example.flowlog.data.repository.OrganizedPetiteRepository
 import com.example.flowlog.data.repository.TodoRepository
@@ -53,6 +60,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -61,7 +69,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.Calendar
 import java.util.TimeZone
+import java.util.UUID
 import java.util.concurrent.TimeUnit
+import org.json.JSONObject
 
 data class CategoryStat(
     val category: String,
@@ -102,13 +112,31 @@ enum class FlowRecommendationStage {
 }
 
 data class FlowActivityRecommendation(
-    val petite: OrganizedPetite,
+    val petite: OrganizedPetite? = null,
+    val routine: DailyCueRecord? = null,
+    val timetableTodo: RecommendedTodoBlock? = null,
+    val todayTodo: TodoItem? = null,
+    val source: FlowRecommendationSource = FlowRecommendationSource.PETITE,
     val stage: FlowRecommendationStage,
     val title: String,
     val category: String,
+    val recommendationId: String = UUID.randomUUID().toString(),
+    val algorithmStep: Int = 0,
+    val reasonCode: String = "LEGACY_PETITE",
     val isEnabled: Boolean = true,
     val isCompleted: Boolean = false,
     val showPreviewSiteButton: Boolean = false
+)
+
+private data class FlowRecommendationInputs(
+    val routines: List<DailyCueRecord>,
+    val completedRoutineIds: Set<Long>,
+    val timetableTodos: List<RecommendedTodoBlock>,
+    val timetableProgress: TimetableProgress,
+    val todayTodos: List<TodoItem>,
+    val activities: List<ActivitySession>,
+    val petites: List<OrganizedPetite>,
+    val now: Long
 )
 
 private fun FlowRecommendationStage.activitySourceType(): String {
@@ -205,9 +233,14 @@ class ActivityViewModel(
     private val eventLogRepository = EventLogRepository(appContext)
     private val autoButtonScheduleRepository = AutoButtonScheduleRepository(appContext)
     private val dailyGoalRepository = DailyGoalRepository(appContext)
+    private val dailyCueRepository = DailyCueRepository(appContext)
+    private val flowRecommendationEngine = FlowRecommendationEngine()
     private val buttonRecommendationEngine = ButtonRecommendationEngine()
     private val autoButtonScheduler = AutoButtonScheduler(appContext)
     private val organizedPetiteRepository = OrganizedPetiteRepository(appContext)
+    private var lastFlowRecommendationSignature: String? = null
+    private var activeFlowRecommendationId: String? = null
+    private var lastLoggedFlowRecommendationId: String? = null
     private val firestoreSyncRepository = FirestoreSyncRepository()
     private val undoPreferences = appContext.getSharedPreferences(
         PREFS_ACTIVITY_UNDO,
@@ -254,41 +287,196 @@ class ActivityViewModel(
     private fun observeFlowRecommendation() {
         viewModelScope.launch {
             combine(
+                combine(
+                    dailyCueRepository.observeCueRecords(),
+                    DailyCueCompletionStore.observeCompletedIdsToday(appContext)
+                ) { routines, completedIds -> routines to completedIds },
+                combine(
+                    dailyGoalRepository.observeTodayRecommendedBlocks(),
+                    dailyGoalRepository.observeTodayTimetableProgress()
+                ) { blocks, progress -> blocks to progress },
+                combine(
+                    todoRepository.getIncompleteTodos(),
+                    repository.getAllActivities()
+                ) { todos, activities -> todos to activities },
                 organizedPetiteRepository.observeActivePetites(),
-                repository.getAllActivities()
-            ) { petites, activities ->
-                petites to activities
-            }.collect { (petites, activities) ->
-                val recommendations = buildFlowRecommendations(petites, activities)
-                val allStageRecommendations = petites.flatMap {
-                    buildRecommendationsForPetite(it, activities)
+                flowRecommendationMinuteTicker()
+            ) { routineState, timetableState, todoActivityState, petites, now ->
+                FlowRecommendationInputs(
+                    routines = routineState.first,
+                    completedRoutineIds = routineState.second,
+                    timetableTodos = timetableState.first,
+                    timetableProgress = timetableState.second,
+                    todayTodos = todoActivityState.first,
+                    activities = todoActivityState.second,
+                    petites = petites,
+                    now = now
+                )
+            }.collect { inputs ->
+                val decision = flowRecommendationEngine.recommend(
+                    now = inputs.now,
+                    routines = inputs.routines,
+                    completedRoutineIds = inputs.completedRoutineIds,
+                    timetableTodos = inputs.timetableTodos,
+                    timetableProgress = inputs.timetableProgress,
+                    todayTodos = inputs.todayTodos,
+                    activities = inputs.activities
+                )
+                val recommendations = decision
+                    ?.let { buildFlowRecommendation(it, inputs.petites, inputs.activities) }
+                    ?.let(::listOf)
+                    .orEmpty()
+                val allStageRecommendations = inputs.petites.flatMap {
+                    buildRecommendationsForPetite(it, inputs.activities)
                 }
                 _uiState.update { state ->
                     state.copy(
-                        activePetites = petites,
+                        activePetites = inputs.petites,
                         flowRecommendations = recommendations,
                         recommendedTodoBlocks = state.recommendedTodoBlocks.map { block ->
                             val currentStage = block.petiteId?.let { petiteId ->
                                 allStageRecommendations.firstOrNull {
-                                    it.petite.id == petiteId && it.isEnabled && !it.isCompleted
+                                    it.petite?.id == petiteId && it.isEnabled && !it.isCompleted
                                 }
                             }
                             if (currentStage == null) block else block.copy(title = currentStage.title)
                         }
                     )
                 }
+                recordFlowRecommendationShown(recommendations.firstOrNull())
             }
         }
     }
 
-    private fun buildFlowRecommendations(
+    private fun flowRecommendationMinuteTicker() = flow {
+        while (true) {
+            val now = System.currentTimeMillis()
+            emit(now)
+            delay(TimeUnit.MINUTES.toMillis(1) - (now % TimeUnit.MINUTES.toMillis(1)))
+        }
+    }
+
+    private fun buildFlowRecommendation(
+        decision: FlowRecommendationDecision,
         petites: List<OrganizedPetite>,
         activities: List<ActivitySession>
-    ): List<FlowActivityRecommendation> {
-        val petite = petites.firstOrNull { it.sourceType != PetiteSourceType.CALENDAR }
-            ?: petites.firstOrNull()
-            ?: return emptyList()
-        return buildRecommendationsForPetite(petite, activities)
+    ): FlowActivityRecommendation {
+        val recommendationId = recommendationIdFor(decision)
+        return when (decision.source) {
+            FlowRecommendationSource.ROUTINE -> {
+                val routine = requireNotNull(decision.routine)
+                FlowActivityRecommendation(
+                    routine = routine,
+                    source = decision.source,
+                    stage = FlowRecommendationStage.SINGLE,
+                    title = routine.title,
+                    category = routine.timerCategory.ifBlank { "TODO" },
+                    recommendationId = recommendationId,
+                    algorithmStep = decision.step,
+                    reasonCode = decision.reasonCode
+                )
+            }
+            FlowRecommendationSource.TIMETABLE_TODO -> {
+                val block = requireNotNull(decision.timetableTodo)
+                val petite = block.petiteId?.let { id -> petites.firstOrNull { it.id == id } }
+                val staged = petite?.let {
+                    buildRecommendationsForPetite(it, activities)
+                        .firstOrNull { stage -> stage.isEnabled && !stage.isCompleted }
+                }
+                (staged ?: FlowActivityRecommendation(
+                    source = decision.source,
+                    stage = FlowRecommendationStage.SINGLE,
+                    title = block.title,
+                    category = "TODO"
+                )).copy(
+                    petite = petite,
+                    timetableTodo = block,
+                    source = decision.source,
+                    recommendationId = recommendationId,
+                    algorithmStep = decision.step,
+                    reasonCode = decision.reasonCode
+                )
+            }
+            FlowRecommendationSource.TODAY_TODO -> {
+                val todo = requireNotNull(decision.todayTodo)
+                FlowActivityRecommendation(
+                    todayTodo = todo,
+                    source = decision.source,
+                    stage = FlowRecommendationStage.SINGLE,
+                    title = todo.title,
+                    category = "TODO",
+                    recommendationId = recommendationId,
+                    algorithmStep = decision.step,
+                    reasonCode = decision.reasonCode
+                )
+            }
+            FlowRecommendationSource.PETITE -> error("Engine does not emit legacy petites")
+        }
+    }
+
+    private fun recommendationIdFor(decision: FlowRecommendationDecision): String {
+        val sourceId = decision.routine?.id?.toString()
+            ?: decision.timetableTodo?.itemId
+            ?: decision.todayTodo?.id?.toString()
+            ?: "none"
+        val signature = "${decision.source}:$sourceId:${decision.step}:${decision.reasonCode}"
+        if (signature != lastFlowRecommendationSignature) {
+            lastFlowRecommendationSignature = signature
+            activeFlowRecommendationId = UUID.randomUUID().toString()
+        }
+        return activeFlowRecommendationId ?: UUID.randomUUID().toString().also {
+            activeFlowRecommendationId = it
+        }
+    }
+
+    private suspend fun recordFlowRecommendationShown(recommendation: FlowActivityRecommendation?) {
+        if (recommendation == null || recommendation.recommendationId == lastLoggedFlowRecommendationId) return
+        lastLoggedFlowRecommendationId = recommendation.recommendationId
+        logFlowRecommendationEvent(EventType.FLOW_RECOMMENDATION_SHOWN, recommendation)
+    }
+
+    fun openFlowRecommendation(recommendation: FlowActivityRecommendation) {
+        viewModelScope.launch {
+            logFlowRecommendationEvent(EventType.FLOW_RECOMMENDATION_OPENED, recommendation)
+        }
+    }
+
+    private suspend fun logFlowRecommendationEvent(
+        eventType: String,
+        recommendation: FlowActivityRecommendation
+    ) {
+        val sourceId = recommendation.routine?.id?.toString()
+            ?: recommendation.timetableTodo?.itemId
+            ?: recommendation.todayTodo?.id?.toString()
+            ?: recommendation.petite?.id
+        val metadata = JSONObject().apply {
+            put("recommendationId", recommendation.recommendationId)
+            put("algorithmVersion", FLOW_RECOMMENDATION_ALGORITHM_VERSION)
+            put("algorithmStep", recommendation.algorithmStep)
+            put("reasonCode", recommendation.reasonCode)
+            put("sourceType", recommendation.source.name)
+            put("sourceId", sourceId)
+            put("title", recommendation.title)
+            put("category", recommendation.category)
+            recommendation.routine?.let {
+                put("routineTiming", it.recommendationTiming)
+                put("routineTimerDurationMillis", it.timerDurationMillis)
+            }
+            recommendation.timetableTodo?.let {
+                put("plannedStartMillis", it.plannedStartMillis)
+                put("plannedEndMillis", it.plannedEndMillis)
+                put("timetableRecommendationId", it.recommendationId)
+            }
+        }.toString()
+        runCatching {
+            eventLogRepository.log(
+                eventType = eventType,
+                entityType = EntityType.FLOW_RECOMMENDATION,
+                entityId = recommendation.recommendationId,
+                metadataJson = metadata,
+                algorithmVersion = FLOW_RECOMMENDATION_ALGORITHM_VERSION
+            )
+        }
     }
 
     private fun buildRecommendationsForPetite(
@@ -299,6 +487,7 @@ class ActivityViewModel(
             listOf(
                 FlowActivityRecommendation(
                     petite = petite,
+                    source = FlowRecommendationSource.PETITE,
                     stage = FlowRecommendationStage.SINGLE,
                     title = petite.title,
                     category = petite.activityCategory ?: "STUDY",
@@ -314,6 +503,7 @@ class ActivityViewModel(
             listOf(
                 FlowActivityRecommendation(
                     petite = petite,
+                    source = FlowRecommendationSource.PETITE,
                     stage = FlowRecommendationStage.PREVIEW,
                     title = "$baseTitle 예습하기",
                     category = "STUDY",
@@ -323,6 +513,7 @@ class ActivityViewModel(
                 ),
                 FlowActivityRecommendation(
                     petite = petite,
+                    source = FlowRecommendationSource.PETITE,
                     stage = FlowRecommendationStage.STUDY,
                     title = "$baseTitle 공부하기",
                     category = petite.activityCategory ?: "STUDY",
@@ -351,26 +542,48 @@ class ActivityViewModel(
     fun completeFlowRecommendation(recommendation: FlowActivityRecommendation) {
         if (!recommendation.isEnabled || recommendation.isCompleted) return
         viewModelScope.launch {
+            when (recommendation.source) {
+                FlowRecommendationSource.ROUTINE -> {
+                    val routine = recommendation.routine ?: return@launch
+                    DailyCueCompletionStore.markCompletedToday(appContext, routine.id)
+                    recordDailyCueCheck(routine)
+                }
+                FlowRecommendationSource.TIMETABLE_TODO -> {
+                    recommendation.timetableTodo?.let { completeRecommendedTodo(it) }
+                }
+                FlowRecommendationSource.TODAY_TODO -> {
+                    recommendation.todayTodo?.let {
+                        todoRepository.updateCompleted(it.id, true, System.currentTimeMillis())
+                    }
+                }
+                FlowRecommendationSource.PETITE -> completeLegacyFlowRecommendation(recommendation)
+            }
+            logFlowRecommendationEvent(EventType.FLOW_RECOMMENDATION_COMPLETED, recommendation)
+        }
+    }
+
+    private suspend fun completeLegacyFlowRecommendation(recommendation: FlowActivityRecommendation) {
+        val petite = recommendation.petite ?: return
             when (recommendation.stage) {
                 FlowRecommendationStage.PREVIEW -> {
                     recordFlowStageCompletion(recommendation)
                 }
                 FlowRecommendationStage.STUDY -> {
                     recordFlowStageCompletion(recommendation)
-                    organizedPetiteRepository.completeById(recommendation.petite.id)
-                    dailyGoalRepository.markCalendarPetiteCompleted(recommendation.petite.id)
+                    organizedPetiteRepository.completeById(petite.id)
+                    dailyGoalRepository.markCalendarPetiteCompleted(petite.id)
                 }
                 FlowRecommendationStage.SINGLE -> {
-                    organizedPetiteRepository.dismiss(recommendation.petite)
-                    if (recommendation.petite.sourceType == PetiteSourceType.CALENDAR) {
-                        dailyGoalRepository.markCalendarPetiteCompleted(recommendation.petite.id)
+                    organizedPetiteRepository.dismiss(petite)
+                    if (petite.sourceType == PetiteSourceType.CALENDAR) {
+                        dailyGoalRepository.markCalendarPetiteCompleted(petite.id)
                     }
                 }
             }
-        }
     }
 
     private suspend fun recordFlowStageCompletion(recommendation: FlowActivityRecommendation) {
+        val petite = recommendation.petite ?: return
         val now = System.currentTimeMillis()
         repository.insertActivity(
             ActivitySession(
@@ -379,9 +592,26 @@ class ActivityViewModel(
                 startTime = now,
                 endTime = now,
                 durationMillis = 0L,
-                linkedPetiteId = recommendation.petite.id,
+                linkedPetiteId = petite.id,
                 sourceType = recommendation.stage.activitySourceType(),
-                sourceId = recommendation.petite.id
+                sourceId = petite.id
+            )
+        )
+    }
+
+    private suspend fun recordDailyCueCheck(routine: DailyCueRecord) {
+        val sourceId = routine.id.toString()
+        if (repository.hasActivityBySourceToday(ActivitySourceType.DAILY_CUE_CHECK, sourceId)) return
+        val now = System.currentTimeMillis()
+        repository.insertActivity(
+            ActivitySession(
+                category = routine.timerCategory.ifBlank { "TODO" },
+                title = routine.title,
+                startTime = now,
+                endTime = now,
+                durationMillis = 0L,
+                sourceType = ActivitySourceType.DAILY_CUE_CHECK,
+                sourceId = sourceId
             )
         )
     }
@@ -647,18 +877,56 @@ class ActivityViewModel(
 
     fun startFlowRecommendation(
         recommendation: FlowActivityRecommendation,
-        plannedItemId: String? = null
+        plannedItemId: String? = null,
+        logEvent: Boolean = true
     ) {
         if (!recommendation.isEnabled || recommendation.isCompleted || _uiState.value.isRunning) return
+        when (recommendation.source) {
+            FlowRecommendationSource.ROUTINE -> {
+                val routine = recommendation.routine ?: return
+                startDailyCueRoutineActivity(
+                    cueId = routine.id,
+                    title = routine.title,
+                    goalMillis = routine.timerDurationMillis ?: 0L,
+                    category = routine.timerCategory
+                )
+                viewModelScope.launch {
+                    logFlowRecommendationEvent(EventType.FLOW_RECOMMENDATION_STARTED, recommendation)
+                }
+                return
+            }
+            FlowRecommendationSource.TIMETABLE_TODO -> {
+                val block = recommendation.timetableTodo ?: return
+                startRecommendedTodoActivity(block)
+                viewModelScope.launch {
+                    dailyGoalRepository.markPlannedItemStarted(block.itemId)
+                    logFlowRecommendationEvent(EventType.FLOW_RECOMMENDATION_STARTED, recommendation)
+                }
+                return
+            }
+            FlowRecommendationSource.TODAY_TODO -> {
+                val todo = recommendation.todayTodo ?: return
+                startTodoActivity(todo.id, todo.title)
+                viewModelScope.launch {
+                    logFlowRecommendationEvent(EventType.FLOW_RECOMMENDATION_STARTED, recommendation)
+                }
+                return
+            }
+            FlowRecommendationSource.PETITE -> Unit
+        }
+        val petite = recommendation.petite ?: return
         if (recommendation.stage == FlowRecommendationStage.SINGLE) {
-            startCalendarPetiteActivity(recommendation.petite)
+            startCalendarPetiteActivity(petite)
+            if (logEvent) viewModelScope.launch {
+                logFlowRecommendationEvent(EventType.FLOW_RECOMMENDATION_STARTED, recommendation)
+            }
             return
         }
 
         val startTime = System.currentTimeMillis()
         val goalMillis = when (recommendation.stage) {
             FlowRecommendationStage.PREVIEW -> TimeUnit.MINUTES.toMillis(30L)
-            FlowRecommendationStage.STUDY -> recommendation.petite.estimatedMinutes
+            FlowRecommendationStage.STUDY -> petite.estimatedMinutes
                 ?.takeIf { it > 0 }
                 ?.let { TimeUnit.MINUTES.toMillis(it.toLong()) }
                 ?: defaultGoalMillisForCategory(recommendation.category)
@@ -672,7 +940,7 @@ class ActivityViewModel(
                 currentCategory = recommendation.category,
                 startTime = startTime,
                 linkedTodoId = null,
-                linkedPetiteId = recommendation.petite.id,
+                linkedPetiteId = petite.id,
                 sourceType = sourceType,
                 sourceId = plannedItemId,
                 pendingTitle = recommendation.title,
@@ -685,7 +953,7 @@ class ActivityViewModel(
             category = recommendation.category,
             startTime = startTime,
             goalMillis = goalMillis,
-            linkedPetiteId = recommendation.petite.id,
+            linkedPetiteId = petite.id,
             linkedTodoTitle = recommendation.title,
             pendingTitle = recommendation.title,
             sourceType = sourceType,
@@ -693,6 +961,9 @@ class ActivityViewModel(
         )
         activityTimerNotifier.showRunningTimer(recommendation.category, startTime)
         startTimer()
+        if (logEvent) viewModelScope.launch {
+            logFlowRecommendationEvent(EventType.FLOW_RECOMMENDATION_STARTED, recommendation)
+        }
     }
 
     fun startRecommendedTodoActivity(block: RecommendedTodoBlock) {
@@ -708,7 +979,7 @@ class ActivityViewModel(
             }
         }
         if (stagedRecommendation != null) {
-            startFlowRecommendation(stagedRecommendation, plannedItemId = block.itemId)
+            startFlowRecommendation(stagedRecommendation, plannedItemId = block.itemId, logEvent = false)
             viewModelScope.launch {
                 dailyGoalRepository.markPlannedItemStarted(block.itemId)
             }
@@ -2462,6 +2733,7 @@ class ActivityViewModel(
 
     companion object {
         private const val TAG = "ActivityViewModel"
+        private const val FLOW_RECOMMENDATION_ALGORITHM_VERSION = "flow-v1"
         private const val PREFS_MIGRATIONS = "flowlog_migrations"
         private const val PREFS_ACTIVITY_UNDO = "activity_undo"
         private const val PREFS_TIMER_STATE = "timer_state"

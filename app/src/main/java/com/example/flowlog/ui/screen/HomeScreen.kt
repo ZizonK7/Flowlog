@@ -620,6 +620,7 @@ fun HomeScreen(
                 onSetRecommendedTime = { block, hour -> if (!isDeveloperMode) viewModel.setRecommendedTodoTime(block, hour) },
                 onReplaceRecommendedItem = { block, todo -> if (!isDeveloperMode) viewModel.replaceRecommendedTodoItem(block, todo) },
                 onStartFlowRecommendation = { if (!isDeveloperMode) viewModel.startFlowRecommendation(it) },
+                onOpenFlowRecommendation = { if (!isDeveloperMode) viewModel.openFlowRecommendation(it) },
                 onCompleteFlowRecommendation = { if (!isDeveloperMode) viewModel.completeFlowRecommendation(it) },
                 flowRecommendations = if (isDeveloperMode) emptyList() else uiState.flowRecommendations,
                 isDeveloperMode = isDeveloperMode,
@@ -4400,6 +4401,7 @@ private fun TimetableCard(
     onSetRecommendedTime: (RecommendedTodoBlock, Int) -> Unit,
     onReplaceRecommendedItem: (RecommendedTodoBlock, TodoItem) -> Unit,
     onStartFlowRecommendation: (FlowActivityRecommendation) -> Unit = {},
+    onOpenFlowRecommendation: (FlowActivityRecommendation) -> Unit = {},
     onCompleteFlowRecommendation: (FlowActivityRecommendation) -> Unit = {},
     flowRecommendations: List<FlowActivityRecommendation> = emptyList(),
     isDeveloperMode: Boolean = false,
@@ -4533,16 +4535,19 @@ private fun TimetableCard(
                     activeCategory = activeCategory,
                     onShowMenu = { block -> selectedBlock = block }
                 )
-                flowRecommendations.forEachIndexed { index, recommendation ->
-                    ActivityRecommendationRow(
-                        category = recommendation.category,
-                        activityName = recommendation.title,
-                        isEnabled = recommendation.isEnabled,
-                        isCompleted = recommendation.isCompleted,
-                        onClick = { selectedFlowRecommendation = recommendation },
-                        modifier = Modifier.padding(top = if (index == 0) 12.dp else 8.dp)
-                    )
-                }
+            }
+            flowRecommendations.forEachIndexed { index, recommendation ->
+                ActivityRecommendationRow(
+                    category = recommendation.category,
+                    activityName = recommendation.title,
+                    isEnabled = recommendation.isEnabled,
+                    isCompleted = recommendation.isCompleted,
+                    onClick = {
+                        onOpenFlowRecommendation(recommendation)
+                        selectedFlowRecommendation = recommendation
+                    },
+                    modifier = Modifier.padding(top = if (index == 0) 12.dp else 8.dp)
+                )
             }
         }
     }
@@ -4551,7 +4556,7 @@ private fun TimetableCard(
         ActivityRecommendationSheet(
             category = recommendation.category,
             activityName = recommendation.title,
-            reasonText = recommendation.petite.aiComment,
+            reasonText = recommendation.petite?.aiComment,
             onDismiss = { selectedFlowRecommendation = null },
             onStart = {
                 onStartFlowRecommendation(recommendation)
