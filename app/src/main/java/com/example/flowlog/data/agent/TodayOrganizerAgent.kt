@@ -45,7 +45,8 @@ data class OrganizedPetite(
     val routineTimerDurationMillis: Long? = null,
     val routineTimerCategory: String? = null,
     // 미래 필터링용: "ACADEMIC"(공부/과제) / "DAILY"(일상) / null(미분류)
-    val calendarTaskType: String? = null
+    val calendarTaskType: String? = null,
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 data class ExamStudyMetrics(

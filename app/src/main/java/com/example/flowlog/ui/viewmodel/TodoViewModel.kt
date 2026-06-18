@@ -185,9 +185,9 @@ class TodoViewModel(
         }
 
         dailyGoalRepository.reconcilePastRecommendations(allTodos, latestActivities)
-        val burdenAnalyses = TodoBurdenCalculator.analyze(allTodos, latestActivities)
-        repository.updateBurdenCaches(burdenAnalyses)
         val calendarPetites = activeCalendarPetitesForRecommendation()
+        val burdenAnalyses = analyzeRecommendationBurden(allTodos, calendarPetites)
+        repository.updateBurdenCaches(burdenAnalyses.filter { it.todo.id >= 0L })
         val selectionResult = selectTodayFocus(allTodos, calendarPetites, burdenAnalyses)
         val newIds = selectionResult.mapNotNull { it.todo?.id }
         _focusIds.value = newIds
@@ -351,8 +351,8 @@ class TodoViewModel(
         val currentTodos = _todos.value
         if (currentTodos.isEmpty()) return
 
-        val burdenAnalyses = TodoBurdenCalculator.analyze(currentTodos, latestActivities)
         val calendarPetites = activeCalendarPetitesForRecommendation()
+        val burdenAnalyses = analyzeRecommendationBurden(currentTodos, calendarPetites)
         val selectionResult = selectTodayFocus(currentTodos, calendarPetites, burdenAnalyses)
         val newIds = selectionResult.mapNotNull { it.todo?.id }
         val todayKey = startOfDay(System.currentTimeMillis())
@@ -369,7 +369,7 @@ class TodoViewModel(
                 // Room에 새로고침 추천 저장
                 runCatching {
                     dailyGoalRepository.reconcilePastRecommendations(currentTodos, latestActivities)
-                    repository.updateBurdenCaches(burdenAnalyses)
+                    repository.updateBurdenCaches(burdenAnalyses.filter { it.todo.id >= 0L })
                     dailyGoalRepository.saveRecommendation(
                         dateKey = dailyGoalRepository.todayDateKey(),
                         selectedItems = selectionResult,
@@ -921,7 +921,12 @@ class TodoViewModel(
 
         val petiteCandidates = calendarPetites
             .filter { isCalendarPetiteEligibleForRecommendation(it) }
-            .map { CalendarPetiteCandidate(it) }
+            .map { petite ->
+                CalendarPetiteCandidate(
+                    petite = petite,
+                    analysis = analysisById[petite.syntheticTodoId()]
+                )
+            }
 
         val available = candidatesById.values.toList() + petiteCandidates
         if (available.isEmpty()) return emptyList()
@@ -936,15 +941,60 @@ class TodoViewModel(
     private fun activeCalendarPetitesForRecommendation(): List<OrganizedPetite> =
         _organizedPetites.value.filter { it.sourceType == PetiteSourceType.CALENDAR }
 
-    private inner class CalendarPetiteCandidate(val petite: OrganizedPetite) : TodayFocusCandidateLike {
+    private fun analyzeRecommendationBurden(
+        todos: List<TodoItem>,
+        calendarPetites: List<OrganizedPetite>
+    ): List<TodoBurdenAnalysis> {
+        val studyPlans = calendarPetites.filter { it.isCalendarStudyPlan() }
+        val syntheticTodos = studyPlans.map { it.toBurdenTodo() }
+        val syntheticIdByPetiteId = studyPlans.associate { it.id to it.syntheticTodoId() }
+        val activitiesForAnalysis = latestActivities.map { activity ->
+            val syntheticId = activity.linkedPetiteId?.let(syntheticIdByPetiteId::get)
+            if (syntheticId == null) activity else activity.copy(linkedTodoId = syntheticId)
+        }
+        return TodoBurdenCalculator.analyze(todos + syntheticTodos, activitiesForAnalysis)
+    }
+
+    private fun OrganizedPetite.isCalendarStudyPlan(): Boolean {
+        return sourceType == PetiteSourceType.CALENDAR &&
+            (
+                calendarTaskType.equals("ACADEMIC", ignoreCase = true) ||
+                    category == TodoCategory.NORMAL
+                )
+    }
+
+    private fun OrganizedPetite.syntheticTodoId(): Long {
+        return Long.MIN_VALUE + (id.hashCode().toLong() and 0xffff_ffffL)
+    }
+
+    private fun OrganizedPetite.toBurdenTodo(): TodoItem {
+        return TodoItem(
+            id = syntheticTodoId(),
+            title = title,
+            category = TodoCategory.NORMAL,
+            createdAt = createdAt,
+            selectedDate = dateMillis,
+            isCompleted = isCompleted
+        )
+    }
+
+    private inner class CalendarPetiteCandidate(
+        val petite: OrganizedPetite,
+        private val analysis: TodoBurdenAnalysis?
+    ) : TodayFocusCandidateLike {
         override val priority: Int = 99
-        override val burdenLevel: String = "MEDIUM"
-        override val burdenScore: Int = petite.burdenScore ?: 0
-        override val createdAt: Long = 0L
+        override val burdenLevel: String =
+            if (petite.isCalendarStudyPlan()) analysis?.burdenLevel ?: "MEDIUM" else "MEDIUM"
+        override val burdenScore: Int =
+            if (petite.isCalendarStudyPlan()) analysis?.burdenScore ?: 0 else petite.burdenScore ?: 0
+        override val createdAt: Long = petite.createdAt
         override fun toGoalItem(): GoalItem = GoalItem(
             petite = petite,
             reason = RecommendationReason.CALENDAR_TODAY,
-            burdenLevel = "MEDIUM"
+            burdenLevel = burdenLevel,
+            burdenGroupKey = analysis?.burdenGroupKey,
+            burdenScore = burdenScore,
+            burdenReasonJson = analysis?.burdenReasonJson
         )
     }
 
@@ -956,14 +1006,35 @@ class TodoViewModel(
         if (mandatory.size >= 2) return mandatory.take(3)
 
         val remaining = candidates.filter { it.priority > 1 }
+        if (mandatory.size == 1) {
+            val partner = pickCompatiblePartner(mandatory.first(), remaining)
+            return mandatory + listOfNotNull(partner)
+        }
+
         val slotsLeft = 2 - mandatory.size
         val fill = pickByBurdenCombination(remaining, slotsLeft)
         return mandatory + fill
     }
 
+    private fun pickCompatiblePartner(
+        mandatory: TodayFocusCandidateLike,
+        candidates: List<TodayFocusCandidateLike>
+    ): TodayFocusCandidateLike? {
+        val byBurden = candidates.groupBy { it.burdenLevel }
+        val light = byBurden["LIGHT"].orEmpty().sortedWith(lightCandidateComparator())
+        val medium = byBurden["MEDIUM"].orEmpty().sortedWith(mediumCandidateComparator())
+        val heavy = byBurden["HEAVY"].orEmpty().sortedWith(heavyCandidateComparator())
+
+        return when (mandatory.burdenLevel) {
+            "HEAVY" -> light.firstOrNull()
+            "MEDIUM" -> medium.firstOrNull() ?: light.firstOrNull()
+            "LIGHT" -> heavy.firstOrNull() ?: medium.firstOrNull() ?: light.firstOrNull()
+            else -> null
+        }
+    }
+
     private fun pickByBurdenCombination(candidates: List<TodayFocusCandidateLike>, count: Int): List<TodayFocusCandidateLike> {
         if (count <= 0 || candidates.isEmpty()) return emptyList()
-        if (candidates.size <= count) return candidates
 
         val byBurden = candidates.groupBy { it.burdenLevel }
         fun lightPool() = byBurden["LIGHT"].orEmpty().sortedWith(lightCandidateComparator())
@@ -981,7 +1052,13 @@ class TodoViewModel(
             medium.size >= 2 -> medium.take(2)
             light.isNotEmpty() && medium.isNotEmpty() -> listOf(light.first(), medium.first())
             light.size >= 2 -> light.take(2)
-            else -> candidates.sortedWith(fallbackCandidateComparator()).take(count)
+            // 허용된 2개 조합이 없으면 하나만 추천한다.
+            else -> listOf(
+                heavy.firstOrNull()
+                    ?: medium.firstOrNull()
+                    ?: light.firstOrNull()
+                    ?: candidates.sortedWith(fallbackCandidateComparator()).first()
+            )
         }
     }
 

@@ -96,6 +96,10 @@ class FirebaseCalendarPullDataSource(context: Context) {
                         val autoStartEnabled = doc.getBoolean("autoStartEnabled") ?: false
                         val autoStartTime24 = doc.getString("autoStartTime24") ?: ""
                         val autoStartEndTime24 = doc.getString("autoStartEndTime24") ?: ""
+                        val origin = doc.getString("origin")
+                        val calendarTaskType = doc.getString("calendarTaskType")
+                            ?: doc.getString("taskType")
+                            ?: if (origin.equals("studyPlan", ignoreCase = true)) "ACADEMIC" else null
                         petiteEntities.add(
                             OrganizedPetiteEntity(
                                 id = "calendar_$eventId",
@@ -123,8 +127,9 @@ class FirebaseCalendarPullDataSource(context: Context) {
                                 routineTimerCategory = null,
                                 rank = (doc.getLong("rank") ?: 0L).toInt(),
                                 isDismissed = false,          // 신규 삽입 시 초기값; 재-pull 시 보존됨
-                                createdAt = now,
+                                createdAt = doc.getLong("createdAt") ?: now,
                                 updatedAt = updatedAt,
+                                calendarTaskType = calendarTaskType,
                                 autoStartEnabled = autoStartEnabled,
                                 autoStartTime24 = autoStartTime24,
                                 autoStartEndTime24 = autoStartEndTime24

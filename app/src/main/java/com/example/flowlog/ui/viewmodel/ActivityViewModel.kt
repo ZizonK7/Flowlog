@@ -52,6 +52,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -93,6 +94,30 @@ data class AiMessengerUiState(
     val showSheet: Boolean = false,
     val hasUnread: Boolean = false
 )
+
+enum class FlowRecommendationStage {
+    SINGLE,
+    PREVIEW,
+    STUDY
+}
+
+data class FlowActivityRecommendation(
+    val petite: OrganizedPetite,
+    val stage: FlowRecommendationStage,
+    val title: String,
+    val category: String,
+    val isEnabled: Boolean = true,
+    val isCompleted: Boolean = false,
+    val showPreviewSiteButton: Boolean = false
+)
+
+private fun FlowRecommendationStage.activitySourceType(): String {
+    return when (this) {
+        FlowRecommendationStage.PREVIEW -> ActivitySourceType.LEARNING_PLAN_PREVIEW
+        FlowRecommendationStage.STUDY -> ActivitySourceType.LEARNING_PLAN_STUDY
+        FlowRecommendationStage.SINGLE -> ActivitySourceType.MANUAL
+    }
+}
 
 data class ActivityUiState(
     val isRunning: Boolean = false,
@@ -138,7 +163,8 @@ data class ActivityUiState(
     val isMainButtonReorderMode: Boolean = false,
     val selectedMainButtonForSwapId: String? = null,
     val temporaryMainButtons: List<MainButtonItem>? = null,
-    val flowRecommendation: OrganizedPetite? = null
+    val activePetites: List<OrganizedPetite> = emptyList(),
+    val flowRecommendations: List<FlowActivityRecommendation> = emptyList()
 )
 
 data class TimerDisplayState(
@@ -227,25 +253,137 @@ class ActivityViewModel(
 
     private fun observeFlowRecommendation() {
         viewModelScope.launch {
-            organizedPetiteRepository.observeActivePetites().collect { petites ->
-                // isDismissed=0, isCompleted=0은 DB observeActive()에서 이미 필터됨
-                // 1순위: non-CALENDAR (rank/priorityScore DB 정렬 유지), 2순위: CALENDAR
-                val selected = petites.firstOrNull { it.sourceType != PetiteSourceType.CALENDAR }
-                    ?: petites.firstOrNull()
-                android.util.Log.d("FlowRec", "selected: title=${selected?.title} sourceType=${selected?.sourceType} (candidates=${petites.size})")
-                _uiState.update { it.copy(flowRecommendation = selected) }
+            combine(
+                organizedPetiteRepository.observeActivePetites(),
+                repository.getAllActivities()
+            ) { petites, activities ->
+                petites to activities
+            }.collect { (petites, activities) ->
+                val recommendations = buildFlowRecommendations(petites, activities)
+                val allStageRecommendations = petites.flatMap {
+                    buildRecommendationsForPetite(it, activities)
+                }
+                _uiState.update { state ->
+                    state.copy(
+                        activePetites = petites,
+                        flowRecommendations = recommendations,
+                        recommendedTodoBlocks = state.recommendedTodoBlocks.map { block ->
+                            val currentStage = block.petiteId?.let { petiteId ->
+                                allStageRecommendations.firstOrNull {
+                                    it.petite.id == petiteId && it.isEnabled && !it.isCompleted
+                                }
+                            }
+                            if (currentStage == null) block else block.copy(title = currentStage.title)
+                        }
+                    )
+                }
             }
         }
     }
 
-    fun completeFlowRecommendation() {
-        val petite = _uiState.value.flowRecommendation ?: return
+    private fun buildFlowRecommendations(
+        petites: List<OrganizedPetite>,
+        activities: List<ActivitySession>
+    ): List<FlowActivityRecommendation> {
+        val petite = petites.firstOrNull { it.sourceType != PetiteSourceType.CALENDAR }
+            ?: petites.firstOrNull()
+            ?: return emptyList()
+        return buildRecommendationsForPetite(petite, activities)
+    }
+
+    private fun buildRecommendationsForPetite(
+        petite: OrganizedPetite,
+        activities: List<ActivitySession>
+    ): List<FlowActivityRecommendation> {
+        return if (!petite.isLearningPlan()) {
+            listOf(
+                FlowActivityRecommendation(
+                    petite = petite,
+                    stage = FlowRecommendationStage.SINGLE,
+                    title = petite.title,
+                    category = petite.activityCategory ?: "STUDY",
+                    showPreviewSiteButton = petite.sourceId?.startsWith("lecture_preview_") == true
+                )
+            )
+        } else {
+            val previewDone = activities.any {
+                it.linkedPetiteId == petite.id &&
+                    it.sourceType == ActivitySourceType.LEARNING_PLAN_PREVIEW
+            }
+            val baseTitle = petite.learningPlanBaseTitle()
+            listOf(
+                FlowActivityRecommendation(
+                    petite = petite,
+                    stage = FlowRecommendationStage.PREVIEW,
+                    title = "$baseTitle 예습하기",
+                    category = "STUDY",
+                    isEnabled = !previewDone,
+                    isCompleted = previewDone,
+                    showPreviewSiteButton = true
+                ),
+                FlowActivityRecommendation(
+                    petite = petite,
+                    stage = FlowRecommendationStage.STUDY,
+                    title = "$baseTitle 공부하기",
+                    category = petite.activityCategory ?: "STUDY",
+                    isEnabled = previewDone
+                )
+            )
+        }
+    }
+
+    private fun OrganizedPetite.isLearningPlan(): Boolean {
+        return sourceType == PetiteSourceType.CALENDAR &&
+            (
+                calendarTaskType.equals("ACADEMIC", ignoreCase = true) ||
+                    category == TodoCategory.NORMAL
+                )
+    }
+
+    private fun OrganizedPetite.learningPlanBaseTitle(): String {
+        return title
+            .removeSuffix(" 예습하기")
+            .removeSuffix(" 공부하기")
+            .trim()
+            .ifBlank { title }
+    }
+
+    fun completeFlowRecommendation(recommendation: FlowActivityRecommendation) {
+        if (!recommendation.isEnabled || recommendation.isCompleted) return
         viewModelScope.launch {
-            organizedPetiteRepository.dismiss(petite)
-            if (petite.sourceType == PetiteSourceType.CALENDAR) {
-                dailyGoalRepository.markCalendarPetiteCompleted(petite.id)
+            when (recommendation.stage) {
+                FlowRecommendationStage.PREVIEW -> {
+                    recordFlowStageCompletion(recommendation)
+                }
+                FlowRecommendationStage.STUDY -> {
+                    recordFlowStageCompletion(recommendation)
+                    organizedPetiteRepository.completeById(recommendation.petite.id)
+                    dailyGoalRepository.markCalendarPetiteCompleted(recommendation.petite.id)
+                }
+                FlowRecommendationStage.SINGLE -> {
+                    organizedPetiteRepository.dismiss(recommendation.petite)
+                    if (recommendation.petite.sourceType == PetiteSourceType.CALENDAR) {
+                        dailyGoalRepository.markCalendarPetiteCompleted(recommendation.petite.id)
+                    }
+                }
             }
         }
+    }
+
+    private suspend fun recordFlowStageCompletion(recommendation: FlowActivityRecommendation) {
+        val now = System.currentTimeMillis()
+        repository.insertActivity(
+            ActivitySession(
+                category = recommendation.category,
+                title = recommendation.title,
+                startTime = now,
+                endTime = now,
+                durationMillis = 0L,
+                linkedPetiteId = recommendation.petite.id,
+                sourceType = recommendation.stage.activitySourceType(),
+                sourceId = recommendation.petite.id
+            )
+        )
     }
 
     fun startActivity(category: String) {
@@ -507,8 +645,75 @@ class ActivityViewModel(
         startTimer()
     }
 
+    fun startFlowRecommendation(
+        recommendation: FlowActivityRecommendation,
+        plannedItemId: String? = null
+    ) {
+        if (!recommendation.isEnabled || recommendation.isCompleted || _uiState.value.isRunning) return
+        if (recommendation.stage == FlowRecommendationStage.SINGLE) {
+            startCalendarPetiteActivity(recommendation.petite)
+            return
+        }
+
+        val startTime = System.currentTimeMillis()
+        val goalMillis = when (recommendation.stage) {
+            FlowRecommendationStage.PREVIEW -> TimeUnit.MINUTES.toMillis(30L)
+            FlowRecommendationStage.STUDY -> recommendation.petite.estimatedMinutes
+                ?.takeIf { it > 0 }
+                ?.let { TimeUnit.MINUTES.toMillis(it.toLong()) }
+                ?: defaultGoalMillisForCategory(recommendation.category)
+            FlowRecommendationStage.SINGLE -> defaultGoalMillisForCategory(recommendation.category)
+        }
+        val sourceType = recommendation.stage.activitySourceType()
+        _timerDisplayState.value = TimerDisplayState(elapsedTime = 0L, timerGoalMillis = goalMillis)
+        _uiState.update {
+            it.copy(
+                isRunning = true,
+                currentCategory = recommendation.category,
+                startTime = startTime,
+                linkedTodoId = null,
+                linkedPetiteId = recommendation.petite.id,
+                sourceType = sourceType,
+                sourceId = plannedItemId,
+                pendingTitle = recommendation.title,
+                pendingNote = null,
+                dailyCueId = null,
+                statusMessage = null
+            )
+        }
+        saveActiveSession(
+            category = recommendation.category,
+            startTime = startTime,
+            goalMillis = goalMillis,
+            linkedPetiteId = recommendation.petite.id,
+            linkedTodoTitle = recommendation.title,
+            pendingTitle = recommendation.title,
+            sourceType = sourceType,
+            sourceId = plannedItemId
+        )
+        activityTimerNotifier.showRunningTimer(recommendation.category, startTime)
+        startTimer()
+    }
+
     fun startRecommendedTodoActivity(block: RecommendedTodoBlock) {
         if (_uiState.value.isRunning) return
+
+        val stagedRecommendation = block.petiteId?.let { petiteId ->
+            val petite = _uiState.value.activePetites.firstOrNull { it.id == petiteId }
+            petite?.let {
+                buildRecommendationsForPetite(it, _uiState.value.allActivities)
+                    .firstOrNull { recommendation ->
+                        recommendation.isEnabled && !recommendation.isCompleted
+                    }
+            }
+        }
+        if (stagedRecommendation != null) {
+            startFlowRecommendation(stagedRecommendation, plannedItemId = block.itemId)
+            viewModelScope.launch {
+                dailyGoalRepository.markPlannedItemStarted(block.itemId)
+            }
+            return
+        }
 
         val startTime = System.currentTimeMillis()
         val goalMillis = defaultGoalMillisForCategory("TODO")
@@ -697,6 +902,7 @@ class ActivityViewModel(
         viewModelScope.launch {
             val newId = repository.insertActivity(activity)
             val savedActivity = activity.copy(id = newId)
+            completeLearningPlanAfterStudyIfNeeded(savedActivity)
             state.linkedTodoId?.let { todoId ->
                 todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
                 state.sourceId?.let { itemId ->
@@ -753,6 +959,7 @@ class ActivityViewModel(
         viewModelScope.launch {
             val newId = repository.insertActivity(activity)
             val savedActivity = activity.copy(id = newId)
+            completeLearningPlanAfterStudyIfNeeded(savedActivity)
             if (state.linkedPetiteId != null) {
                 if (state.sourceId != null) {
                     dailyGoalRepository.markPlannedItemCompleted(state.sourceId, 0L, newId)
@@ -1960,6 +2167,13 @@ class ActivityViewModel(
     private suspend fun attemptDeferredSync() {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
         FirebaseSyncCoordinator(appContext).syncEligible(uid)
+    }
+
+    private suspend fun completeLearningPlanAfterStudyIfNeeded(activity: ActivitySession) {
+        val petiteId = activity.linkedPetiteId ?: return
+        if (activity.sourceType != ActivitySourceType.LEARNING_PLAN_STUDY) return
+        organizedPetiteRepository.completeById(petiteId)
+        dailyGoalRepository.markCalendarPetiteCompleted(petiteId)
     }
 
     private fun shouldSyncExerciseImmediately(activity: ActivitySession): Boolean {

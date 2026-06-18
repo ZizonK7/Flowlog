@@ -172,7 +172,8 @@ class OrganizedPetiteRepository(context: Context) {
             examDValue = examDValue,
             routineTimerDurationMillis = routineTimerDurationMillis,
             routineTimerCategory = routineTimerCategory,
-            calendarTaskType = calendarTaskType
+            calendarTaskType = calendarTaskType,
+            createdAt = createdAt
         )
     }
 

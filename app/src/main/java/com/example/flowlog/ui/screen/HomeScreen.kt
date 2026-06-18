@@ -172,6 +172,7 @@ import com.example.flowlog.ui.component.categoryColor
 import com.example.flowlog.ui.component.displayCategory
 import com.example.flowlog.ui.component.formatDuration
 import com.example.flowlog.ui.viewmodel.ActivityViewModel
+import com.example.flowlog.ui.viewmodel.FlowActivityRecommendation
 import com.example.flowlog.ui.viewmodel.TimerDisplayState
 import com.example.flowlog.ui.viewmodel.AnalyticsState
 import com.example.flowlog.ui.viewmodel.CategoryStat
@@ -618,9 +619,9 @@ fun HomeScreen(
                 onCompleteRecommended = { if (!isDeveloperMode) viewModel.completeRecommendedTodo(it) },
                 onSetRecommendedTime = { block, hour -> if (!isDeveloperMode) viewModel.setRecommendedTodoTime(block, hour) },
                 onReplaceRecommendedItem = { block, todo -> if (!isDeveloperMode) viewModel.replaceRecommendedTodoItem(block, todo) },
-                onStartActivity = { if (!isDeveloperMode) viewModel.startActivity(it) },
-                onCompleteRecommendation = { if (!isDeveloperMode) viewModel.completeFlowRecommendation() },
-                flowRecommendation = if (isDeveloperMode) null else uiState.flowRecommendation,
+                onStartFlowRecommendation = { if (!isDeveloperMode) viewModel.startFlowRecommendation(it) },
+                onCompleteFlowRecommendation = { if (!isDeveloperMode) viewModel.completeFlowRecommendation(it) },
+                flowRecommendations = if (isDeveloperMode) emptyList() else uiState.flowRecommendations,
                 isDeveloperMode = isDeveloperMode,
                 samplePresetIndex = samplePresetIndex,
                 onCyclePreset = { samplePresetIndex = (samplePresetIndex + 1) % SampleTimetableData.presetCount }
@@ -2960,6 +2961,8 @@ private fun FlowPageDots(activePage: Int) {
 private fun ActivityRecommendationRow(
     category: String,
     activityName: String,
+    isEnabled: Boolean,
+    isCompleted: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -2967,15 +2970,18 @@ private fun ActivityRecommendationRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(FlowPurpleSoft.copy(alpha = 0.6f))
-            .clickable(onClick = onClick)
+            .background(
+                if (isEnabled || isCompleted) FlowPurpleSoft.copy(alpha = 0.6f)
+                else Color(0xFFF1F1F4)
+            )
+            .clickable(enabled = isEnabled || isCompleted, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = Icons.Outlined.Lightbulb,
             contentDescription = null,
-            tint = FlowPurple,
+            tint = if (isCompleted) Color(0xFF18A058) else if (isEnabled) FlowPurple else FlowMuted,
             modifier = Modifier.size(18.dp)
         )
         Spacer(Modifier.width(10.dp))
@@ -2987,10 +2993,14 @@ private fun ActivityRecommendationRow(
                 color = FlowMuted
             )
             Text(
-                text = activityName,
+                text = when {
+                    isCompleted -> "$activityName · 완료"
+                    !isEnabled -> "$activityName · 예습 후 시작"
+                    else -> activityName
+                },
                 fontSize = 15.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = FlowInk
+                color = if (isEnabled || isCompleted) FlowInk else FlowMuted
             )
         }
         Icon(
@@ -3011,6 +3021,8 @@ private fun ActivityRecommendationSheet(
     onDismiss: () -> Unit,
     onStart: () -> Unit,
     onComplete: () -> Unit,
+    isEnabled: Boolean = true,
+    isCompleted: Boolean = false,
     showPreviewSiteButton: Boolean = false
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -3059,6 +3071,7 @@ private fun ActivityRecommendationSheet(
             Spacer(Modifier.height(28.dp))
             Button(
                 onClick = onStart,
+                enabled = isEnabled && !isCompleted,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
@@ -3069,7 +3082,11 @@ private fun ActivityRecommendationSheet(
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Text(
-                    text = "시작하기",
+                    text = when {
+                        isCompleted -> "완료됨"
+                        !isEnabled -> "예습 완료 후 시작"
+                        else -> "시작하기"
+                    },
                     fontSize = 16.sp,
                     fontWeight = FontWeight.ExtraBold
                 )
@@ -3102,12 +3119,13 @@ private fun ActivityRecommendationSheet(
             Spacer(Modifier.height(6.dp))
             TextButton(
                 onClick = onComplete,
+                enabled = isEnabled && !isCompleted,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
             ) {
                 Text(
-                    text = "완료로 표시",
+                    text = if (isCompleted) "완료됨" else "완료로 표시",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = FlowMuted
@@ -4381,9 +4399,9 @@ private fun TimetableCard(
     onCompleteRecommended: (RecommendedTodoBlock) -> Unit,
     onSetRecommendedTime: (RecommendedTodoBlock, Int) -> Unit,
     onReplaceRecommendedItem: (RecommendedTodoBlock, TodoItem) -> Unit,
-    onStartActivity: (String) -> Unit = {},
-    onCompleteRecommendation: () -> Unit = {},
-    flowRecommendation: OrganizedPetite? = null,
+    onStartFlowRecommendation: (FlowActivityRecommendation) -> Unit = {},
+    onCompleteFlowRecommendation: (FlowActivityRecommendation) -> Unit = {},
+    flowRecommendations: List<FlowActivityRecommendation> = emptyList(),
     isDeveloperMode: Boolean = false,
     samplePresetIndex: Int = 0,
     onCyclePreset: () -> Unit = {}
@@ -4391,7 +4409,7 @@ private fun TimetableCard(
     var selectedBlock by remember { mutableStateOf<ScheduledAutoButtonBlock?>(null) }
     var selectedRecommendedBlock by remember { mutableStateOf<RecommendedTodoBlock?>(null) }
     var pendingSleepRange by remember { mutableStateOf<EmptyRange?>(null) }
-    var showActivityRecommendation by remember { mutableStateOf(false) }
+    var selectedFlowRecommendation by remember { mutableStateOf<FlowActivityRecommendation?>(null) }
     val activitiesForSleepRange = remember(allActivities, activities) {
         allActivities.ifEmpty { activities }
     }
@@ -4515,34 +4533,37 @@ private fun TimetableCard(
                     activeCategory = activeCategory,
                     onShowMenu = { block -> selectedBlock = block }
                 )
-                if (flowRecommendation != null) {
+                flowRecommendations.forEachIndexed { index, recommendation ->
                     ActivityRecommendationRow(
-                        category = flowRecommendation.activityCategory ?: "STUDY",
-                        activityName = flowRecommendation.title,
-                        onClick = { showActivityRecommendation = true },
-                        modifier = Modifier.padding(top = 12.dp)
+                        category = recommendation.category,
+                        activityName = recommendation.title,
+                        isEnabled = recommendation.isEnabled,
+                        isCompleted = recommendation.isCompleted,
+                        onClick = { selectedFlowRecommendation = recommendation },
+                        modifier = Modifier.padding(top = if (index == 0) 12.dp else 8.dp)
                     )
                 }
             }
         }
     }
 
-    if (showActivityRecommendation && flowRecommendation != null) {
+    selectedFlowRecommendation?.let { recommendation ->
         ActivityRecommendationSheet(
-            category = flowRecommendation.activityCategory ?: "STUDY",
-            activityName = flowRecommendation.title,
-            reasonText = flowRecommendation.aiComment,
-            onDismiss = { showActivityRecommendation = false },
+            category = recommendation.category,
+            activityName = recommendation.title,
+            reasonText = recommendation.petite.aiComment,
+            onDismiss = { selectedFlowRecommendation = null },
             onStart = {
-                onStartActivity(flowRecommendation.activityCategory ?: "STUDY")
-                showActivityRecommendation = false
+                onStartFlowRecommendation(recommendation)
+                selectedFlowRecommendation = null
             },
             onComplete = {
-                onCompleteRecommendation()
-                showActivityRecommendation = false
+                onCompleteFlowRecommendation(recommendation)
+                selectedFlowRecommendation = null
             },
-            showPreviewSiteButton = flowRecommendation.sourceType == PetiteSourceType.CALENDAR
-                && flowRecommendation.sourceId?.startsWith("lecture_preview_") == true
+            isEnabled = recommendation.isEnabled,
+            isCompleted = recommendation.isCompleted,
+            showPreviewSiteButton = recommendation.showPreviewSiteButton
         )
     }
 
