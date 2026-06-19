@@ -57,6 +57,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -185,6 +186,8 @@ class MainActivity : ComponentActivity() {
                         TodoViewModelFactory(this@MainActivity)
                     ).get(TodoViewModel::class.java)
                 }
+                val activityUiState by activityViewModel.uiState.collectAsState()
+                val isFocusFireActive = activityUiState.isRunning && activityUiState.isFocusModeActive
                 val promotedButtons by activityViewModel.promotedButtons.collectAsState()
                 val isNotificationSoundEnabled by activityViewModel.isNotificationSoundEnabled.collectAsState()
                 val routineTimerCategories = remember(promotedButtons) {
@@ -390,6 +393,11 @@ class MainActivity : ComponentActivity() {
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
+                    containerColor = if (isFocusFireActive && currentScreen == "home") {
+                        Color(0xFFFFF0E6)
+                    } else {
+                        Color(0xFFF8F8F9)
+                    },
                     contentWindowInsets = WindowInsets.safeDrawing.only(
                         WindowInsetsSides.Top + WindowInsetsSides.Horizontal
                     )
@@ -436,6 +444,7 @@ class MainActivity : ComponentActivity() {
                                     isDeveloperMode = isDeveloperMode,
                                     topActions = {
                                         HeaderActions(
+                                            isFocusFireActive = isFocusFireActive,
                                             isSignedIn = signedInUser != null,
                                             syncStatus = syncStatus,
                                             profilePhotoUrl = signedInUser?.photoUrl?.toString(),
@@ -471,6 +480,7 @@ class MainActivity : ComponentActivity() {
 
                         FlowlogBottomBar(
                             currentScreen = currentScreen,
+                            isFocusFireActive = isFocusFireActive && currentScreen == "home",
                             isDeveloperMode = isDeveloperMode,
                             onHomeClick = { currentScreen = "home" },
                             onStatsClick = { currentScreen = "stats" },
@@ -685,6 +695,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun HeaderActions(
+    isFocusFireActive: Boolean = false,
     isSignedIn: Boolean,
     syncStatus: String?,
     profilePhotoUrl: String?,
@@ -715,14 +726,18 @@ private fun HeaderActions(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFFF0ECFF))
-                    .border(1.dp, Color(0xFFE0D7FF), CircleShape),
+                    .background(if (isFocusFireActive) Color(0xFFFFE8D8) else Color(0xFFF0ECFF))
+                    .border(
+                        1.dp,
+                        if (isFocusFireActive) Color(0xFFFFB17A) else Color(0xFFE0D7FF),
+                        CircleShape
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Filled.BarChart,
                     contentDescription = "통계",
-                    tint = Color(0xFF5140D8),
+                    tint = if (isFocusFireActive) Color(0xFFFF7A2F) else Color(0xFF5140D8),
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -736,13 +751,17 @@ private fun HeaderActions(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFFF0ECFF))
-                    .border(1.dp, Color(0xFFE0D7FF), CircleShape)
+                    .background(if (isFocusFireActive) Color(0xFFFFE8D8) else Color(0xFFF0ECFF))
+                    .border(
+                        1.dp,
+                        if (isFocusFireActive) Color(0xFFFFB17A) else Color(0xFFE0D7FF),
+                        CircleShape
+                    )
             ) {
                 Icon(
                     imageVector = Icons.Filled.AutoAwesome,
                     contentDescription = "AI 메신저",
-                    tint = Color(0xFF5140D8),
+                    tint = if (isFocusFireActive) Color(0xFFFF7A2F) else Color(0xFF5140D8),
                     modifier = Modifier
                         .size(24.dp)
                         .align(Alignment.Center)
@@ -1201,6 +1220,7 @@ private fun AiSuggestionCard(
 @Composable
 private fun FlowlogBottomBar(
     currentScreen: String,
+    isFocusFireActive: Boolean = false,
     isDeveloperMode: Boolean = false,
     onHomeClick: () -> Unit,
     onStatsClick: () -> Unit = {},
@@ -1212,13 +1232,18 @@ private fun FlowlogBottomBar(
         modifier = Modifier
             .padding(bottom = bottomInset)
             .height(68.dp),
-        containerColor = Color.White,
+        containerColor = if (isFocusFireActive) Color(0xFFFFF5EE) else Color.White,
         tonalElevation = 8.dp,
         windowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp)
     ) {
         NavigationBarItem(
             selected = currentScreen == "home",
             onClick = onHomeClick,
+            colors = NavigationBarItemDefaults.colors(
+                selectedIconColor = if (isFocusFireActive) Color(0xFFFF7A2F) else Color(0xFF5140D8),
+                selectedTextColor = if (isFocusFireActive) Color(0xFFFF7A2F) else Color(0xFF5140D8),
+                indicatorColor = if (isFocusFireActive) Color(0xFFFFE8D8) else Color(0xFFEDE9FF)
+            ),
             icon = {
                 Icon(
                     imageVector = Icons.Filled.Home,
@@ -1231,6 +1256,11 @@ private fun FlowlogBottomBar(
             NavigationBarItem(
                 selected = currentScreen == "stats",
                 onClick = onStatsClick,
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = Color(0xFF5140D8),
+                    selectedTextColor = Color(0xFF5140D8),
+                    indicatorColor = Color(0xFFEDE9FF)
+                ),
                 icon = {
                     Icon(
                         imageVector = Icons.Filled.BarChart,
@@ -1243,6 +1273,11 @@ private fun FlowlogBottomBar(
         NavigationBarItem(
             selected = currentScreen == "todo",
             onClick = onTodoClick,
+            colors = NavigationBarItemDefaults.colors(
+                selectedIconColor = Color(0xFF5140D8),
+                selectedTextColor = Color(0xFF5140D8),
+                indicatorColor = Color(0xFFEDE9FF)
+            ),
             icon = {
                 Icon(
                     imageVector = Icons.Filled.CheckBox,

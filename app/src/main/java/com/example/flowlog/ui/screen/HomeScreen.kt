@@ -509,9 +509,10 @@ fun HomeScreen(
         ) {
             item {
                 HomeHeader(
-                dateText = todayText,
-                actions = topActions
-            )
+                    dateText = todayText,
+                    isFocusFireActive = isFocusFireActive,
+                    actions = topActions
+                )
         }
 
         item {
@@ -579,6 +580,7 @@ fun HomeScreen(
         item {
             QuickTimerSection(
                 categories = categories,
+                isFocusFireActive = isFocusFireActive,
                 pinnedCategory = pinnedQuickCategory,
                 onUnpinCategory = {
                     val category = pinnedQuickCategory
@@ -603,6 +605,7 @@ fun HomeScreen(
 
         item {
             TimetableCard(
+                isFocusFireActive = isFocusFireActive,
                 activities = if (isDeveloperMode) SampleTimetableData.activitiesForIndex(samplePresetIndex) else uiState.todayActivities,
                 scheduledBlocks = if (isDeveloperMode) emptyList() else uiState.scheduledAutoButtonBlocks,
                 recommendedBlocks = if (isDeveloperMode) emptyList() else uiState.recommendedTodoBlocks,
@@ -631,6 +634,7 @@ fun HomeScreen(
 
         item {
             RecentRecordsCard(
+                isFocusFireActive = isFocusFireActive,
                 title = if (selectedCategory == null) "최근 기록" else "${displayCategory(selectedCategory)} 기록",
                 activities = visibleActivities,
                 isFiltered = isFiltered,
@@ -652,8 +656,12 @@ fun HomeScreen(
                         .padding(horizontal = 24.dp, vertical = 4.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.textButtonColors(
-                        containerColor = FlowPurpleSoft.copy(alpha = 0.5f),
-                        contentColor = FlowPurple
+                        containerColor = if (isFocusFireActive) {
+                            FocusFireSoft
+                        } else {
+                            FlowPurpleSoft.copy(alpha = 0.5f)
+                        },
+                        contentColor = if (isFocusFireActive) FocusFire else FlowPurple
                     )
                 ) {
                     Text(
@@ -666,7 +674,10 @@ fun HomeScreen(
         }
 
         item {
-            AnalyticsCard(analytics = uiState.analytics)
+            AnalyticsCard(
+                analytics = uiState.analytics,
+                isFocusFireActive = isFocusFireActive
+            )
         }
 
     } // LazyColumn 닫기
@@ -751,8 +762,14 @@ fun HomeScreen(
 @Composable
 private fun HomeHeader(
     dateText: String,
+    isFocusFireActive: Boolean,
     actions: @Composable () -> Unit
 ) {
+    val titleColor by animateColorAsState(
+        targetValue = if (isFocusFireActive) FocusFire else FlowInk,
+        animationSpec = tween(durationMillis = 420),
+        label = "home-header-title-color"
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -764,7 +781,7 @@ private fun HomeHeader(
                 text = "Today's Flow",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = FlowInk
+                color = titleColor
             )
             Text(
                 text = dateText,
@@ -1053,6 +1070,7 @@ private fun TimerPage(
         }
         StopActionSection(
             currentCategory = currentCategory,
+            isFocusFireActive = isFocusFireActive,
             title = titleState.value,
             appliedTitle = appliedTitleState.value,
             onApplyTitle = onApplyTitle,
@@ -1273,8 +1291,15 @@ private fun TitleInputSection(
             modifier = Modifier
                 .weight(1f)
                 .height(46.dp)
-                .border(1.dp, FlowDivider, RoundedCornerShape(13.dp))
-                .background(Color.White, RoundedCornerShape(13.dp))
+                .border(
+                    1.dp,
+                    if (isFocusFireActive) FocusFire.copy(alpha = 0.3f) else FlowDivider,
+                    RoundedCornerShape(13.dp)
+                )
+                .background(
+                    if (isFocusFireActive) FocusFireSoft.copy(alpha = 0.55f) else Color.White,
+                    RoundedCornerShape(13.dp)
+                )
                 .padding(horizontal = 14.dp),
             singleLine = true,
             textStyle = TextStyle(
@@ -1422,6 +1447,7 @@ private fun FocusBannerSection(
 @Composable
 private fun StopActionSection(
     currentCategory: String,
+    isFocusFireActive: Boolean,
     title: String,
     appliedTitle: String,
     onApplyTitle: (String) -> Unit,
@@ -1432,7 +1458,7 @@ private fun StopActionSection(
         modifier = Modifier
             .fillMaxWidth()
             .height(1.dp)
-            .background(FlowDivider)
+            .background(if (isFocusFireActive) FocusFire.copy(alpha = 0.22f) else FlowDivider)
     )
     Button(
         onClick = {
@@ -1448,8 +1474,8 @@ private fun StopActionSection(
             .fillMaxWidth()
             .padding(top = 14.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = Color.Transparent,
-            contentColor = Color(0xFFFF4D5E)
+            containerColor = if (isFocusFireActive) FocusFireSoft.copy(alpha = 0.72f) else Color.Transparent,
+            contentColor = if (isFocusFireActive) FocusFire else Color(0xFFFF4D5E)
         ),
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
         contentPadding = PaddingValues(vertical = 4.dp)
@@ -1639,7 +1665,7 @@ private fun TimerDialogsSection(
     if (showFocusStartedDialogState.value) {
         AlertDialog(
             onDismissRequest = { showFocusStartedDialogState.value = false },
-            containerColor = Color.White,
+            containerColor = if (isFocusFireActive) FocusFireSurface else Color.White,
             title = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                     Icon(
@@ -1677,7 +1703,7 @@ private fun TimerDialogsSection(
                     onClick = { showFocusStartedDialogState.value = false },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = FlowPurple,
+                        containerColor = accentColor,
                         contentColor = Color.White
                     ),
                     shape = RoundedCornerShape(12.dp)
@@ -1691,7 +1717,7 @@ private fun TimerDialogsSection(
     if (showFocusStopConfirmDialogState.value) {
         AlertDialog(
             onDismissRequest = { showFocusStopConfirmDialogState.value = false },
-            containerColor = Color.White,
+            containerColor = if (isFocusFireActive) FocusFireSurface else Color.White,
             title = {
                 Text(
                     text = "집중 모드를 종료할까요?",
@@ -1719,7 +1745,7 @@ private fun TimerDialogsSection(
                         showFocusStopConfirmDialogState.value = false
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = FlowPurple,
+                        containerColor = accentColor,
                         contentColor = Color.White
                     ),
                     shape = RoundedCornerShape(12.dp)
@@ -3139,6 +3165,7 @@ private fun ActivityRecommendationSheet(
 @Composable
 private fun QuickTimerSection(
     categories: List<String>,
+    isFocusFireActive: Boolean,
     pinnedCategory: String?,
     onUnpinCategory: () -> Unit,
     isBrushTimerRunning: Boolean,
@@ -3190,7 +3217,7 @@ private fun QuickTimerSection(
             text = "빠른 타이머",
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
-            color = FlowMuted,
+            color = if (isFocusFireActive) FocusFire else FlowMuted,
             modifier = Modifier.padding(start = 6.dp, bottom = 10.dp)
         )
         Row(
@@ -3379,7 +3406,7 @@ private fun FlowProgressRing(
             Icon(
                 imageVector = Icons.Filled.Pause,
                 contentDescription = null,
-                tint = FlowPurple,
+                tint = if (isOnFire) FocusFire else FlowPurple,
                 modifier = Modifier.size(58.dp)
             )
         } else if (showCenterLabel) {
@@ -3480,6 +3507,7 @@ private fun DrawScope.drawFireHead(
 
 @Composable
 private fun RecentRecordsCard(
+    isFocusFireActive: Boolean,
     title: String,
     activities: List<ActivitySession>,
     isFiltered: Boolean,
@@ -3512,7 +3540,10 @@ private fun RecentRecordsCard(
                 Button(
                     onClick = onClearFilter,
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = FlowPurpleSoft, contentColor = FlowPurple)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isFocusFireActive) FocusFireSoft else FlowPurpleSoft,
+                        contentColor = if (isFocusFireActive) FocusFire else FlowPurple
+                    )
                 ) {
                     Text("초기화", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
@@ -3521,7 +3552,10 @@ private fun RecentRecordsCard(
                     onClick = onUndo,
                     enabled = canUndo,
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = FlowPurpleSoft, contentColor = FlowPurple)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isFocusFireActive) FocusFireSoft else FlowPurpleSoft,
+                        contentColor = if (isFocusFireActive) FocusFire else FlowPurple
+                    )
                 ) {
                     Text("되돌리기", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
@@ -3530,7 +3564,9 @@ private fun RecentRecordsCard(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isFocusFireActive) FocusFireSurface else Color.White
+            ),
             elevation = CardDefaults.cardElevation(defaultElevation = 7.dp),
             shape = RoundedCornerShape(22.dp)
         ) {
@@ -3771,12 +3807,17 @@ private fun ActivityStartGrid(
 
 
 @Composable
-private fun AnalyticsCard(analytics: AnalyticsState) {
+private fun AnalyticsCard(
+    analytics: AnalyticsState,
+    isFocusFireActive: Boolean
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isFocusFireActive) FocusFireSurface else Color.White
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         shape = MaterialTheme.shapes.medium
     ) {
@@ -3795,7 +3836,7 @@ private fun AnalyticsCard(analytics: AnalyticsState) {
                 Icon(
                     imageVector = Icons.Filled.BarChart,
                     contentDescription = null,
-                    tint = FlowPurple.copy(alpha = 0.62f),
+                    tint = if (isFocusFireActive) FocusFire else FlowPurple.copy(alpha = 0.62f),
                     modifier = Modifier.size(28.dp)
                 )
             }
@@ -4384,6 +4425,7 @@ private data class DisplayActivitySegment(
 
 @Composable
 private fun TimetableCard(
+    isFocusFireActive: Boolean = false,
     activities: List<ActivitySession>,
     scheduledBlocks: List<ScheduledAutoButtonBlock>,
     recommendedBlocks: List<RecommendedTodoBlock>,
@@ -4451,7 +4493,9 @@ private fun TimetableCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isFocusFireActive) FocusFireSurface else Color.White
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         shape = MaterialTheme.shapes.medium
     ) {
@@ -4467,8 +4511,8 @@ private fun TimetableCard(
                 Button(
                     onClick = onManageSchedules,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = FlowPurpleSoft.copy(alpha = 0.72f),
-                        contentColor = FlowPurpleDeep
+                        containerColor = if (isFocusFireActive) FocusFireSoft else FlowPurpleSoft.copy(alpha = 0.72f),
+                        contentColor = if (isFocusFireActive) FocusFire else FlowPurpleDeep
                     ),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
                     shape = RoundedCornerShape(10.dp)
