@@ -2358,9 +2358,11 @@ class ActivityViewModel(
             timeInMillis = todayStart
             add(Calendar.DAY_OF_YEAR, -1)
         }).timeInMillis
-        val analyticsActivities = activities.filter { activity ->
-            activity.startTime >= weekStart && activity.startTime < tomorrowStart
-        }
+        val analyticsActivities = splitActivitiesAcrossDays(
+            activities = activities,
+            rangeStartMillis = weekStart,
+            rangeEndMillis = tomorrowStart
+        )
         val weekActivities = analyticsActivities.filter { activity ->
             activity.startTime >= weekStart && activity.startTime < todayStart
         }

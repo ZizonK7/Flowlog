@@ -4415,9 +4415,15 @@ private fun TimetableCard(
     val activitiesForSleepRange = remember(allActivities, activities) {
         allActivities.ifEmpty { activities }
     }
-    val displayActivitySegments by remember(activities) {
+    val timetableActivities = remember(activities, allActivities) {
+        activitiesForTodayTimetable(
+            todayActivities = activities,
+            allActivities = allActivities
+        )
+    }
+    val displayActivitySegments by remember(timetableActivities) {
         derivedStateOf {
-            buildDisplayActivitySegments(prioritizeSchoolCompanyTimelineActivities(activities))
+            buildDisplayActivitySegments(prioritizeSchoolCompanyTimelineActivities(timetableActivities))
         }
     }
     val visibleScheduledBlocks by remember(scheduledBlocks, activeCategory) {
