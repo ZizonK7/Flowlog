@@ -83,6 +83,25 @@ class TodayOrganizerAgentTest {
     }
 
     @Test
+    fun organizerDoesNotShowExamRecommendationsInTodayCards() {
+        val organizer = TodayExamOrganizer()
+        val today = day(2026, Calendar.JUNE, 6)
+
+        val cards = runBlocking { organizer.organize(
+            todayMillis = today,
+            todos = listOf(
+                TodoItem(id = 1L, title = "D7 exam", category = TodoCategory.UNIVERSITY_EXAM, selectedDate = day(2026, Calendar.JUNE, 13)),
+                TodoItem(id = 2L, title = "D8 exam", category = TodoCategory.UNIVERSITY_EXAM, selectedDate = day(2026, Calendar.JUNE, 14))
+            ),
+            routines = emptyList(),
+            activities = emptyList()
+        ) }
+
+        val examCards = cards.filter { it.sourceType == PetiteSourceType.EXAM }
+        assertTrue(examCards.isEmpty())
+    }
+
+    @Test
     fun organizerKeepsUrgentTodoSourceItemsWithoutPullingFutureTodos() {
         val organizer = TodayExamOrganizer()
         val today = day(2026, Calendar.JUNE, 6)
@@ -168,7 +187,7 @@ class TodayOrganizerAgentTest {
     }
 
     @Test
-    fun recoveryModeOrderMatchesLocalPriorityRules() {
+    fun organizerIgnoresExamItemsWhenOrderingTodayCards() {
         val organizer = TodayExamOrganizer()
         val today = day(2026, Calendar.JUNE, 6)
         val cards = runBlocking { organizer.organize(
@@ -199,20 +218,15 @@ class TodayOrganizerAgentTest {
 
         assertEquals(
             listOf(
-                PetiteSourceType.EXAM,
                 PetiteSourceType.TODO,
-                PetiteSourceType.EXAM,
-                PetiteSourceType.EXAM,
                 PetiteSourceType.TODO,
-                PetiteSourceType.EXAM,
-                PetiteSourceType.EXAM,
                 PetiteSourceType.TODO,
                 PetiteSourceType.ROUTINE,
                 PetiteSourceType.PETITE
             ),
             cards.map { it.sourceType }
         )
-        assertEquals(listOf(10, 20, 30, 40, 50, 60, 70, 80, 90, 100), cards.map { it.priorityScore })
+        assertEquals(listOf(10, 30, 80, 90, 100), cards.map { it.priorityScore })
     }
 
     @Test

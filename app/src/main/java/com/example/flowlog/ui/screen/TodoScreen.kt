@@ -172,7 +172,6 @@ fun TodoScreen(
     val focusTodos    by viewModel.todayFocusItems.collectAsState()
     val dailyCues     by viewModel.dailyCues.collectAsState()
     val organizedPetites by viewModel.organizedPetites.collectAsState()
-    val isTodayOrganizerRunning by viewModel.isTodayOrganizerRunning.collectAsState()
     val focusIds      = remember(focusTodos) { focusTodos.map { it.id }.toSet() }
     val todayStart = startOfDay(System.currentTimeMillis())
     // TODAY(오늘 할 일)만 Petites 섹션에 표시. NORMAL(미분류)은 전체 할 일로.
@@ -328,31 +327,6 @@ fun TodoScreen(
                     color = TextPrimary,
                     modifier = Modifier.weight(1f)
                 )
-                if (isAiOrganizerAllowed) {
-                    OutlinedButton(
-                        onClick = { viewModel.runTodayOrganizer() },
-                        enabled = !isTodayOrganizerRunning,
-                        shape = RoundedCornerShape(999.dp),
-                        border = BorderStroke(1.dp, Purple.copy(alpha = 0.25f)),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Purple),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier.height(30.dp)
-                    ) {
-                        Text(if (isTodayOrganizerRunning) "AI..." else "AI", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
-                    }
-                    Spacer(Modifier.width(6.dp))
-                    OutlinedButton(
-                        onClick = { viewModel.resetTodayOrganizer() },
-                        enabled = !isTodayOrganizerRunning && adminOrganizedPetites.isNotEmpty(),
-                        shape = RoundedCornerShape(999.dp),
-                        border = BorderStroke(1.dp, TextMuted.copy(alpha = 0.25f)),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextMuted),
-                        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
-                        modifier = Modifier.height(30.dp)
-                    ) {
-                        Text("초기화", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
                 if (isDeveloperMode) {
                     IconButton(onClick = { viewModel.refreshSort() }) {
                         Icon(
@@ -986,27 +960,8 @@ private fun OrganizedPetiteDetailSheet(
         if (metaItems.isNotEmpty()) {
             Text(metaItems.joinToString(" · "), fontSize = 13.sp, color = TextMuted)
         }
-        item.estimatedMinutes?.let { minutes ->
-            DetailInfoRow(label = "Estimated", value = "${minutes}분")
-        }
         item.linkedActivityName?.let { name ->
             DetailInfoRow(label = "Source", value = name)
-        }
-        item.aiComment?.let { comment ->
-            DetailSection(title = "AI Comment", body = comment)
-        }
-        if (item.steps.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text("Steps", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                item.steps.forEachIndexed { index, step ->
-                    Text(
-                        "${index + 1}. $step",
-                        fontSize = 14.sp,
-                        lineHeight = 19.sp,
-                        color = TextMuted
-                    )
-                }
-            }
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1075,7 +1030,7 @@ private fun organizedPetiteAccent(sourceType: PetiteSourceType): Color = when (s
 }
 
 private fun organizedPetiteLabel(sourceType: PetiteSourceType): String = when (sourceType) {
-    PetiteSourceType.EXAM -> "Exam"
+    PetiteSourceType.EXAM -> "시험"
     PetiteSourceType.ROUTINE -> "Routine"
     PetiteSourceType.TODO -> "Todo"
     PetiteSourceType.PETITE -> "Petite"
@@ -1978,7 +1933,7 @@ private fun NewTodoCard(
                         TypeChip("과제", category == TodoCategory.ASSIGNMENT) {
                             onCategoryChange(if (category == TodoCategory.ASSIGNMENT) null else TodoCategory.ASSIGNMENT)
                         }
-                        TypeChip("대학 시험", category == TodoCategory.UNIVERSITY_EXAM) {
+                        TypeChip("시험", category == TodoCategory.UNIVERSITY_EXAM) {
                             onCategoryChange(if (category == TodoCategory.UNIVERSITY_EXAM) null else TodoCategory.UNIVERSITY_EXAM)
                         }
                     }
@@ -2241,7 +2196,7 @@ private fun TodoCard(
                         TypeChip("과제", editCategory == TodoCategory.ASSIGNMENT) {
                             editCategory = if (editCategory == TodoCategory.ASSIGNMENT) TodoCategory.NORMAL else TodoCategory.ASSIGNMENT
                         }
-                        TypeChip("대학 시험", editCategory == TodoCategory.UNIVERSITY_EXAM) {
+                        TypeChip("시험", editCategory == TodoCategory.UNIVERSITY_EXAM) {
                             editCategory = if (editCategory == TodoCategory.UNIVERSITY_EXAM) TodoCategory.NORMAL else TodoCategory.UNIVERSITY_EXAM
                         }
                         Spacer(Modifier.weight(1f))
@@ -2456,7 +2411,7 @@ private fun CategoryTag(category: TodoCategory, muted: Boolean = false) {
     val (bg, fg, label) = when (category) {
         TodoCategory.REVIEW          -> Triple(if (muted) Color(0xFFF0EEFF) else PurpleSoft, if (muted) Purple.copy(.5f) else Purple, "복습")
         TodoCategory.ASSIGNMENT      -> Triple(if (muted) Color(0xFFFFF0F0) else Color(0xFFFFEFF0), if (muted) Color(0xFFE35B5B).copy(.5f) else Color(0xFFE35B5B), "과제")
-        TodoCategory.UNIVERSITY_EXAM -> Triple(if (muted) Color(0xFFE3F2FD) else Color(0xFFE8F4FF), if (muted) Color(0xFF1565C0).copy(.5f) else Color(0xFF1565C0), "대학 시험")
+        TodoCategory.UNIVERSITY_EXAM -> Triple(if (muted) Color(0xFFE3F2FD) else Color(0xFFE8F4FF), if (muted) Color(0xFF1565C0).copy(.5f) else Color(0xFF1565C0), "시험")
         TodoCategory.NORMAL, TodoCategory.TODAY -> return
     }
     Text(

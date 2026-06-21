@@ -192,13 +192,11 @@ class TodayExamOrganizer(
         hiddenAiSourceKeys: Set<String> = emptySet()
     ): List<OrganizedPetite> {
         val todayStart = startOfDay(todayMillis)
-        val exams = collectExamCandidates(todayStart, todos, activities)
-        val recoveryMode = exams.any { it.metrics.isSeverelyBehind }
+        val recoveryMode = false
         val context = TodayOrganizerContext(todayMillis = todayMillis, recoveryMode = recoveryMode)
 
         val candidates = collectCandidates(
             todayStart = todayStart,
-            exams = exams,
             todos = todos,
             routines = routines,
             recoveryMode = recoveryMode
@@ -279,13 +277,11 @@ class TodayExamOrganizer(
 
     private fun collectCandidates(
         todayStart: Long,
-        exams: List<ExamCandidate>,
         todos: List<TodoItem>,
         routines: List<OrganizerRoutine>,
         recoveryMode: Boolean
     ): List<OrganizedPetite> {
         return buildList {
-            addAll(exams.map { it.toOrganizedPetite(recoveryMode) })
             addAll(todos.mapNotNull { it.toTodoPetite(todayStart, recoveryMode) })
             addAll(routines.mapNotNull { it.toRoutinePetite(recoveryMode) })
             addAll(todos.mapNotNull { it.toExistingPetite(recoveryMode) })

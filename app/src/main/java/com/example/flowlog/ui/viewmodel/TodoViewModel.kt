@@ -1093,7 +1093,9 @@ class TodoViewModel(
         petites: List<OrganizedPetite>,
         activities: List<ActivitySession>
     ): List<OrganizedPetite> {
-        return petites.map { petite ->
+        return petites
+            .filterNot { it.sourceType == PetiteSourceType.EXAM }
+            .map { petite ->
             if (!petite.isCalendarStudyPlan()) return@map petite
             val previewDone = activities.any {
                 it.linkedPetiteId == petite.id &&
