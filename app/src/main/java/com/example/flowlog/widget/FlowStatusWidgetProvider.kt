@@ -21,6 +21,7 @@ import android.widget.RemoteViews
 import com.example.flowlog.MainActivity
 import com.example.flowlog.R
 import com.example.flowlog.data.local.ActiveTimerState
+import com.example.flowlog.data.local.FlowRecommendationWidgetStore
 import com.example.flowlog.data.local.FocusModeStore
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
@@ -110,6 +111,7 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
                 }
             } else {
                 val frame = getEmptyFrame(context)
+                val recommendation = FlowRecommendationWidgetStore.get(context)
                 setImageViewBitmap(
                     R.id.flow_status_widget_image,
                     FlowStatusWidgetRenderer.render(null)
@@ -117,7 +119,10 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
                 setViewVisibility(R.id.flow_status_empty_container, View.VISIBLE)
                 setViewVisibility(R.id.flow_status_widget_text_row, View.GONE)
                 setImageViewResource(R.id.flow_status_character_image, CHARACTER_RES_IDS[frame])
-                setTextViewText(R.id.flow_status_empty_label, EMPTY_LABELS[frame])
+                setTextViewText(
+                    R.id.flow_status_empty_label,
+                    recommendation?.let { "추천 흐름 · ${it.title}" } ?: EMPTY_LABELS[frame]
+                )
                 setTextViewText(R.id.flow_status_empty_sublabel, "· 탭해서 시작")
             }
         }

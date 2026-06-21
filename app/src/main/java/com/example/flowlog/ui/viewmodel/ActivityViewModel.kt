@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.flowlog.data.constants.ActivitySourceType
 import com.example.flowlog.data.local.FocusModeStore
 import com.example.flowlog.data.local.DailyCueCompletionStore
+import com.example.flowlog.data.local.FlowRecommendationWidgetStore
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
 import com.example.flowlog.data.model.AutoButtonSchedule
@@ -344,6 +345,15 @@ class ActivityViewModel(
                         }
                     )
                 }
+                recommendations.firstOrNull()?.let { recommendation ->
+                    FlowRecommendationWidgetStore.save(
+                        context = appContext,
+                        title = recommendation.title,
+                        category = recommendation.category,
+                        now = inputs.now
+                    )
+                } ?: FlowRecommendationWidgetStore.clear(appContext)
+                FlowStatusWidgetProvider.updateAll(appContext)
                 recordFlowRecommendationShown(recommendations.firstOrNull())
             }
         }
