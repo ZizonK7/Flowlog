@@ -9,6 +9,7 @@ import com.example.flowlog.data.local.entity.AutoButtonScheduleEntity
 import com.example.flowlog.data.local.entity.CalendarEventEntity
 import com.example.flowlog.data.local.entity.LectureCalendarInfoEntity
 import com.example.flowlog.data.local.entity.OrganizedPetiteEntity
+import com.example.flowlog.data.local.entity.TodoEntity
 import com.example.flowlog.notification.AutoButtonScheduler
 import com.example.flowlog.data.remote.awaitResult
 import com.google.firebase.firestore.DocumentSnapshot
@@ -48,6 +49,7 @@ class FirebaseCalendarPullDataSource(context: Context) {
     private val appContext = context.applicationContext
     private val db = FlowlogDatabase.getInstance(appContext)
     private val petiteDao = db.organizedPetiteDao()
+    private val todoDao = db.todoDao()
     private val scheduleDao = db.autoButtonScheduleDao()
     private val calendarEventDao = db.calendarEventDao()
     private val lectureInfoDao = db.lectureCalendarInfoDao()
@@ -111,6 +113,27 @@ class FirebaseCalendarPullDataSource(context: Context) {
                 }
             }
 
+        val todoRegistration = firestore.collection("users").document(userId)
+            .collection("flowlog").document("data")
+            .collection("calendarEvents")
+            .whereEqualTo("type", "FLOWLOG_TODO")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.w(TAG, "Todo calendar listener failed: ${error.message}", error)
+                    onOutcome(CalendarPullOutcome(failed = true))
+                    return@addSnapshotListener
+                }
+                val docs = snapshot?.documents ?: return@addSnapshotListener
+                listenerScope.launch {
+                    val failed = runCatching {
+                        calendarApplyMutex.withLock {
+                            applyTodoCalendarDocuments(userId, docs)
+                        }
+                    }.isFailure
+                    if (failed) onOutcome(CalendarPullOutcome(failed = true))
+                }
+            }
+
         val syllabusInitialSnapshot = AtomicBoolean(true)
         val syllabusRegistration = firestore.collection("users").document(userId)
             .collection("flowlog").document("calendar")
@@ -125,7 +148,68 @@ class FirebaseCalendarPullDataSource(context: Context) {
                 }
             }
 
-        return CalendarSubscription(listOf(eventRegistration, syllabusRegistration))
+        return CalendarSubscription(listOf(eventRegistration, todoRegistration, syllabusRegistration))
+    }
+
+    private suspend fun applyTodoCalendarDocuments(
+        userId: String,
+        docs: List<DocumentSnapshot>
+    ) = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        docs.forEach { doc ->
+            runCatching {
+                if (doc.getString("type") != "FLOWLOG_TODO") return@runCatching
+                val eventId = doc.getString("eventId") ?: doc.id
+                val updatedAt = doc.getLong("updatedAt") ?: now
+                val deletedAt = doc.getLong("deletedAt")
+                val remoteTodoId = doc.getLong("todoId")
+                    ?: doc.getLong("id")
+                    ?: eventId.toLongOrNull()
+                val todoId = remoteTodoId?.let { "legacy_todo_$it" } ?: "calendar_todo_$eventId"
+
+                if (deletedAt != null) {
+                    todoDao.markTodoDeletedFromRemote(todoId, deletedAt, updatedAt)
+                    remoteTodoId?.let {
+                        petiteDao.dismissTodoPetitesBySourceId(
+                            userId = userId,
+                            sourceId = it.toString(),
+                            updatedAt = updatedAt
+                        )
+                    }
+                    return@runCatching
+                }
+
+                val title = doc.getString("title") ?: return@runCatching
+                val startTime = doc.getLong("startTime") ?: return@runCatching
+                val category = doc.getString("category") ?: doc.getString("calendarTaskType") ?: "TODAY"
+                val entity = TodoEntity(
+                    todoId = todoId,
+                    userId = userId,
+                    title = title,
+                    category = category,
+                    selectedDate = startTime,
+                    isCompleted = doc.getBoolean("isCompleted") ?: false,
+                    completedAt = doc.getLong("completedAt"),
+                    accumulatedWorkMillis = (doc.getLong("accumulatedSeconds") ?: 0L) * 1000L,
+                    burdenLevel = doc.getString("burdenLevel"),
+                    burdenGroupKey = doc.getString("burdenGroupKey"),
+                    burdenScore = (doc.getLong("burdenScore") ?: 0L).toInt(),
+                    burdenReasonJson = doc.getString("burdenReasonJson"),
+                    reviewStage = (doc.getLong("reviewStage") ?: 0L).toInt(),
+                    reviewStage1CompletedAt = doc.getLong("reviewStage1CompletedAt"),
+                    legacyId = remoteTodoId,
+                    createdAt = doc.getLong("createdAt") ?: now,
+                    updatedAt = updatedAt,
+                    syncStatus = "SYNCED"
+                )
+                val existing = todoDao.getTodoById(entity.todoId)
+                if (existing == null || existing.updatedAt <= entity.updatedAt) {
+                    todoDao.insertTodo(entity)
+                }
+            }.onFailure { e ->
+                Log.w(TAG, "Todo calendar doc apply failed: ${doc.id} — ${e.message}")
+            }
+        }
     }
 
     private suspend fun applyTodayCalendarDocuments(
@@ -139,6 +223,8 @@ class FirebaseCalendarPullDataSource(context: Context) {
         val petiteDeletedEventIds = mutableListOf<String>()   // deletedAt 있는 CALENDAR_PETITE
         val lectureEntities = mutableListOf<LectureCalendarInfoEntity>()
         val generalEventEntities = mutableListOf<CalendarEventEntity>()
+        val todoEntities = mutableListOf<TodoEntity>()
+        val todoDeletedIds = mutableListOf<Pair<String, Long?>>()
 
         // ── 2. 문서 파싱 ────────────────────────────────────────────────────
         docs.forEach { doc ->
@@ -249,6 +335,42 @@ class FirebaseCalendarPullDataSource(context: Context) {
                         )
                     }
 
+                    "FLOWLOG_TODO" -> {
+                        val remoteTodoId = doc.getLong("todoId")
+                            ?: doc.getLong("id")
+                            ?: eventId.toLongOrNull()
+                        val todoId = remoteTodoId?.let { "legacy_todo_$it" } ?: "calendar_todo_$eventId"
+                        if (deletedAt != null) {
+                            todoDeletedIds.add(todoId to remoteTodoId)
+                            return@runCatching
+                        }
+                        val title = doc.getString("title") ?: return@runCatching
+                        val category = doc.getString("category") ?: doc.getString("calendarTaskType") ?: "TODAY"
+                        val createdAt = doc.getLong("createdAt") ?: now
+                        todoEntities.add(
+                            TodoEntity(
+                                todoId = todoId,
+                                userId = userId,
+                                title = title,
+                                category = category,
+                                selectedDate = startTime,
+                                isCompleted = doc.getBoolean("isCompleted") ?: false,
+                                completedAt = doc.getLong("completedAt"),
+                                accumulatedWorkMillis = (doc.getLong("accumulatedSeconds") ?: 0L) * 1000L,
+                                burdenLevel = doc.getString("burdenLevel"),
+                                burdenGroupKey = doc.getString("burdenGroupKey"),
+                                burdenScore = (doc.getLong("burdenScore") ?: 0L).toInt(),
+                                burdenReasonJson = doc.getString("burdenReasonJson"),
+                                reviewStage = (doc.getLong("reviewStage") ?: 0L).toInt(),
+                                reviewStage1CompletedAt = doc.getLong("reviewStage1CompletedAt"),
+                                legacyId = remoteTodoId,
+                                createdAt = createdAt,
+                                updatedAt = updatedAt,
+                                syncStatus = "SYNCED"
+                            )
+                        )
+                    }
+
                     else -> Log.w(TAG, "Unknown calendar event type=$type eventId=$eventId")
                 }
             }.onFailure { e ->
@@ -268,6 +390,34 @@ class FirebaseCalendarPullDataSource(context: Context) {
                 )
             }.onFailure { e ->
                 Log.w(TAG, "Petite dismiss failed for eventId=$eventId: ${e.message}")
+            }
+        }
+
+        todoDeletedIds.forEach { (todoId, remoteTodoId) ->
+            runCatching {
+                todoDao.markTodoDeletedFromRemote(todoId, now, now)
+                remoteTodoId?.let {
+                    petiteDao.dismissTodoPetitesBySourceId(
+                        userId = userId,
+                        sourceId = it.toString(),
+                        updatedAt = now
+                    )
+                }
+            }.onFailure { e ->
+                Log.w(TAG, "Todo soft delete failed for todoId=$todoId: ${e.message}")
+            }
+        }
+
+        var todoCount = 0
+        todoEntities.forEach { entity ->
+            runCatching {
+                val existing = todoDao.getTodoById(entity.todoId)
+                if (existing == null || existing.updatedAt <= entity.updatedAt) {
+                    todoDao.insertTodo(entity)
+                    todoCount++
+                }
+            }.onFailure { e ->
+                Log.w(TAG, "Todo upsert failed: ${entity.todoId} — ${e.message}")
             }
         }
 

@@ -146,6 +146,16 @@ interface TodoDao {
 
     @Query("""
         UPDATE todos
+        SET isDeleted = 1,
+            deletedAt = :deletedAt,
+            updatedAt = :updatedAt,
+            syncStatus = '${SyncStatus.SYNCED}'
+        WHERE todoId = :todoId
+    """)
+    suspend fun markTodoDeletedFromRemote(todoId: String, deletedAt: Long, updatedAt: Long)
+
+    @Query("""
+        UPDATE todos
         SET accumulatedWorkMillis = :accumulatedWorkMillis,
             updatedAt = :updatedAt,
             syncStatus = '${SyncStatus.PENDING}'
