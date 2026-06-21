@@ -82,6 +82,45 @@ class FirestoreSyncRepository(
         markSynced(userId)
     }
 
+    suspend fun syncDailyCue(
+        cueId: Long,
+        label: String,
+        title: String,
+        timerDurationMillis: Long?,
+        timerCategory: String,
+        recommendationTiming: String,
+        note: String,
+        sortOrder: Int,
+        createdAt: Long,
+        updatedAt: Long,
+        archivedAt: Long?,
+        isCompletedToday: Boolean,
+        completionDateKey: Long
+    ) {
+        val userId = uid ?: return
+        dailyCueCollection(userId).document(cueId.toString())
+            .set(
+                mapOf(
+                    "cueId" to cueId,
+                    "label" to label,
+                    "title" to title,
+                    "timerDurationMillis" to timerDurationMillis,
+                    "timerCategory" to timerCategory,
+                    "recommendationTiming" to recommendationTiming,
+                    "note" to note,
+                    "sortOrder" to sortOrder,
+                    "createdAt" to createdAt,
+                    "updatedAt" to updatedAt,
+                    "archivedAt" to archivedAt,
+                    "isCompletedToday" to isCompletedToday,
+                    "completionDateKey" to completionDateKey
+                ),
+                SetOptions.merge()
+            )
+            .awaitResult()
+        markSynced(userId)
+    }
+
     // ── batch sync용 명시적 docId 메서드 ─────────────────────────────────
     // legacyId != null → legacyId.toString(), legacyId == null → Room UUID 사용.
 
@@ -288,6 +327,11 @@ class FirestoreSyncRepository(
         firestore.collection("users").document(userId)
             .collection("flowlog").document("data")
             .collection("todos")
+
+    private fun dailyCueCollection(userId: String) =
+        firestore.collection("users").document(userId)
+            .collection("flowlog").document("data")
+            .collection("dailyCues")
 
     private suspend fun markSynced(userId: String) {
         firestore.collection("users").document(userId)

@@ -23,6 +23,7 @@ import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.repository.ActivityRepository
 import com.example.flowlog.data.repository.DailyCueRecord
 import com.example.flowlog.data.repository.DailyCueRepository
+import com.example.flowlog.data.remote.FirestoreSyncRepository
 import com.example.flowlog.data.repository.DailyGoalRepository
 import com.example.flowlog.data.repository.EventLogRepository
 import com.example.flowlog.data.repository.GoalItem
@@ -78,6 +79,7 @@ class TodoViewModel(
     private val dailyGoalRepository = DailyGoalRepository(context.applicationContext)
     private val activityRepository = ActivityRepository(context.applicationContext)
     private val dailyCueRepository = DailyCueRepository(context.applicationContext)
+    private val firestoreSyncRepository = FirestoreSyncRepository()
     private val eventLogRepository = EventLogRepository(context.applicationContext)
     private val organizedPetiteRepository = OrganizedPetiteRepository(context.applicationContext)
     private val todayOrganizer = TodayExamOrganizer(AiDecisionProviderFactory.create())
@@ -131,6 +133,7 @@ class TodoViewModel(
     init {
         viewModelScope.launch {
             backfillDailyCueDefinitions()
+            syncDailyCueDefinitions(_dailyCues.value)
         }
         viewModelScope.launch {
             repository.getAllTodos().collect { todos ->
@@ -631,6 +634,7 @@ class TodoViewModel(
         })
         _dailyCues.value = updated
         saveDailyCues(updated)
+        syncDailyCueDefinitions(updated)
         currentCue?.takeIf { it.label == "Routine" }?.let { cue ->
             viewModelScope.launch {
                 if (willComplete) {
@@ -651,6 +655,7 @@ class TodoViewModel(
         })
         _dailyCues.value = updated
         saveDailyCues(updated)
+        syncDailyCueDefinitions(updated)
     }
 
     private suspend fun recordDailyCueCheck(cue: DailyCueItem) {
@@ -704,11 +709,36 @@ class TodoViewModel(
     }
 
     fun deleteDailyCue(cueId: Long) {
+        val deletedCue = _dailyCues.value.firstOrNull { it.id == cueId }
         val updated = _dailyCues.value.filter { it.id != cueId }
         _dailyCues.value = updated
         saveDailyCues(updated)
         viewModelScope.launch {
+            val archivedAt = System.currentTimeMillis()
             dailyCueRepository.archiveCue(cueId)
+            deletedCue?.let { cue ->
+                val fallbackCreatedAt = cuePrefs.getLong("date_key", 0L)
+                    .takeIf { it > 0L }
+                    ?: archivedAt
+                val record = cue.toDailyCueRecord(fallbackCreatedAt)
+                runCatching {
+                    firestoreSyncRepository.syncDailyCue(
+                        cueId = record.id,
+                        label = record.label,
+                        title = record.title,
+                        timerDurationMillis = record.timerDurationMillis,
+                        timerCategory = record.timerCategory,
+                        recommendationTiming = record.recommendationTiming,
+                        note = record.note,
+                        sortOrder = record.order,
+                        createdAt = record.createdAt,
+                        updatedAt = archivedAt,
+                        archivedAt = archivedAt,
+                        isCompletedToday = cue.isCompleted,
+                        completionDateKey = startOfDay(archivedAt)
+                    )
+                }
+            }
         }
     }
 
@@ -785,7 +815,25 @@ class TodoViewModel(
             ?: System.currentTimeMillis()
         viewModelScope.launch {
             cues.forEach { cue ->
-                dailyCueRepository.upsertCue(cue.toDailyCueRecord(fallbackCreatedAt))
+                val record = cue.toDailyCueRecord(fallbackCreatedAt)
+                dailyCueRepository.upsertCue(record)
+                runCatching {
+                    firestoreSyncRepository.syncDailyCue(
+                        cueId = record.id,
+                        label = record.label,
+                        title = record.title,
+                        timerDurationMillis = record.timerDurationMillis,
+                        timerCategory = record.timerCategory,
+                        recommendationTiming = record.recommendationTiming,
+                        note = record.note,
+                        sortOrder = record.order,
+                        createdAt = record.createdAt,
+                        updatedAt = System.currentTimeMillis(),
+                        archivedAt = record.archivedAt,
+                        isCompletedToday = cue.isCompleted,
+                        completionDateKey = startOfDay(System.currentTimeMillis())
+                    )
+                }
             }
         }
     }
