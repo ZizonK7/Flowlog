@@ -32,8 +32,8 @@ android {
         applicationId = "org.pfkfks.flowlog"
         minSdk = 24
         targetSdk = 36
-        versionCode = 19
-        versionName = "0.5.2"
+        versionCode = 21
+        versionName = "0.5.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -599,6 +599,20 @@ fun HomeScreen(
                         "TOOTHBRUSH" -> viewModel.startActivity(category)
                         "SNACK" -> viewModel.startActivity(category)
                     }
+                },
+                onToggleBrushTimer = {
+                    if (uiState.isBrushTimerRunning || uiState.brushDoneEndsAtMillis > 0L) {
+                        viewModel.cancelBrushTimers()
+                    } else {
+                        viewModel.startActivity("TOOTHBRUSH")
+                    }
+                },
+                onToggleSnackTimer = {
+                    if (uiState.snackButtonEndsAtMillis > 0L) {
+                        viewModel.cancelSnackTimer()
+                    } else {
+                        viewModel.startActivity("SNACK")
+                    }
                 }
             )
         }
@@ -3171,10 +3185,25 @@ private fun QuickTimerSection(
     isBrushTimerRunning: Boolean,
     brushDoneEndsAtMillis: Long,
     snackButtonEndsAtMillis: Long,
-    onStart: (String) -> Unit
+    onStart: (String) -> Unit,
+    onToggleBrushTimer: () -> Unit,
+    onToggleSnackTimer: () -> Unit
 ) {
-    val quickCategories = remember(categories) {
-        categories.filter { it == "TOOTHBRUSH" || it == "SNACK" }
+    val context = LocalContext.current
+    val quickTimerPrefs = remember(context) {
+        context.getSharedPreferences(PREFS_QUICK_TIMER_CONFIG, Context.MODE_PRIVATE)
+    }
+    var isQuickTimerSwapped by remember {
+        mutableStateOf(quickTimerPrefs.getBoolean(KEY_QUICK_TIMER_SWAPPED, false))
+    }
+    var showQuickTimerControls by remember { mutableStateOf(false) }
+
+    val quickCategories = remember(
+        categories,
+        isQuickTimerSwapped
+    ) {
+        val base = categories.filter { it == "TOOTHBRUSH" || it == "SNACK" }
+        if (isQuickTimerSwapped) base.reversed() else base
     }
 
     var brushLabel by remember(brushDoneEndsAtMillis) {
@@ -3235,12 +3264,69 @@ private fun QuickTimerSection(
                         else -> displayCategory(category)
                     },
                     onClick = { onStart(category) },
+                    onLongClick = { showQuickTimerControls = true },
                     modifier = Modifier.weight(1f)
                 )
             }
         }
+        AnimatedVisibility(visible = showQuickTimerControls) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item {
+                    OutlinedButton(
+                        onClick = onToggleBrushTimer,
+                        shape = RoundedCornerShape(999.dp),
+                        border = BorderStroke(1.dp, FlowDivider),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = FlowInk)
+                    ) {
+                        Text(if (isBrushTimerRunning || brushDoneEndsAtMillis > 0L) "양치 타이머 끄기" else "양치 타이머 켜기")
+                    }
+                }
+                item {
+                    OutlinedButton(
+                        onClick = onToggleSnackTimer,
+                        shape = RoundedCornerShape(999.dp),
+                        border = BorderStroke(1.dp, FlowDivider),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = FlowInk)
+                    ) {
+                        Text(if (snackButtonEndsAtMillis > 0L) "간식 타이머 끄기" else "간식 타이머 켜기")
+                    }
+                }
+                item {
+                    OutlinedButton(
+                        onClick = {
+                            isQuickTimerSwapped = !isQuickTimerSwapped
+                            quickTimerPrefs.edit()
+                                .putBoolean(KEY_QUICK_TIMER_SWAPPED, isQuickTimerSwapped)
+                                .apply()
+                        },
+                        shape = RoundedCornerShape(999.dp),
+                        border = BorderStroke(1.dp, FlowDivider),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = FlowInk)
+                    ) {
+                        Text("순서 바꾸기")
+                    }
+                }
+                item {
+                    TextButton(onClick = { showQuickTimerControls = false }) {
+                        Text(
+                            text = "닫기",
+                            color = FlowMuted,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
     }
 }
+
+private const val PREFS_QUICK_TIMER_CONFIG = "quick_timer_config"
+private const val KEY_QUICK_TIMER_SWAPPED = "swapped"
 
 private fun formatBrushCountdown(endsAtMillis: Long): String {
     val remaining = endsAtMillis - System.currentTimeMillis()

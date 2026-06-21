@@ -190,6 +190,7 @@ class MainActivity : ComponentActivity() {
                 val isFocusFireActive = activityUiState.isRunning && activityUiState.isFocusModeActive
                 val promotedButtons by activityViewModel.promotedButtons.collectAsState()
                 val isNotificationSoundEnabled by activityViewModel.isNotificationSoundEnabled.collectAsState()
+                val isInactivityReminderEnabled by activityViewModel.isInactivityReminderEnabled.collectAsState()
                 val routineTimerCategories = remember(promotedButtons) {
                     val base = listOf("SLEEP", "REST", "WORK", "STUDY", "EXERCISE", "WASH", "MEAL", "ETC")
                     if (promotedButtons.isNotEmpty()) {
@@ -470,6 +471,10 @@ class MainActivity : ComponentActivity() {
                                             isNotificationSoundEnabled = isNotificationSoundEnabled,
                                             onToggleNotificationSound = {
                                                 activityViewModel.toggleNotificationSound()
+                                            },
+                                            isInactivityReminderEnabled = isInactivityReminderEnabled,
+                                            onToggleInactivityReminder = {
+                                                activityViewModel.toggleInactivityReminder()
                                             }
                                         )
                                     },
@@ -711,7 +716,9 @@ private fun HeaderActions(
     onRestoreTodosClick: () -> Unit = {},
     onToggleDevMode: () -> Unit = {},
     isNotificationSoundEnabled: Boolean = true,
-    onToggleNotificationSound: () -> Unit = {}
+    onToggleNotificationSound: () -> Unit = {},
+    isInactivityReminderEnabled: Boolean = true,
+    onToggleInactivityReminder: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -963,6 +970,36 @@ private fun HeaderActions(
                         Switch(
                             checked = isNotificationSoundEnabled,
                             onCheckedChange = { onToggleNotificationSound() }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    androidx.compose.foundation.layout.Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = if (isInactivityReminderEnabled) Icons.Filled.Notifications else Icons.Filled.NotificationsOff,
+                            contentDescription = null,
+                            tint = if (isInactivityReminderEnabled) Color(0xFF5140D8) else Color(0xFF9E9E9E),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.size(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "기록 공백 알림",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF10182C)
+                            )
+                            Text(
+                                text = if (isInactivityReminderEnabled) "100분 동안 기록이 없으면 알려줘요" else "꺼짐",
+                                fontSize = 12.sp,
+                                color = Color(0xFF9E9E9E)
+                            )
+                        }
+                        Switch(
+                            checked = isInactivityReminderEnabled,
+                            onCheckedChange = { onToggleInactivityReminder() }
                         )
                     }
                     Spacer(modifier = Modifier.height(20.dp))

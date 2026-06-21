@@ -52,6 +52,12 @@
             android:name=".notification.PlannedTodoNotificationClickReceiver"
             android:exported="false" />
         <receiver
+            android:name=".notification.InactivityReminderReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".notification.InactivityReminderClickReceiver"
+            android:exported="false" />
+        <receiver
             android:name=".notification.AutoButtonAlarmReceiver"
             android:exported="false" />
         <receiver

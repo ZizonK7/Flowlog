@@ -27,9 +27,11 @@ import com.example.flowlog.data.recommendation.FlowRecommendationEngine
 import com.example.flowlog.data.recommendation.FlowRecommendationSource
 import com.example.flowlog.data.recommendation.TimetableProgress
 import com.example.flowlog.data.constants.EntityType
+import com.example.flowlog.data.constants.EventSource
 import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.agent.OrganizedPetite
 import com.example.flowlog.data.local.entity.OrganizedPetiteEntity
+import com.example.flowlog.data.local.InactivityReminderStore
 import com.example.flowlog.data.agent.PetiteSourceType
 import com.example.flowlog.data.repository.ActivityRepository
 import com.example.flowlog.data.repository.AutoButtonScheduleRepository
@@ -45,6 +47,8 @@ import com.example.flowlog.notification.ActivityTimerNotifier
 import com.example.flowlog.notification.AutoButtonScheduler
 import com.example.flowlog.notification.FocusDndController
 import com.example.flowlog.notification.FocusModeScheduler
+import com.example.flowlog.notification.InactivityReminderReceiver
+import com.example.flowlog.notification.InactivityReminderScheduler
 import com.example.flowlog.notification.ReminderScheduler
 import com.example.flowlog.notification.RoutineGoalAlarmScheduler
 import com.example.flowlog.widget.FlowStatusWidgetProvider
@@ -215,6 +219,8 @@ class ActivityViewModel(
     val promotedButtons: StateFlow<List<String>> = _promotedButtons.asStateFlow()
     private val _isNotificationSoundEnabled = MutableStateFlow(true)
     val isNotificationSoundEnabled: StateFlow<Boolean> = _isNotificationSoundEnabled.asStateFlow()
+    private val _isInactivityReminderEnabled = MutableStateFlow(true)
+    val isInactivityReminderEnabled: StateFlow<Boolean> = _isInactivityReminderEnabled.asStateFlow()
     data class DailyCueGoalReachedEvent(val cueId: Long, val category: String, val title: String)
     private val _dailyCueGoalReachedEvents = MutableSharedFlow<DailyCueGoalReachedEvent>(extraBufferCapacity = 8)
     val dailyCueGoalReachedEvents: SharedFlow<DailyCueGoalReachedEvent> = _dailyCueGoalReachedEvents.asSharedFlow()
@@ -231,6 +237,7 @@ class ActivityViewModel(
     private val activityTimerNotifier = ActivityTimerNotifier(appContext)
     private val focusModeScheduler = FocusModeScheduler(appContext)
     private val routineGoalAlarmScheduler = RoutineGoalAlarmScheduler(appContext)
+    private val inactivityReminderScheduler = InactivityReminderScheduler(appContext)
     private val eventLogRepository = EventLogRepository(appContext)
     private val autoButtonScheduleRepository = AutoButtonScheduleRepository(appContext)
     private val dailyGoalRepository = DailyGoalRepository(appContext)
@@ -272,6 +279,8 @@ class ActivityViewModel(
         restoreBrushTimerState()
         restoreSnackButtonTimerState()
         restoreFocusModeState()
+        restoreInactivityReminderState()
+        inactivityReminderScheduler.rescheduleFromLastActivityIfNeeded()
         restoreActiveSession()
         seedMissingSleepRecord()
         observeAllActivities()
@@ -752,7 +761,10 @@ class ActivityViewModel(
         )
         viewModelScope.launch {
             val newId = repository.insertActivity(activity)
-            rememberLastAddedActivity(activity.copy(id = newId))
+            val savedActivity = activity.copy(id = newId)
+            rememberLastAddedActivity(savedActivity)
+            inactivityReminderScheduler.scheduleAfterActivityEnded(endTime)
+            syncAfterActivitySaveIfNeeded(savedActivity)
             TimerStateStore.clearPinnedTimer(appContext)
             FlowStatusWidgetProvider.updateAll(appContext)
         }
@@ -770,7 +782,10 @@ class ActivityViewModel(
         )
         viewModelScope.launch {
             val newId = repository.insertActivity(activity)
-            rememberLastAddedActivity(activity.copy(id = newId))
+            val savedActivity = activity.copy(id = newId)
+            rememberLastAddedActivity(savedActivity)
+            inactivityReminderScheduler.scheduleAfterActivityEnded(endTime)
+            syncAfterActivitySaveIfNeeded(savedActivity)
         }
     }
 
@@ -1126,6 +1141,20 @@ class ActivityViewModel(
         }
     }
 
+    fun cancelSnackTimer() {
+        reminderScheduler.cancelSnackReminder()
+        reminderScheduler.cancelBrushEatTimer()
+        clearSnackButtonTimerState()
+        _uiState.update { it.copy(statusMessage = "간식 타이머를 껐어요.") }
+    }
+
+    fun cancelBrushTimers() {
+        reminderScheduler.cancelBrushTimers()
+        clearBrushTimerState()
+        clearSnackButtonTimerState()
+        _uiState.update { it.copy(statusMessage = "양치 타이머를 껐어요.") }
+    }
+
     fun scheduleBrushDoneExperiment() {
         val scheduled = runCatching {
             reminderScheduler.scheduleBrushDoneExperiment()
@@ -1248,9 +1277,8 @@ class ActivityViewModel(
                 _uiState.update { it.copy(snackButtonEndsAtMillis = mealTimerEndsAt) }
             }
             rememberLastAddedActivity(savedActivity)
-            if (shouldSyncExerciseImmediately(savedActivity)) {
-                syncAllPendingChanges()
-            }
+            inactivityReminderScheduler.scheduleAfterActivityEnded(endTime)
+            syncAfterActivitySaveIfNeeded(savedActivity)
             _uiState.update {
                 it.copy(
                     pendingSavedActivity = null,
@@ -1313,6 +1341,8 @@ class ActivityViewModel(
                 _uiState.update { it.copy(snackButtonEndsAtMillis = mealTimerEndsAt) }
             }
             rememberLastAddedActivity(savedActivity)
+            inactivityReminderScheduler.scheduleAfterActivityEnded(endTime)
+            syncAfterActivitySaveIfNeeded(savedActivity)
             clearPendingActivity()
         }
     }
@@ -1439,6 +1469,7 @@ class ActivityViewModel(
                 modifiedTime = System.currentTimeMillis()
             )
             repository.updateActivity(updatedActivity)
+            syncAfterActivitySaveIfNeeded(updatedActivity)
             _uiState.update { it.copy(editingActivity = null) }
         }
     }
@@ -2514,6 +2545,11 @@ class ActivityViewModel(
         FirebaseSyncCoordinator(appContext).syncAll(uid)
     }
 
+    private suspend fun syncAfterActivitySaveIfNeeded(activity: ActivitySession) {
+        if (!shouldSyncAfterActivitySave(activity)) return
+        runCatching { syncAllPendingChanges() }
+    }
+
     private suspend fun completeLearningPlanAfterStudyIfNeeded(activity: ActivitySession) {
         val petiteId = activity.linkedPetiteId ?: return
         if (activity.sourceType != ActivitySourceType.LEARNING_PLAN_STUDY) return
@@ -2521,9 +2557,11 @@ class ActivityViewModel(
         dailyGoalRepository.markCalendarPetiteCompleted(petiteId)
     }
 
-    private fun shouldSyncExerciseImmediately(activity: ActivitySession): Boolean {
-        return activity.category == "EXERCISE" &&
+    private fun shouldSyncAfterActivitySave(activity: ActivitySession): Boolean {
+        val hasExerciseSets = activity.category == "EXERCISE" &&
             activity.exerciseSets.isNotEmpty()
+        return activity.durationMillis >= IMMEDIATE_SYNC_ACTIVITY_DURATION_MILLIS ||
+            hasExerciseSets
     }
 
     private fun saveActiveSession(
@@ -2555,6 +2593,8 @@ class ActivityViewModel(
             sourceId = sourceId,
             routineGoalMillis = routineGoalMillis
         )
+        inactivityReminderScheduler.cancel()
+        recordInactivityReminderResponseIfNeeded(startTime, category)
         FlowStatusWidgetProvider.updateAll(appContext)
     }
 
@@ -2755,6 +2795,17 @@ class ActivityViewModel(
         _isNotificationSoundEnabled.value = next
     }
 
+    fun toggleInactivityReminder() {
+        val next = !_isInactivityReminderEnabled.value
+        InactivityReminderStore.setEnabled(appContext, next)
+        _isInactivityReminderEnabled.value = next
+        if (next) {
+            inactivityReminderScheduler.rescheduleFromLastActivityIfNeeded()
+        } else {
+            inactivityReminderScheduler.cancel()
+        }
+    }
+
     private fun restoreFocusModeState() {
         val soundEnabled = FocusModeStore.isNotificationSoundEnabled(appContext)
         _isNotificationSoundEnabled.value = soundEnabled
@@ -2773,6 +2824,29 @@ class ActivityViewModel(
                 // 만료 상태: DND 복원 후 초기화
                 FocusDndController.restoreDnd(appContext)
                 FocusModeStore.clearFocusMode(appContext)
+            }
+        }
+    }
+
+    private fun restoreInactivityReminderState() {
+        _isInactivityReminderEnabled.value = InactivityReminderStore.isEnabled(appContext)
+    }
+
+    private fun recordInactivityReminderResponseIfNeeded(startedAt: Long, category: String) {
+        val pendingClick = InactivityReminderStore.consumePendingClick(appContext) ?: return
+        viewModelScope.launch {
+            runCatching {
+                eventLogRepository.log(
+                    eventType = EventType.ACTIVITY_STARTED,
+                    source = EventSource.NOTIFICATION,
+                    metadataJson = JSONObject()
+                        .put("type", InactivityReminderReceiver.TYPE)
+                        .put("notificationId", pendingClick.notificationId)
+                        .put("clickedAt", pendingClick.clickedAt)
+                        .put("activityStartedAt", startedAt)
+                        .put("category", category)
+                        .toString()
+                )
             }
         }
     }
@@ -2825,6 +2899,7 @@ class ActivityViewModel(
         private const val KEY_SLEEP_RECORD_2026_05_19 = "sleep_record_2026_05_19_212957"
         private val DEFAULT_SCHOOL_COMPANY_GOAL_MILLIS = TimeUnit.HOURS.toMillis(10)
         private val SEVENTY_FIVE_MINUTE_GOAL_MILLIS = TimeUnit.MINUTES.toMillis(75)
+        private val IMMEDIATE_SYNC_ACTIVITY_DURATION_MILLIS = TimeUnit.MINUTES.toMillis(10)
         private val SEVENTY_FIVE_MINUTE_GOAL_CATEGORIES = setOf("STUDY", "TODO", "WORK", "DEVELOPMENT", "EXERCISE", "ETC")
     }
 }

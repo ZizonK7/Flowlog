@@ -143,12 +143,21 @@ class ReminderScheduler(private val context: Context) {
         requestCode: Int,
         delayMillis: Long
     ): Long {
-        return scheduleReminder(
-            category = "TOOTHBRUSH",
-            reminderType = ToothbrushReminderReceiver.TYPE_BRUSH_DONE,
-            reminderDelayMillis = delayMillis,
-            requestCode = requestCode
+        ensureNotificationChannel()
+
+        val triggerAtMillis = System.currentTimeMillis() + delayMillis
+        val intent = Intent(context, BrushAlarmActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+
+        scheduleAlarmClock(triggerAtMillis, pendingIntent)
+        return triggerAtMillis
     }
 
     private fun cancelActivityAlarm(requestCode: Int) {
@@ -215,6 +224,11 @@ class ReminderScheduler(private val context: Context) {
         activityTimerNotifier.clearSnackTimer()
     }
 
+    fun cancelBrushEatTimer() {
+        cancelReminder(REQUEST_BRUSH_EAT_TIMER)
+        activityTimerNotifier.clearBrushEatTimer()
+    }
+
     fun cancelBrushTimers() {
         cancelReminder(REQUEST_BRUSH_DONE_TIMER)
         cancelReminder(REQUEST_BRUSH_EAT_TIMER)
@@ -261,6 +275,20 @@ class ReminderScheduler(private val context: Context) {
                 triggerAtMillis,
                 alarmPendingIntent
             )
+        }.getOrThrow()
+    }
+
+    private fun scheduleAlarmClock(
+        triggerAtMillis: Long,
+        alarmPendingIntent: PendingIntent
+    ) {
+        runCatching {
+            alarmManager.setAlarmClock(
+                AlarmManager.AlarmClockInfo(triggerAtMillis, alarmPendingIntent),
+                alarmPendingIntent
+            )
+        }.recoverCatching {
+            scheduleAlarm(triggerAtMillis, alarmPendingIntent)
         }.getOrThrow()
     }
 

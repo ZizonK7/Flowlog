@@ -29,6 +29,8 @@ import com.example.flowlog.data.repository.EventLogRepository
 import com.example.flowlog.data.repository.GoalItem
 import com.example.flowlog.data.repository.OrganizedPetiteRepository
 import com.example.flowlog.data.repository.TodoRepository
+import com.example.flowlog.data.sync.FirebaseSyncCoordinator
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -73,6 +75,7 @@ class TodoViewModel(
     context: Context
 ) : ViewModel() {
 
+    private val appContext = context.applicationContext
     private val focusPrefs = context.getSharedPreferences("todo_focus", Context.MODE_PRIVATE)
     private val cuePrefs = context.getSharedPreferences("daily_cues", Context.MODE_PRIVATE)
     private val normalTodoOrderPrefs = context.getSharedPreferences("todo_normal_order", Context.MODE_PRIVATE)
@@ -286,6 +289,7 @@ class TodoViewModel(
             } else {
                 repository.updateCompleted(todo.id, true, System.currentTimeMillis())
             }
+            syncAllPendingChanges()
         }
     }
 
@@ -304,6 +308,7 @@ class TodoViewModel(
                     todoLegacyId = todo.id
                 )
             }
+            syncAllPendingChanges()
         }
     }
 
@@ -336,6 +341,14 @@ class TodoViewModel(
             } else {
                 repository.updateCompleted(todo.id, false, null)
             }
+            syncAllPendingChanges()
+        }
+    }
+
+    private suspend fun syncAllPendingChanges() {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        runCatching {
+            FirebaseSyncCoordinator(appContext).syncAll(uid)
         }
     }
 
