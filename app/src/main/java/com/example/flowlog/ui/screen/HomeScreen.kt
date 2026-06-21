@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -1245,6 +1247,7 @@ private fun TimerRingSection(
 }
 
 // elapsedTime을 받지 않음 — title/appliedTitle/titleSuggestions에만 의존.
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TitleInputSection(
     titleSuggestions: List<String>,
@@ -1266,15 +1269,12 @@ private fun TitleInputSection(
         label = "title-input-accent-soft-color"
     )
     if (titleSuggestions.isNotEmpty()) {
-        LazyRow(
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(end = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(
-                items = titleSuggestions,
-                key = { suggestion -> suggestion }
-            ) { suggestion ->
+            titleSuggestions.forEach { suggestion ->
                 SuggestionChip(
                     onClick = { onSuggestionSelected(suggestion) },
                     label = {
