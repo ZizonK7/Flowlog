@@ -14,8 +14,17 @@ interface OrganizedPetiteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(items: List<OrganizedPetiteEntity>)
 
+    @Query("SELECT * FROM organized_petites WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): OrganizedPetiteEntity?
+
     @Query("DELETE FROM organized_petites WHERE userId = :userId")
     suspend fun deleteAllForUser(userId: String)
+
+    @Query("DELETE FROM organized_petites WHERE userId = :userId AND sourceType != :preservedSourceType")
+    suspend fun deleteAllForUserExceptSource(userId: String, preservedSourceType: String)
+
+    @Query("DELETE FROM organized_petites WHERE userId = :userId AND sourceType = :sourceType")
+    suspend fun deleteAllForUserBySource(userId: String, sourceType: String)
 
     @Query("""
         SELECT * FROM organized_petites
@@ -33,6 +42,15 @@ interface OrganizedPetiteDao {
         ORDER BY updatedAt DESC
     """)
     suspend fun getDismissed(userId: String): List<OrganizedPetiteEntity>
+
+    @Query("""
+        SELECT * FROM organized_petites
+        WHERE userId = :userId
+          AND sourceType = :sourceType
+          AND isDismissed = 0
+        ORDER BY rank ASC, priorityScore ASC, title ASC
+    """)
+    suspend fun getActiveBySource(userId: String, sourceType: String): List<OrganizedPetiteEntity>
 
     @Query("""
         UPDATE organized_petites

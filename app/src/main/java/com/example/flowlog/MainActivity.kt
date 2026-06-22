@@ -87,6 +87,7 @@ import com.example.flowlog.data.sync.FirebaseCalendarPullDataSource
 import com.example.flowlog.data.sync.FirebaseRestoreDataSource
 import com.example.flowlog.data.sync.FirebaseSyncAlarmScheduler
 import com.example.flowlog.data.sync.FirebaseSyncCoordinator
+import com.example.flowlog.data.sync.StudyPlanPetiteSyncDataSource
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
@@ -96,6 +97,7 @@ import com.google.firebase.auth.GoogleAuthProvider
 import com.example.flowlog.notification.ReminderScheduler
 import com.example.flowlog.notification.AutoButtonScheduler
 import com.example.flowlog.notification.PlannedTodoReminderScheduler
+import com.example.flowlog.notification.StudyPlanAutoStartScheduler
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.flowlog.ui.screen.DevTimetableScreen
@@ -265,6 +267,9 @@ class MainActivity : ComponentActivity() {
                             if (shouldRestore) {
                                 FirebaseRestoreDataSource(applicationContext).restoreFromFirestore(user.uid)
                             }
+                        }
+                        runCatching {
+                            StudyPlanPetiteSyncDataSource(applicationContext).sync(user.uid)
                         }
                         runCatching {
                             uploadLocalFlowlogSnapshot()

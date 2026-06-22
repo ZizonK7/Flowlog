@@ -48,6 +48,16 @@ class OrganizedPetiteRepository(context: Context) {
         // calendar pull이 독립적으로 upsert/dismiss를 담당한다.
         dao.replaceNonCalendarForUser(
             userId = userId,
+            preservedSourceType = PetiteSourceType.STUDY_PLAN.name,
+            items = items.mapIndexed { index, item -> item.toEntity(userId, index, now) }
+        )
+    }
+
+    suspend fun replaceStudyPlans(items: List<OrganizedPetite>) {
+        val now = System.currentTimeMillis()
+        dao.replaceAllForUserBySource(
+            userId = userId,
+            sourceType = PetiteSourceType.STUDY_PLAN.name,
             items = items.mapIndexed { index, item -> item.toEntity(userId, index, now) }
         )
     }

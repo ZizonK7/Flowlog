@@ -15,6 +15,7 @@ class AutoButtonBootReceiver : BroadcastReceiver() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
                 AutoButtonScheduler(context.applicationContext).rescheduleAll()
+                StudyPlanAutoStartScheduler(context.applicationContext).rescheduleAll()
             } finally {
                 pendingResult.finish()
             }

@@ -1047,6 +1047,7 @@ private fun DetailSection(title: String, body: String) {
 
 private fun organizedPetiteAccent(sourceType: PetiteSourceType): Color = when (sourceType) {
     PetiteSourceType.EXAM -> Color(0xFF1565C0)
+    PetiteSourceType.STUDY_PLAN -> Color(0xFF2E7D5B)
     PetiteSourceType.ROUTINE -> Purple
     PetiteSourceType.TODO -> Color(0xFFE35B5B)
     PetiteSourceType.PETITE -> Purple

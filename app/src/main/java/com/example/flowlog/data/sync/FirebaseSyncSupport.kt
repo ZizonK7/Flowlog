@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
+import com.example.flowlog.notification.StudyPlanAutoStartScheduler
 import com.example.flowlog.notification.FirebaseSyncReceiver
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -111,6 +112,7 @@ object FirebaseSyncAlarmScheduler {
 class FirebaseSyncCoordinator(context: Context) {
     private val appContext = context.applicationContext
     private val dataSource = FirebaseSyncDataSource(appContext)
+    private val studyPlanPetiteSync = StudyPlanPetiteSyncDataSource(appContext)
 
     suspend fun syncAll(userId: String): SyncOutcome {
         return globalSyncMutex.withLock {
