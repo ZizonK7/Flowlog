@@ -95,6 +95,10 @@ class OrganizedPetiteRepository(context: Context) {
         dao.markCompletedById(id, System.currentTimeMillis())
     }
 
+    suspend fun updateTitle(id: String, title: String) {
+        dao.updateTitle(id, title, System.currentTimeMillis())
+    }
+
     suspend fun getById(id: String): OrganizedPetite? = dao.getById(id)?.toModel()
 
     suspend fun reopenById(id: String) {

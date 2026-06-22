@@ -318,6 +318,30 @@ class FirestoreSyncRepository(
         return MainButtonConfig(buttons = buttons, configured = true, version = version)
     }
 
+    suspend fun syncCalendarEventCompletion(
+        docId: String,
+        isCompleted: Boolean,
+        completedAt: Long?,
+        deletedAt: Long?,
+        updatedAt: Long
+    ) {
+        val userId = uid ?: return
+        val data = buildMap<String, Any?> {
+            put("isCompleted", isCompleted)
+            put("completedAt", completedAt)
+            put("updatedAt", updatedAt)
+            if (deletedAt != null) put("deletedAt", deletedAt)
+        }
+        calendarEventCollection(userId).document(docId)
+            .set(data, SetOptions.merge())
+            .awaitResult()
+    }
+
+    private fun calendarEventCollection(userId: String) =
+        firestore.collection("users").document(userId)
+            .collection("flowlog").document("data")
+            .collection("calendarEvents")
+
     private fun activityCollection(userId: String) =
         firestore.collection("users").document(userId)
             .collection("flowlog").document("data")

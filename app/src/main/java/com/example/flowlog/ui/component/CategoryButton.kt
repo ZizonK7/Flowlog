@@ -42,7 +42,7 @@ fun CategoryButton(
     modifier: Modifier = Modifier
 ) {
     val accentColor = categoryColor(category)
-    val iconBackground = categoryPastelColor(category)
+    val iconBackground = accentColor.copy(alpha = 0.13f)
 
     Card(
         modifier = modifier
@@ -68,14 +68,14 @@ fun CategoryButton(
         ) {
             Box(
                 modifier = Modifier
-                    .size(50.dp)
+                    .size(44.dp)
                     .background(iconBackground, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 CategoryGlyph(
                     category = iconCategory,
                     tint = accentColor,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(24.dp)
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
@@ -123,31 +123,6 @@ fun CategoryGlyph(
             fontSize = 20.sp,
             fontWeight = FontWeight.ExtraBold
         )
-    }
-}
-
-private fun categoryPastelColor(category: String): Color {
-    return when (category) {
-        "TOOTHBRUSH" -> Color(0xFFEDE8FF)
-        "SNACK" -> Color(0xFFFFF1DD)
-        "MEAL" -> Color(0xFFFFEDE4)
-        "STUDY" -> Color(0xFFE6F6E8)
-        "WORK" -> Color(0xFFE9EAF0)
-        "COMPANY" -> Color(0xFFE6EEF2)
-        "DEVELOPMENT" -> Color(0xFFE9E7FF)
-        "READING" -> Color(0xFFE0F2F1)
-        "MOVE" -> Color(0xFFE0F7FA)
-        "WASH" -> Color(0xFFE4F5FF)
-        "SCHOOL" -> Color(0xFFFCE4ED)
-        "EXERCISE" -> Color(0xFFE4F1FF)
-        "SLEEP" -> Color(0xFFF0E4FF)
-        "REST" -> Color(0xFFE2F5F5)
-        "ETC" -> Color(0xFFEDEDF1)
-        "GAME" -> Color(0xFFE8EAF6)
-        "EXPERIMENT_1" -> Color(0xFFE2F5F1)
-        "EXPERIMENT_2" -> Color(0xFFECE7FF)
-        "EXPERIMENT_3" -> Color(0xFFFFE8D8)
-        else -> Color(0xFFEDEDF1)
     }
 }
 

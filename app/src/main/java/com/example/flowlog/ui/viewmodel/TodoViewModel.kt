@@ -472,6 +472,13 @@ class TodoViewModel(
         isTodayOrganizerAllowed = allowed
     }
 
+    fun dismissOrganizedPetite(item: OrganizedPetite) {
+        _organizedPetites.value = _organizedPetites.value.filterNot { it.id == item.id }
+        viewModelScope.launch {
+            runCatching { organizedPetiteRepository.dismiss(item) }
+        }
+    }
+
     fun dismissPetiteLinkedToTodo(todoId: Long) {
         val sourceIdStr = todoId.toString()
         // TODO·PETITE 두 sourceType이 동일 todoId로 공존할 수 있으므로 메모리·DB 모두 한꺼번에 제거.
@@ -481,6 +488,28 @@ class TodoViewModel(
         }
         viewModelScope.launch {
             runCatching { organizedPetiteRepository.dismissTodoPetitesBySourceId(sourceIdStr) }
+        }
+    }
+
+    fun updateOrganizedPetiteTitle(item: OrganizedPetite, newTitle: String) {
+        if (newTitle.isBlank()) return
+        viewModelScope.launch {
+            when (item.sourceType) {
+                PetiteSourceType.PETITE, PetiteSourceType.TODO -> {
+                    item.sourceId?.toLongOrNull()?.let { todoId ->
+                        val todo = _todos.value.firstOrNull { it.id == todoId }
+                        if (todo != null) {
+                            repository.updateTodo(todo.copy(title = newTitle, updatedAt = System.currentTimeMillis()))
+                            if (todo.category == TodoCategory.TODAY && !todo.isCompleted) {
+                                registerAllTodayTodoPetitesIfAbsent()
+                            }
+                        }
+                    }
+                    organizedPetiteRepository.updateTitle(item.id, newTitle)
+                    syncAllPendingChanges()
+                }
+                else -> organizedPetiteRepository.updateTitle(item.id, newTitle)
+            }
         }
     }
 

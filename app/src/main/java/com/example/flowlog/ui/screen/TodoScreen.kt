@@ -444,7 +444,9 @@ fun TodoScreen(
                                     PetiteSourceType.CALENDAR -> onStartCalendarPetite(item)
                                 }
                             },
-                            onComplete = { viewModel.completeOrganizedPetite(item) }
+                            onComplete = { viewModel.completeOrganizedPetite(item) },
+                            onSave = { newTitle -> viewModel.updateOrganizedPetiteTitle(item, newTitle) },
+                            onDelete = { viewModel.dismissOrganizedPetite(item) }
                         )
                     }
                 }
@@ -815,7 +817,9 @@ private fun OrganizedPetiteCard(
     item: OrganizedPetite,
     modifier: Modifier = Modifier,
     onStart: () -> Unit,
-    onComplete: () -> Unit
+    onComplete: () -> Unit,
+    onSave: (String) -> Unit = {},
+    onDelete: () -> Unit = {}
 ) {
     var showDetail by remember(item.id) { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -918,6 +922,14 @@ private fun OrganizedPetiteCard(
                 onStart = {
                     onStart()
                     showDetail = false
+                },
+                onSave = { newTitle ->
+                    onSave(newTitle)
+                    showDetail = false
+                },
+                onDelete = {
+                    onDelete()
+                    showDetail = false
                 }
             )
         }
@@ -932,8 +944,12 @@ private fun OrganizedPetiteDetailSheet(
     metaItems: List<String>,
     onClose: () -> Unit,
     onComplete: () -> Unit,
-    onStart: () -> Unit
+    onStart: () -> Unit,
+    onSave: (String) -> Unit = {},
+    onDelete: () -> Unit = {}
 ) {
+    var editTitle by remember(item.id) { mutableStateOf(item.title) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -950,12 +966,23 @@ private fun OrganizedPetiteDetailSheet(
                 .background(accent.copy(alpha = 0.10f), RoundedCornerShape(6.dp))
                 .padding(horizontal = 7.dp, vertical = 3.dp)
         )
-        Text(
-            item.title,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = TextPrimary,
-            lineHeight = 25.sp
+        OutlinedTextField(
+            value = editTitle,
+            onValueChange = { editTitle = it },
+            modifier = Modifier.fillMaxWidth(),
+            textStyle = TextStyle(
+                color = TextPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold
+            ),
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = accent,
+                unfocusedBorderColor = BorderLight,
+                focusedContainerColor = Color.White,
+                unfocusedContainerColor = Color.White,
+                cursorColor = accent
+            )
         )
         if (metaItems.isNotEmpty()) {
             Text(metaItems.joinToString(" · "), fontSize = 13.sp, color = TextMuted)
@@ -975,27 +1002,24 @@ private fun OrganizedPetiteDetailSheet(
                 border = BorderStroke(1.dp, BorderLight),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = TextMuted)
             ) {
-                Text("닫기", fontWeight = FontWeight.Bold)
+                Text("취소", fontWeight = FontWeight.Bold)
             }
-            Button(
-                onClick = onComplete,
+            OutlinedButton(
+                onClick = onDelete,
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = GreenTint, contentColor = Color.White)
+                border = BorderStroke(1.dp, Color(0xFFE57373)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE57373))
             ) {
-                Icon(Icons.Outlined.CheckCircle, null, modifier = Modifier.size(17.dp))
-                Spacer(Modifier.width(5.dp))
-                Text("체크", fontWeight = FontWeight.Bold)
+                Text("삭제", fontWeight = FontWeight.Bold)
             }
             Button(
-                onClick = onStart,
+                onClick = { if (editTitle.isNotBlank()) onSave(editTitle.trim()) },
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.White)
             ) {
-                Icon(Icons.Filled.PlayArrow, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(5.dp))
-                Text("시작", fontWeight = FontWeight.Bold)
+                Text("저장", fontWeight = FontWeight.Bold)
             }
         }
     }

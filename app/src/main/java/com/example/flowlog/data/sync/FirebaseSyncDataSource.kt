@@ -204,6 +204,19 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
                     } else {
                         firestoreSync.syncTodoByDocId(docId, entity.toTodoItem())
                     }
+                    entity.legacyId?.let { legacyId ->
+                        runCatching {
+                            firestoreSync.syncCalendarEventCompletion(
+                                docId = legacyId.toString(),
+                                isCompleted = entity.isCompleted,
+                                completedAt = entity.completedAt,
+                                deletedAt = if (entity.isDeleted) entity.deletedAt else null,
+                                updatedAt = entity.updatedAt
+                            )
+                        }.onFailure { e ->
+                            Log.w(TAG, "CalendarEvent completion sync failed: ${entity.todoId} — ${e.message}")
+                        }
+                    }
                     todoDao.markTodoSynced(entity.todoId)
                     successCount++
                 }.onFailure { e ->
