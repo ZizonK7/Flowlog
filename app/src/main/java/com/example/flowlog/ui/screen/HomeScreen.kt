@@ -143,6 +143,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.flowlog.data.constants.ActivitySourceType
@@ -3408,25 +3409,34 @@ private fun FlowProgressRing(
     modifier: Modifier = Modifier,
     showCenterLabel: Boolean = true
 ) {
-    val fireTransition = rememberInfiniteTransition(label = "flow-fire")
-    val firePhase by fireTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 920),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "flow-fire-phase"
-    )
-    val firePulse by fireTransition.animateFloat(
-        initialValue = 0.92f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 720),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "flow-fire-pulse"
-    )
+    val firePhase: Float
+    val firePulse: Float
+    if (isOnFire) {
+        val fireTransition = rememberInfiniteTransition(label = "flow-fire")
+        val animatedFirePhase by fireTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 920),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "flow-fire-phase"
+        )
+        val animatedFirePulse by fireTransition.animateFloat(
+            initialValue = 0.92f,
+            targetValue = 1.08f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 720),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "flow-fire-pulse"
+        )
+        firePhase = animatedFirePhase
+        firePulse = animatedFirePulse
+    } else {
+        firePhase = 0f
+        firePulse = 1f
+    }
 
     Box(
         modifier = modifier,
@@ -5144,6 +5154,25 @@ private fun TimetableBar(
     val actualSegments = remember(blocks) {
         blocks.filterIsInstance<TimelineBlock.ActualActivity>().map { it.segment }
     }
+    val density = LocalDensity.current
+    val bubbleTextPaint = remember(density) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = FlowPurpleDeep.toArgb()
+            textSize = with(density) { 10.sp.toPx() }
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+    }
+    val recommendedTodoStroke = remember(density) {
+        Stroke(
+            width = with(density) { 1.5.dp.toPx() },
+            pathEffect = PathEffect.dashPathEffect(
+                floatArrayOf(
+                    with(density) { 8.dp.toPx() },
+                    with(density) { 5.dp.toPx() }
+                )
+            )
+        )
+    }
 
     // pointerInput은 Canvas가 아닌 Box 컨테이너에 붙여
     // LazyColumn 스크롤과의 경합 없이 long press를 안정적으로 감지한다.
@@ -5233,11 +5262,6 @@ private fun TimetableBar(
             val barHeight = 26.dp.toPx()
             val top = 34.dp.toPx()
             val radius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
-            val bubbleTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = FlowPurpleDeep.toArgb()
-                textSize = 10.sp.toPx()
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-            }
 
             repeat(5) { index ->
                 val x = size.width * index / 4f
@@ -5318,10 +5342,7 @@ private fun TimetableBar(
                                 topLeft = Offset(x, top + 4.dp.toPx()),
                                 size = Size(width, barHeight - 8.dp.toPx()),
                                 cornerRadius = radius,
-                                style = Stroke(
-                                    width = 1.5.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8.dp.toPx(), 5.dp.toPx()))
-                                )
+                                style = recommendedTodoStroke
                             )
                         }
                         val label = "${timeFormatInner.format(Date(item.plannedStartMillis))} ${item.title}"
