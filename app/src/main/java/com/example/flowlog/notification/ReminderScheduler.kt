@@ -9,6 +9,7 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
+import com.example.flowlog.MainActivity
 import com.example.flowlog.data.model.ActivitySession
 
 class ReminderScheduler(private val context: Context) {
@@ -49,10 +50,7 @@ class ReminderScheduler(private val context: Context) {
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(legacyChannel)
             notificationManager.createNotificationChannel(dingChannel)
-        }
-
-        runCatching {
-            BrushAlarmService.ensureNotificationChannel(context)
+            notificationManager.deleteNotificationChannel(LEGACY_BRUSH_ALARM_CHANNEL_ID)
         }
     }
 
@@ -146,10 +144,12 @@ class ReminderScheduler(private val context: Context) {
         ensureNotificationChannel()
 
         val triggerAtMillis = System.currentTimeMillis() + delayMillis
-        val intent = Intent(context, BrushAlarmActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        val intent = Intent(context, ToothbrushReminderReceiver::class.java).apply {
+            putExtra(ToothbrushReminderReceiver.EXTRA_CATEGORY, "TOOTHBRUSH")
+            putExtra(ToothbrushReminderReceiver.EXTRA_REMINDER_TYPE, ToothbrushReminderReceiver.TYPE_BRUSH_DONE)
+            putExtra(ToothbrushReminderReceiver.EXTRA_ACTIVITY_ID, triggerAtMillis)
         }
-        val pendingIntent = PendingIntent.getActivity(
+        val pendingIntent = PendingIntent.getBroadcast(
             context,
             requestCode,
             intent,
@@ -160,22 +160,7 @@ class ReminderScheduler(private val context: Context) {
         return triggerAtMillis
     }
 
-    private fun cancelActivityAlarm(requestCode: Int) {
-        val intent = Intent(context, BrushAlarmActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            context,
-            requestCode,
-            intent,
-            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
-        ) ?: return
-
-        alarmManager.cancel(pendingIntent)
-        pendingIntent.cancel()
-    }
-
     private fun cancelReminder(requestCode: Int) {
-        cancelActivityAlarm(requestCode)
-
         val intent = Intent(context, ToothbrushReminderReceiver::class.java)
         val pendingIntent = PendingIntent.getBroadcast(
             context,
@@ -234,7 +219,6 @@ class ReminderScheduler(private val context: Context) {
         cancelReminder(REQUEST_BRUSH_EAT_TIMER)
         activityTimerNotifier.clearBrushDoneTimer()
         activityTimerNotifier.clearBrushEatTimer()
-        context.stopService(Intent(context, BrushAlarmService::class.java))
     }
 
     private fun scheduleAlarm(
@@ -284,7 +268,7 @@ class ReminderScheduler(private val context: Context) {
     ) {
         runCatching {
             alarmManager.setAlarmClock(
-                AlarmManager.AlarmClockInfo(triggerAtMillis, alarmPendingIntent),
+                AlarmManager.AlarmClockInfo(triggerAtMillis, alarmClockInfoPendingIntent()),
                 alarmPendingIntent
             )
         }.recoverCatching {
@@ -292,14 +276,26 @@ class ReminderScheduler(private val context: Context) {
         }.getOrThrow()
     }
 
+    private fun alarmClockInfoPendingIntent(): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java)
+        return PendingIntent.getActivity(
+            context,
+            REQUEST_OPEN_APP_FROM_ALARM_INFO,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
     companion object {
         private const val REQUEST_MEAL_TIMER = 3000
         private const val REQUEST_SNACK_TIMER = 3001
         private const val REQUEST_BRUSH_DONE_TIMER = 3002
         private const val REQUEST_BRUSH_EAT_TIMER = 3003
+        private const val REQUEST_OPEN_APP_FROM_ALARM_INFO = 3004
         private const val REQUEST_BRUSH_DONE_EXPERIMENT = 3012
         private const val REQUEST_BRUSH_EAT_EXPERIMENT = 3013
         private const val BRUSH_DONE_DELAY_MILLIS = 3L * 60L * 1000L
         private const val EXPERIMENT_DELAY_MILLIS = 5L * 1000L
+        private const val LEGACY_BRUSH_ALARM_CHANNEL_ID = "flowlog_brush_alarm"
     }
 }
