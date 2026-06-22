@@ -35,6 +35,14 @@ interface OrganizedPetiteDao {
     @Query("""
         SELECT * FROM organized_petites
         WHERE userId = :userId
+          AND sourceType = 'CALENDAR'
+        ORDER BY rank ASC, priorityScore ASC, title ASC
+    """)
+    fun observeCalendarForUser(userId: String): Flow<List<OrganizedPetiteEntity>>
+
+    @Query("""
+        SELECT * FROM organized_petites
+        WHERE userId = :userId
           AND isDismissed = 1
         ORDER BY updatedAt DESC
     """)

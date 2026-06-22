@@ -133,17 +133,17 @@ class DailyGoalRepository(context: Context) {
         return combine(
             dao.observePlannedItemsForDate(userId, dateKey),
             todoDao.observeAllTodos(userId),
-            petiteDao.observeActive(userId).catch { emit(emptyList()) },
+            petiteDao.observeCalendarForUser(userId).catch { emit(emptyList()) },
             minuteTicker()
-        ) { items, todos, petites, now ->
+        ) { items, todos, calendarPetites, now ->
             val completedTodoIds = todos
                 .filter { it.isCompleted }
                 .map { it.todoId }
                 .toSet()
-            val petitesById = petites.associateBy { "calendar_petite_${it.id}" }
+            val calendarPetitesById = calendarPetites.associateBy { "calendar_petite_${it.id}" }
             items.mapNotNull { item ->
                 val block = if (item.todoId.startsWith("calendar_petite_")) {
-                    item.toRecommendedBlockFromPetite(petitesById[item.todoId])
+                    item.toRecommendedBlockFromPetite(calendarPetitesById[item.todoId])
                 } else {
                     item.toRecommendedBlock()
                 }
