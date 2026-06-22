@@ -70,12 +70,12 @@ class RemoteAiDecisionProvider(
     }
 }
 
-class RemoteAiDecisionClient(
+open class RemoteAiDecisionClient(
     private val endpointUrl: String,
     private val timeoutMillis: Long = 2_500L,
     private val authTokenProvider: suspend () -> String? = { currentFirebaseIdToken() }
 ) {
-    suspend fun rankAmbiguousItems(
+    open suspend fun rankAmbiguousItems(
         candidates: List<OrganizedPetite>,
         context: TodayOrganizerContext
     ): List<String> {
@@ -88,7 +88,7 @@ class RemoteAiDecisionClient(
             .filter { it.isNotBlank() }
     }
 
-    suspend fun generateRecommendationReason(
+    open suspend fun generateRecommendationReason(
         candidate: OrganizedPetite,
         context: TodayOrganizerContext
     ): AiRecommendationReason {

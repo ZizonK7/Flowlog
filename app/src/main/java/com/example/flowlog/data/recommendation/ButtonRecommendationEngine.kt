@@ -80,6 +80,7 @@ class ButtonRecommendationEngine {
             .filter { it.sourceType != ActivitySourceType.DAILY_CUE_ROUTINE }
             .mapNotNull { session ->
                 val candidateCategory = when {
+                    session.category == "ETC" -> inferCategoryFromText(session) ?: session.category
                     session.category in CANDIDATE_CATEGORIES -> session.category
                     else -> inferCategoryFromText(session)
                 }

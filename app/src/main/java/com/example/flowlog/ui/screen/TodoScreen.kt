@@ -441,7 +441,8 @@ fun TodoScreen(
                                                 item.examDValue ?: 0
                                             )
                                         }
-                                    PetiteSourceType.CALENDAR -> onStartCalendarPetite(item)
+                                    PetiteSourceType.CALENDAR,
+                                    PetiteSourceType.STUDY_PLAN -> onStartCalendarPetite(item)
                                 }
                             },
                             onComplete = { viewModel.completeOrganizedPetite(item) },
@@ -1060,6 +1061,7 @@ private fun organizedPetiteLabel(sourceType: PetiteSourceType): String = when (s
     PetiteSourceType.TODO -> "Todo"
     PetiteSourceType.PETITE -> "Petite"
     PetiteSourceType.CALENDAR -> "Calendar"
+    PetiteSourceType.STUDY_PLAN -> "Study Plan"
 }
 
 private fun organizedPetiteMetaItems(item: OrganizedPetite): List<String> = buildList {

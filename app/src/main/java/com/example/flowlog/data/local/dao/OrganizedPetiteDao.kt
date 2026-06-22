@@ -20,9 +20,6 @@ interface OrganizedPetiteDao {
     @Query("DELETE FROM organized_petites WHERE userId = :userId")
     suspend fun deleteAllForUser(userId: String)
 
-    @Query("DELETE FROM organized_petites WHERE userId = :userId AND sourceType != :preservedSourceType")
-    suspend fun deleteAllForUserExceptSource(userId: String, preservedSourceType: String)
-
     @Query("DELETE FROM organized_petites WHERE userId = :userId AND sourceType = :sourceType")
     suspend fun deleteAllForUserBySource(userId: String, sourceType: String)
 
@@ -93,9 +90,35 @@ interface OrganizedPetiteDao {
     @Query("DELETE FROM organized_petites WHERE userId = :userId AND sourceType != 'CALENDAR'")
     suspend fun deleteNonCalendarForUser(userId: String)
 
+    @Query("""
+        DELETE FROM organized_petites
+        WHERE userId = :userId
+          AND sourceType != 'CALENDAR'
+          AND sourceType != :preservedSourceType
+    """)
+    suspend fun deleteNonCalendarForUserExceptSource(userId: String, preservedSourceType: String)
+
     @Transaction
-    suspend fun replaceNonCalendarForUser(userId: String, items: List<OrganizedPetiteEntity>) {
-        deleteNonCalendarForUser(userId)
+    suspend fun replaceNonCalendarForUser(
+        userId: String,
+        preservedSourceType: String? = null,
+        items: List<OrganizedPetiteEntity>
+    ) {
+        if (preservedSourceType == null) {
+            deleteNonCalendarForUser(userId)
+        } else {
+            deleteNonCalendarForUserExceptSource(userId, preservedSourceType)
+        }
+        if (items.isNotEmpty()) insertAll(items)
+    }
+
+    @Transaction
+    suspend fun replaceAllForUserBySource(
+        userId: String,
+        sourceType: String,
+        items: List<OrganizedPetiteEntity>
+    ) {
+        deleteAllForUserBySource(userId, sourceType)
         if (items.isNotEmpty()) insertAll(items)
     }
 
@@ -154,9 +177,6 @@ interface OrganizedPetiteDao {
           AND dateMillis = :todayDateKey
     """)
     fun observeTodayCalendarAutoStartPetites(userId: String, todayDateKey: Long): Flow<List<OrganizedPetiteEntity>>
-
-    @Query("SELECT * FROM organized_petites WHERE id = :id LIMIT 1")
-    suspend fun getById(id: String): OrganizedPetiteEntity?
 
     @Query("""
         UPDATE organized_petites SET

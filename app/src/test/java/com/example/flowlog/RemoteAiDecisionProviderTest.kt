@@ -46,13 +46,21 @@ class RemoteAiDecisionProviderTest {
 
     @Test
     fun weirdOrderedIdsIgnoreUnknownAndDuplicates() = runBlocking {
-        withServer("""{"orderedIds":["missing","b","b","a"]}""") { endpoint ->
-            val provider = remoteProvider(endpoint, token = "test-token")
+        val provider = RemoteAiDecisionProvider(
+            endpointUrl = "http://127.0.0.1/aiDecision",
+            enabled = true,
+            timeoutMillis = 1_000L,
+            client = object : RemoteAiDecisionClient("http://127.0.0.1/aiDecision") {
+                override suspend fun rankAmbiguousItems(
+                    candidates: List<OrganizedPetite>,
+                    context: TodayOrganizerContext
+                ): List<String> = listOf("missing", "b", "b", "a")
+            }
+        )
 
-            val result = provider.rankAmbiguousItems(reversedCandidates(), context)
+        val result = provider.rankAmbiguousItems(reversedCandidates(), context)
 
-            assertEquals(listOf("b", "a"), result.map { it.id })
-        }
+        assertEquals(listOf("b", "a"), result.map { it.id })
     }
 
     @Test
@@ -108,6 +116,7 @@ class RemoteAiDecisionProviderTest {
     private suspend fun withServer(responseBody: String, block: suspend (String) -> Unit) {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/aiDecision") { exchange ->
+            exchange.requestBody.use { it.readBytes() }
             val bytes = responseBody.toByteArray(Charsets.UTF_8)
             exchange.responseHeaders.add("Content-Type", "application/json; charset=utf-8")
             exchange.sendResponseHeaders(200, bytes.size.toLong())

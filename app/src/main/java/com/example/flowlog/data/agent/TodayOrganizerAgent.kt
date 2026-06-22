@@ -11,7 +11,8 @@ enum class PetiteSourceType {
     TODO,
     ROUTINE,
     EXAM,
-    CALENDAR
+    CALENDAR,
+    STUDY_PLAN
 }
 
 data class OrganizerRoutine(

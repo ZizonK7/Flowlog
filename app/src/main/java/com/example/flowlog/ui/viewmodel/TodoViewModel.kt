@@ -561,7 +561,8 @@ class TodoViewModel(
                 ?.let { id -> _dailyCues.value.firstOrNull { it.id == id } }
                 ?.isCompleted ?: item.isCompleted
             PetiteSourceType.EXAM,
-            PetiteSourceType.CALENDAR -> false
+            PetiteSourceType.CALENDAR,
+            PetiteSourceType.STUDY_PLAN -> false
         }
         var wasHidden = false
         when (item.sourceType) {
