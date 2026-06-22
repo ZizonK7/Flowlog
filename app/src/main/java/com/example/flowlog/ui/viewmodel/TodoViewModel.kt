@@ -476,6 +476,12 @@ class TodoViewModel(
         _organizedPetites.value = _organizedPetites.value.filterNot { it.id == item.id }
         viewModelScope.launch {
             runCatching { organizedPetiteRepository.dismiss(item) }
+            if (item.sourceType == PetiteSourceType.PETITE) {
+                item.sourceId?.toLongOrNull()?.let { todoId ->
+                    val todo = _todos.value.firstOrNull { it.id == todoId }
+                    if (todo != null) deleteTodo(todo)
+                }
+            }
         }
     }
 
