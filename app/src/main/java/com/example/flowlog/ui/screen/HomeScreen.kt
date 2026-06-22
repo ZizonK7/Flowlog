@@ -207,7 +207,7 @@ private val FocusFireBackground = Color(0xFFFFF0E6)
 private val FlowInk = Color(0xFF10182C)
 private val FlowMuted = Color(0xFF697386)
 private val FlowDivider = Color(0xFFE8E8EE)
-private val TimetableTodoColor = Color(0xFF7A72D8)
+private val TimetableTodoColor = Color(0xFF10B981)
 private const val DAY_DURATION_MILLIS = 24L * 60L * 60L * 1000L
 private const val MERGE_THRESHOLD_MILLIS = 10 * 60 * 1000L
 private const val RECOMMENDED_TODO_DISPLAY_DURATION_MILLIS = 60 * 60 * 1000L
@@ -5064,24 +5064,35 @@ private fun startOfLocalDay(timestamp: Long): Long {
 
 private fun timetableCategoryColor(category: String): Color {
     return when (category) {
-        "STUDY" -> Color(0xFF6EBD7A)
-        "MEAL" -> Color(0xFFE3A55F)
-        "SNACK" -> Color(0xFFE2BE55)
-        "TOOTHBRUSH" -> Color(0xFF68BDB3)
-        "EXERCISE" -> Color(0xFF6CA8DF)
-        "WORK" -> Color(0xFF7B8790)
-        "COMPANY" -> Color(0xFF6F7E87)
-        "DEVELOPMENT" -> Color(0xFF6672C7)
-        "READING" -> Color(0xFF55A99E)
-        "MOVE" -> Color(0xFF58AAB4)
-        "WASH" -> Color(0xFF70AFE0)
-        "SLEEP" -> Color(0xFFA373C8)
-        "REST" -> Color(0xFF62BBC5)
-        "SCHOOL" -> Color(0xFFD37B9A)
-        "GAME" -> Color(0xFF7581C8)
+        "WORK" -> Color(0xFF047857)
+        "STUDY" -> Color(0xFF16A34A)
+        "DEVELOPMENT" -> Color(0xFF0D9488)
+        "SCHOOL" -> Color(0xFF0891B2)
+        "COMPANY" -> Color(0xFF0369A1)
+        "SLEEP" -> Color(0xFF6D28D9)
+        "REST" -> Color(0xFFF59E0B)
+        "GAME" -> Color(0xFFF97316)
+        "EXERCISE" -> Color(0xFFEA580C)
+        "WASH" -> Color(0xFFFBBF24)
+        "MEAL" -> Color(0xFFEAB308)
+        "SNACK" -> Color(0xFFFACC15)
+        "TOOTHBRUSH" -> Color(0xFFD97706)
+        "READING" -> Color(0xFFB45309)
+        "MOVE" -> Color(0xFFA16207)
         "TODO" -> TimetableTodoColor
-        else -> Color(0xFF8C8F98)
+        else -> Color(0xFF92400E)
     }
+}
+
+private fun overlapMillis(
+    firstStart: Long,
+    firstEnd: Long,
+    secondStart: Long,
+    secondEnd: Long
+): Long {
+    val start = maxOf(firstStart, secondStart)
+    val end = minOf(firstEnd, secondEnd)
+    return (end - start).coerceAtLeast(0L)
 }
 
 private fun chooseProductiveFlowCategory(
@@ -5183,8 +5194,8 @@ private fun TimetableBar(
             width = with(density) { 1.5.dp.toPx() },
             pathEffect = PathEffect.dashPathEffect(
                 floatArrayOf(
-                    with(density) { 8.dp.toPx() },
-                    with(density) { 5.dp.toPx() }
+                    with(density) { 4.dp.toPx() },
+                    with(density) { 3.dp.toPx() }
                 )
             )
         )
@@ -5296,19 +5307,30 @@ private fun TimetableBar(
             repeat(segmentCount) { index ->
                 val segmentStart = windowStart + (windowDuration * index / segmentCount)
                 val segmentEnd = windowStart + (windowDuration * (index + 1) / segmentCount)
-                val segmentMid = (segmentStart + segmentEnd) / 2L
-                val scheduledBlock = scheduled.firstOrNull { item ->
-                    segmentMid >= item.startTime && segmentMid < item.endTime.coerceAtLeast(item.startTime + 1L)
-                }
-                val recommendedBlock = recommended.firstOrNull { item ->
-                    !item.isBubbleOnly &&
-                        segmentMid >= item.plannedStartMillis &&
-                        segmentMid < item.displayEndMillis()
-                }
-                val actualSegment = actualSegments.firstOrNull { segment ->
-                    segmentMid >= segment.startTime &&
-                        segmentMid < segment.endTime.coerceAtLeast(segment.startTime + 1L)
-                }
+                val actualSegment = actualSegments
+                    .map { segment ->
+                        segment to overlapMillis(
+                            firstStart = segmentStart,
+                            firstEnd = segmentEnd,
+                            secondStart = segment.startTime,
+                            secondEnd = segment.endTime.coerceAtLeast(segment.startTime + 1L)
+                        )
+                    }
+                    .filter { (_, overlap) -> overlap > 0L }
+                    .maxByOrNull { (_, overlap) -> overlap }
+                    ?.first
+                val scheduledBlock = scheduled
+                    .map { item ->
+                        item to overlapMillis(
+                            firstStart = segmentStart,
+                            firstEnd = segmentEnd,
+                            secondStart = item.startTime,
+                            secondEnd = item.endTime.coerceAtLeast(item.startTime + 1L)
+                        )
+                    }
+                    .filter { (_, overlap) -> overlap > 0L }
+                    .maxByOrNull { (_, overlap) -> overlap }
+                    ?.first
                 when {
                     actualSegment != null -> {
                         slotKeys[index] = "actual:${actualSegment.startTime}:${actualSegment.endTime}:${actualSegment.category}"
@@ -5318,10 +5340,6 @@ private fun TimetableBar(
                         slotKeys[index] = "scheduled:${scheduledBlock.scheduleId}:${scheduledBlock.startTime}:${scheduledBlock.endTime}"
                         slotColors[index] = timetableCategoryColor(scheduledBlock.category)
                             .copy(alpha = if (scheduledBlock.isSkippedToday) 0.28f else 0.58f)
-                    }
-                    recommendedBlock != null -> {
-                        slotKeys[index] = "recommended:${recommendedBlock.plannedStartMillis}:${recommendedBlock.title}"
-                        slotColors[index] = TimetableTodoColor.copy(alpha = 0.74f)
                     }
                 }
             }
@@ -5355,11 +5373,20 @@ private fun TimetableBar(
                     .coerceIn(startFraction, 1f)
                 val x = size.width * startFraction
                 val width = (size.width * (endFraction - startFraction)).coerceAtLeast(4.dp.toPx())
+                val outlineMinWidth = 8.dp.toPx()
+                val outlineWidth = width.coerceIn(outlineMinWidth, size.width)
+                val outlineLeft = x.coerceIn(0f, size.width - outlineWidth)
                 drawRoundRect(
                     color = TimetableTodoColor.copy(alpha = 0.68f),
-                    topLeft = Offset(x, top - 2.dp.toPx()),
-                    size = Size(width, barHeight + 4.dp.toPx()),
-                    cornerRadius = radius,
+                    topLeft = Offset(
+                        outlineLeft,
+                        top - 3.dp.toPx()
+                    ),
+                    size = Size(
+                        outlineWidth,
+                        barHeight + 6.dp.toPx()
+                    ),
+                    cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx()),
                     style = recommendedTodoStroke
                 )
             }
