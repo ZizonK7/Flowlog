@@ -49,6 +49,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -115,6 +116,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -187,6 +189,7 @@ import java.util.concurrent.TimeUnit
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.PI
 import kotlin.math.cos
@@ -399,6 +402,8 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+    val homeListState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     val restoredPinnedTimer = remember(context) {
         TimerStateStore.getPinnedTimer(context)
     }
@@ -504,6 +509,7 @@ fun HomeScreen(
 
     Box(modifier = modifier.fillMaxSize()) {
         LazyColumn(
+            state = homeListState,
             modifier = Modifier
                 .fillMaxSize()
                 .background(homeBackgroundColor),
@@ -638,7 +644,14 @@ fun HomeScreen(
                 onCompleteRecommended = { if (!isDeveloperMode) viewModel.completeRecommendedTodo(it) },
                 onSetRecommendedTime = { block, hour -> if (!isDeveloperMode) viewModel.setRecommendedTodoTime(block, hour) },
                 onReplaceRecommendedItem = { block, todo -> if (!isDeveloperMode) viewModel.replaceRecommendedTodoItem(block, todo) },
-                onStartFlowRecommendation = { if (!isDeveloperMode) viewModel.startFlowRecommendation(it) },
+                onStartFlowRecommendation = {
+                    if (!isDeveloperMode) {
+                        viewModel.startFlowRecommendation(it)
+                        coroutineScope.launch {
+                            homeListState.animateScrollToItem(index = 1)
+                        }
+                    }
+                },
                 onOpenFlowRecommendation = { if (!isDeveloperMode) viewModel.openFlowRecommendation(it) },
                 onCompleteFlowRecommendation = { if (!isDeveloperMode) viewModel.completeFlowRecommendation(it) },
                 flowRecommendations = if (isDeveloperMode) emptyList() else uiState.flowRecommendations,
