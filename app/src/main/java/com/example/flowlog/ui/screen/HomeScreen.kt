@@ -3242,7 +3242,7 @@ private fun QuickTimerSection(
             kotlinx.coroutines.delay(30_000L)
             snackLabel = formatSnackCountdown(snackButtonEndsAtMillis)
         }
-        snackLabel = "간식"
+        snackLabel = "30분"
     }
 
     Column(
@@ -3277,8 +3277,13 @@ private fun QuickTimerSection(
                         || (category == "SNACK" && snackButtonEndsAtMillis > 0L),
                     label = when (category) {
                         "TOOTHBRUSH" -> brushLabel
-                        "SNACK" -> snackLabel
+                        "SNACK" -> displayCategory(category)
                         else -> displayCategory(category)
+                    },
+                    subLabel = when (category) {
+                        "TOOTHBRUSH" -> "3분"
+                        "SNACK" -> snackLabel
+                        else -> null
                     },
                     onClick = { onStart(category) },
                     onLongClick = { showQuickTimerControls = true },
@@ -3356,7 +3361,7 @@ private fun formatBrushCountdown(endsAtMillis: Long): String {
 
 private fun formatSnackCountdown(endsAtMillis: Long): String {
     val remaining = endsAtMillis - System.currentTimeMillis()
-    if (remaining <= 0L) return "간식"
+    if (remaining <= 0L) return "30분"
     val minutes = ((remaining + 59_000L) / 60_000L).coerceAtLeast(1L)
     return "${minutes}분"
 }

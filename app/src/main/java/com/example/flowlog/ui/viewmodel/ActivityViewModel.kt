@@ -1144,7 +1144,7 @@ class ActivityViewModel(
     fun cancelSnackTimer() {
         reminderScheduler.cancelSnackReminder()
         reminderScheduler.cancelBrushEatTimer()
-        clearSnackButtonTimerState()
+        clearSnackButtonTimerState(clearNotification = true)
         _uiState.update { it.copy(statusMessage = "간식 타이머를 껐어요.") }
     }
 
@@ -1891,7 +1891,7 @@ class ActivityViewModel(
     private fun restoreSnackButtonTimerState() {
         val endsAtMillis = timerPreferences.getLong(KEY_SNACK_BUTTON_TIMER_ENDS_AT, 0L)
         if (endsAtMillis <= System.currentTimeMillis()) {
-            clearSnackButtonTimerState()
+            clearSnackButtonTimerState(clearNotification = true)
             return
         }
         _uiState.update { it.copy(snackButtonEndsAtMillis = endsAtMillis) }
@@ -1913,12 +1913,16 @@ class ActivityViewModel(
         }
     }
 
-    private fun clearSnackButtonTimerState() {
+    private fun clearSnackButtonTimerState(clearNotification: Boolean = false) {
         snackTimerJob?.cancel()
         snackTimerJob = null
         timerPreferences.edit()
             .remove(KEY_SNACK_BUTTON_TIMER_ENDS_AT)
             .apply()
+        if (clearNotification) {
+            activityTimerNotifier.clearSnackTimer()
+            activityTimerNotifier.clearBrushEatTimer()
+        }
         _uiState.update { it.copy(snackButtonEndsAtMillis = 0L) }
     }
 

@@ -9,6 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -48,7 +50,7 @@ class ActivityTimerNotifier(private val context: Context) {
     }
 
     fun clearRunningTimer() {
-        NotificationManagerCompat.from(context).cancel(TIMER_NOTIFICATION_ID)
+        cancelNotification(TIMER_NOTIFICATION_ID)
     }
 
     fun showSnackTimer(endsAtMillis: Long) {
@@ -130,23 +132,23 @@ class ActivityTimerNotifier(private val context: Context) {
     }
 
     fun clearSnackTimer() {
-        NotificationManagerCompat.from(context).cancel(SNACK_NOTIFICATION_ID)
+        cancelCountdownNotification(SNACK_NOTIFICATION_ID)
     }
 
     fun clearMealTimer() {
-        NotificationManagerCompat.from(context).cancel(MEAL_NOTIFICATION_ID)
+        cancelCountdownNotification(MEAL_NOTIFICATION_ID)
     }
 
     fun clearBrushDoneTimer() {
-        NotificationManagerCompat.from(context).cancel(BRUSH_DONE_NOTIFICATION_ID)
+        cancelCountdownNotification(BRUSH_DONE_NOTIFICATION_ID)
     }
 
     fun clearBrushEatTimer() {
-        NotificationManagerCompat.from(context).cancel(BRUSH_EAT_NOTIFICATION_ID)
+        cancelCountdownNotification(BRUSH_EAT_NOTIFICATION_ID)
     }
 
     fun clearBrushStartNotification() {
-        NotificationManagerCompat.from(context).cancel(BRUSH_START_NOTIFICATION_ID)
+        cancelNotification(BRUSH_START_NOTIFICATION_ID)
     }
 
     fun showFocusModeEnded() {
@@ -295,7 +297,6 @@ class ActivityTimerNotifier(private val context: Context) {
             .setContentTitle(title)
             .setContentText(text)
             .setContentIntent(openPendingIntent)
-            .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setWhen(endsAtMillis)
             .setTimeoutAfter(remainingMillis)
@@ -371,6 +372,40 @@ class ActivityTimerNotifier(private val context: Context) {
         runCatching {
             NotificationManagerCompat.from(context).notify(notificationId, notification)
         }
+    }
+
+    private fun cancelNotification(notificationId: Int) {
+        runCatching {
+            NotificationManagerCompat.from(context).cancel(notificationId)
+        }
+        runCatching {
+            val notificationManager =
+                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.cancel(notificationId)
+        }
+    }
+
+    private fun cancelCountdownNotification(notificationId: Int) {
+        cancelNotification(notificationId)
+        if (!canPostNotifications()) return
+
+        ensureNotificationChannel()
+        val clearingNotification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(NOTIFICATION_ICON_COLOR)
+            .setContentTitle("Flowlog")
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
+            .setLocalOnly(true)
+            .setTimeoutAfter(1L)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .build()
+
+        notifySafely(notificationId, clearingNotification)
+        Handler(Looper.getMainLooper()).postDelayed(
+            { cancelNotification(notificationId) },
+            CLEARING_NOTIFICATION_CANCEL_DELAY_MILLIS
+        )
     }
 
     private fun notificationIcon(@Suppress("UNUSED_PARAMETER") category: String): Int =
@@ -455,6 +490,7 @@ class ActivityTimerNotifier(private val context: Context) {
         const val FOCUS_MODE_END_NOTIFICATION_ID = 2012
         private const val ALERT_NOTIFICATION_TIMEOUT_MILLIS = 3_000L
         private const val BRUSH_START_NOTIFICATION_TIMEOUT_MILLIS = 3_000L
+        private const val CLEARING_NOTIFICATION_CANCEL_DELAY_MILLIS = 250L
         private val NOTIFICATION_ICON_COLOR = 0xFF4F5060.toInt()
     }
 }

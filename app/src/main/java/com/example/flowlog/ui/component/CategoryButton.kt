@@ -36,6 +36,7 @@ fun CategoryButton(
     category: String,
     isSelected: Boolean = false,
     label: String = displayCategory(category),
+    subLabel: String? = if (category == "TOOTHBRUSH") "3\uBD84" else null,
     iconCategory: String = category,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
@@ -87,10 +88,10 @@ fun CategoryButton(
                     color = Color(0xFF1C2437),
                     maxLines = 1
                 )
-                if (category == "TOOTHBRUSH") {
+                if (subLabel != null) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "3분",
+                        text = subLabel,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF6B4FE8),
