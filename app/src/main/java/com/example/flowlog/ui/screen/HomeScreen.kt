@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -206,6 +207,8 @@ private val FocusFireBackground = Color(0xFFFFF0E6)
 private val FlowInk = Color(0xFF10182C)
 private val FlowMuted = Color(0xFF697386)
 private val FlowDivider = Color(0xFFE8E8EE)
+private val TimetableTodoColor = Color(0xFF7A72D8)
+private const val DAY_DURATION_MILLIS = 24L * 60L * 60L * 1000L
 private const val MERGE_THRESHOLD_MILLIS = 10 * 60 * 1000L
 private const val RECOMMENDED_TODO_DISPLAY_DURATION_MILLIS = 60 * 60 * 1000L
 private const val RECENT_RECORD_COLLAPSED_LIMIT = 3
@@ -4657,13 +4660,6 @@ private fun TimetableCard(
                     }
                 }
             }
-            Text(
-                text = "오늘 활동 흐름을 한 줄 색상 막대로 보여줍니다.",
-                fontSize = 12.sp,
-                color = FlowMuted,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-
             if (timelineItems.isEmpty()) {
                 Text(
                     text = "아직 기록된 활동이 없습니다.",
@@ -5056,6 +5052,38 @@ private fun DisplayActivitySegment.allOriginalSegments(): List<ActivitySession> 
     return mergedSegments + hiddenSegments
 }
 
+private fun startOfLocalDay(timestamp: Long): Long {
+    return Calendar.getInstance().apply {
+        timeInMillis = timestamp
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+}
+
+private fun timetableCategoryColor(category: String): Color {
+    return when (category) {
+        "STUDY" -> Color(0xFF6EBD7A)
+        "MEAL" -> Color(0xFFE3A55F)
+        "SNACK" -> Color(0xFFE2BE55)
+        "TOOTHBRUSH" -> Color(0xFF68BDB3)
+        "EXERCISE" -> Color(0xFF6CA8DF)
+        "WORK" -> Color(0xFF7B8790)
+        "COMPANY" -> Color(0xFF6F7E87)
+        "DEVELOPMENT" -> Color(0xFF6672C7)
+        "READING" -> Color(0xFF55A99E)
+        "MOVE" -> Color(0xFF58AAB4)
+        "WASH" -> Color(0xFF70AFE0)
+        "SLEEP" -> Color(0xFFA373C8)
+        "REST" -> Color(0xFF62BBC5)
+        "SCHOOL" -> Color(0xFFD37B9A)
+        "GAME" -> Color(0xFF7581C8)
+        "TODO" -> TimetableTodoColor
+        else -> Color(0xFF8C8F98)
+    }
+}
+
 private fun chooseProductiveFlowCategory(
     previous: DisplayActivitySegment,
     next: DisplayActivitySegment
@@ -5120,20 +5148,8 @@ private fun TimetableBar(
             }
         }
     }
-    val lastEnd = remember(windowBlocks) {
-        windowBlocks.maxOf {
-            when (it) {
-                is TimelineBlock.ActualActivity -> it.segment.endTime.coerceAtLeast(it.segment.startTime + 1L)
-                is TimelineBlock.ScheduledAutoButton -> it.block.endTime.coerceAtLeast(it.block.startTime + 1L)
-                is TimelineBlock.RecommendedTodo -> it.block.displayEndMillis()
-            }
-        }
-    }
-    val paddingMillis = 15L * 60L * 1000L
-    val windowStart = remember(firstStart) { (firstStart - paddingMillis).coerceAtLeast(0L) }
-    val windowEnd = remember(lastEnd, windowStart) {
-        (lastEnd + paddingMillis).coerceAtLeast(windowStart + 60L * 60L * 1000L)
-    }
+    val windowStart = remember(firstStart) { startOfLocalDay(firstStart) }
+    val windowEnd = remember(windowStart) { windowStart + DAY_DURATION_MILLIS }
     val windowDuration = remember(windowStart, windowEnd) { (windowEnd - windowStart).coerceAtLeast(1L) }
     val scheduled = remember(blocks) {
         blocks.filterIsInstance<TimelineBlock.ScheduledAutoButton>().map { it.block }
@@ -5179,12 +5195,12 @@ private fun TimetableBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(100.dp)
+            .height(74.dp)
             .pointerInput(blocks, windowStart, windowDuration) {
                 detectTapGestures(
                     onTap = { offset ->
-                        val barTop = 34.dp.toPx()
-                        val barBottom = 60.dp.toPx()
+                        val barTop = 30.dp.toPx()
+                        val barBottom = 44.dp.toPx()
                         val maxBubbleHalf = minOf(95.dp.toPx(), (size.width - 8.dp.toPx()) / 2f)
                             .coerceAtLeast(24.dp.toPx())
                         val hit = recommended.withIndex().firstOrNull { (index, block) ->
@@ -5257,70 +5273,102 @@ private fun TimetableBar(
     ) {
         val timeFormatInner = timeFormat
         Canvas(modifier = Modifier.fillMaxWidth().fillMaxHeight()) {
-            val guideColor = Color(0x332196F3)
-            val trackColor = Color(0xFFE8EDF3)
-            val barHeight = 26.dp.toPx()
-            val top = 34.dp.toPx()
-            val radius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+            val trackColor = Color(0xFFF0F1F5)
+            val barHeight = 14.dp.toPx()
+            val top = 30.dp.toPx()
+            val segmentCount = 48
+            val segmentGap = 2.dp.toPx()
+            val segmentWidth = ((size.width - segmentGap * (segmentCount - 1)) / segmentCount)
+                .coerceAtLeast(2.dp.toPx())
+            val radius = CornerRadius(5.dp.toPx(), 5.dp.toPx())
+            val slotKeys = MutableList<String?>(segmentCount) { null }
+            val slotColors = MutableList(segmentCount) { trackColor }
 
-            repeat(5) { index ->
-                val x = size.width * index / 4f
-                drawLine(
-                    color = guideColor,
-                    start = Offset(x, 0f),
-                    end = Offset(x, size.height - 18.dp.toPx()),
-                    strokeWidth = 1.dp.toPx()
+            repeat(segmentCount) { index ->
+                drawRoundRect(
+                    color = trackColor,
+                    topLeft = Offset(index * (segmentWidth + segmentGap), top + 1.5.dp.toPx()),
+                    size = Size(segmentWidth, barHeight - 3.dp.toPx()),
+                    cornerRadius = radius
                 )
             }
 
-            drawRoundRect(
-                color = trackColor,
-                topLeft = Offset(0f, top),
-                size = Size(size.width, barHeight),
-                cornerRadius = radius
-            )
+            repeat(segmentCount) { index ->
+                val segmentStart = windowStart + (windowDuration * index / segmentCount)
+                val segmentEnd = windowStart + (windowDuration * (index + 1) / segmentCount)
+                val segmentMid = (segmentStart + segmentEnd) / 2L
+                val scheduledBlock = scheduled.firstOrNull { item ->
+                    segmentMid >= item.startTime && segmentMid < item.endTime.coerceAtLeast(item.startTime + 1L)
+                }
+                val recommendedBlock = recommended.firstOrNull { item ->
+                    !item.isBubbleOnly &&
+                        segmentMid >= item.plannedStartMillis &&
+                        segmentMid < item.displayEndMillis()
+                }
+                val actualSegment = actualSegments.firstOrNull { segment ->
+                    segmentMid >= segment.startTime &&
+                        segmentMid < segment.endTime.coerceAtLeast(segment.startTime + 1L)
+                }
+                when {
+                    actualSegment != null -> {
+                        slotKeys[index] = "actual:${actualSegment.startTime}:${actualSegment.endTime}:${actualSegment.category}"
+                        slotColors[index] = timetableCategoryColor(actualSegment.category)
+                    }
+                    scheduledBlock != null -> {
+                        slotKeys[index] = "scheduled:${scheduledBlock.scheduleId}:${scheduledBlock.startTime}:${scheduledBlock.endTime}"
+                        slotColors[index] = timetableCategoryColor(scheduledBlock.category)
+                            .copy(alpha = if (scheduledBlock.isSkippedToday) 0.28f else 0.58f)
+                    }
+                    recommendedBlock != null -> {
+                        slotKeys[index] = "recommended:${recommendedBlock.plannedStartMillis}:${recommendedBlock.title}"
+                        slotColors[index] = TimetableTodoColor.copy(alpha = 0.74f)
+                    }
+                }
+            }
+
+            var slotIndex = 0
+            while (slotIndex < segmentCount) {
+                val key = slotKeys[slotIndex]
+                if (key == null) {
+                    slotIndex += 1
+                    continue
+                }
+                var endIndex = slotIndex + 1
+                while (endIndex < segmentCount && slotKeys[endIndex] == key) {
+                    endIndex += 1
+                }
+                val left = slotIndex * (segmentWidth + segmentGap)
+                val right = (endIndex - 1) * (segmentWidth + segmentGap) + segmentWidth
+                drawRoundRect(
+                    color = slotColors[slotIndex],
+                    topLeft = Offset(left, top),
+                    size = Size(right - left, barHeight),
+                    cornerRadius = radius
+                )
+                slotIndex = endIndex
+            }
+
+            recommended.filterNot { it.isBubbleOnly }.forEach { item ->
+                val startFraction = ((item.plannedStartMillis - windowStart).toFloat() / windowDuration.toFloat())
+                    .coerceIn(0f, 1f)
+                val endFraction = ((item.displayEndMillis() - windowStart).toFloat() / windowDuration.toFloat())
+                    .coerceIn(startFraction, 1f)
+                val x = size.width * startFraction
+                val width = (size.width * (endFraction - startFraction)).coerceAtLeast(4.dp.toPx())
+                drawRoundRect(
+                    color = TimetableTodoColor.copy(alpha = 0.68f),
+                    topLeft = Offset(x, top - 2.dp.toPx()),
+                    size = Size(width, barHeight + 4.dp.toPx()),
+                    cornerRadius = radius,
+                    style = recommendedTodoStroke
+                )
+            }
 
             var recommendedBubbleIndex = 0
             blocks.forEach { block ->
                 when (block) {
-                    is TimelineBlock.ActualActivity -> {
-                        val segment = block.segment
-                        val startFraction = ((segment.startTime - windowStart).toFloat() / windowDuration.toFloat())
-                            .coerceIn(0f, 1f)
-                        val endFraction = ((segment.endTime.coerceAtLeast(segment.startTime + 1L) - windowStart).toFloat() / windowDuration.toFloat())
-                            .coerceIn(startFraction, 1f)
-                        val x = size.width * startFraction
-                        val width = (size.width * (endFraction - startFraction)).coerceAtLeast(3.dp.toPx())
-                        drawRoundRect(
-                            color = categoryColor(segment.category),
-                            topLeft = Offset(x, top),
-                            size = Size(width, barHeight),
-                            cornerRadius = radius
-                        )
-                    }
-                    is TimelineBlock.ScheduledAutoButton -> {
-                        val item = block.block
-                        val startFraction = ((item.startTime - windowStart).toFloat() / windowDuration.toFloat())
-                            .coerceIn(0f, 1f)
-                        val endFraction = ((item.endTime.coerceAtLeast(item.startTime + 1L) - windowStart).toFloat() / windowDuration.toFloat())
-                            .coerceIn(startFraction, 1f)
-                        val x = size.width * startFraction
-                        val width = (size.width * (endFraction - startFraction)).coerceAtLeast(3.dp.toPx())
-                        val strokeColor = categoryColor(item.category).copy(alpha = if (item.isSkippedToday) 0.28f else 0.58f)
-                        drawRoundRect(
-                            color = strokeColor.copy(alpha = if (item.isSkippedToday) 0.08f else 0.16f),
-                            topLeft = Offset(x, top),
-                            size = Size(width, barHeight),
-                            cornerRadius = radius
-                        )
-                        drawRoundRect(
-                            color = strokeColor,
-                            topLeft = Offset(x, top),
-                            size = Size(width, barHeight),
-                            cornerRadius = radius,
-                            style = Stroke(width = 2.dp.toPx())
-                        )
-                    }
+                    is TimelineBlock.ActualActivity,
+                    is TimelineBlock.ScheduledAutoButton -> Unit
                     is TimelineBlock.RecommendedTodo -> {
                         val item = block.block
                         val startFraction = ((item.plannedStartMillis - windowStart).toFloat() / windowDuration.toFloat())
@@ -5329,22 +5377,6 @@ private fun TimetableBar(
                             .coerceIn(startFraction, 1f)
                         val x = size.width * startFraction
                         val width = (size.width * (endFraction - startFraction)).coerceAtLeast(4.dp.toPx())
-                        if (!item.isBubbleOnly) {
-                            val color = FlowPurple.copy(alpha = 0.7f)
-                            drawRoundRect(
-                                color = FlowPurpleSoft.copy(alpha = 0.45f),
-                                topLeft = Offset(x, top + 4.dp.toPx()),
-                                size = Size(width, barHeight - 8.dp.toPx()),
-                                cornerRadius = radius
-                            )
-                            drawRoundRect(
-                                color = color,
-                                topLeft = Offset(x, top + 4.dp.toPx()),
-                                size = Size(width, barHeight - 8.dp.toPx()),
-                                cornerRadius = radius,
-                                style = recommendedTodoStroke
-                            )
-                        }
                         val label = "${timeFormatInner.format(Date(item.plannedStartMillis))} ${item.title}"
                         drawRecommendedTodoBubble(
                             label = label,
@@ -5362,24 +5394,18 @@ private fun TimetableBar(
     }
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .offset(y = (-24).dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(
-            text = timeFormat.format(Date(windowStart)),
-            fontSize = 10.sp,
-            color = FlowMuted
-        )
-        Text(
-            text = timeFormat.format(Date((windowStart + windowEnd) / 2L)),
-            fontSize = 10.sp,
-            color = FlowMuted
-        )
-        Text(
-            text = timeFormat.format(Date(windowEnd)),
-            fontSize = 10.sp,
-            color = FlowMuted
-        )
+        for (hour in 0..24 step 4) {
+            Text(
+                text = "%02d:00".format(hour),
+                fontSize = 10.sp,
+                color = FlowMuted
+            )
+        }
     }
 
     LazyRow(
@@ -5395,7 +5421,7 @@ private fun TimetableBar(
                     modifier = Modifier
                         .width(8.dp)
                         .height(8.dp)
-                        .background(categoryColor(category), shape = MaterialTheme.shapes.small)
+                        .background(timetableCategoryColor(category), shape = MaterialTheme.shapes.small)
                 )
                 Text(
                     text = displayCategory(category),

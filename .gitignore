@@ -13,6 +13,7 @@
 **/build/
 .kotlin/
 /captures
+/screenshots
 .externalNativeBuild
 .cxx
 local.properties
