@@ -207,7 +207,7 @@ private val FocusFireBackground = Color(0xFFFFF0E6)
 private val FlowInk = Color(0xFF10182C)
 private val FlowMuted = Color(0xFF697386)
 private val FlowDivider = Color(0xFFE8E8EE)
-private val TimetableTodoColor = Color(0xFF10B981)
+private val TimetableTodoColor = Color(0xFF7A72D8)
 private const val DAY_DURATION_MILLIS = 24L * 60L * 60L * 1000L
 private const val MERGE_THRESHOLD_MILLIS = 10 * 60 * 1000L
 private const val RECOMMENDED_TODO_DISPLAY_DURATION_MILLIS = 60 * 60 * 1000L
@@ -5064,23 +5064,23 @@ private fun startOfLocalDay(timestamp: Long): Long {
 
 private fun timetableCategoryColor(category: String): Color {
     return when (category) {
-        "WORK" -> Color(0xFF047857)
-        "STUDY" -> Color(0xFF16A34A)
-        "DEVELOPMENT" -> Color(0xFF0D9488)
-        "SCHOOL" -> Color(0xFF0891B2)
-        "COMPANY" -> Color(0xFF0369A1)
-        "SLEEP" -> Color(0xFF6D28D9)
-        "REST" -> Color(0xFFF59E0B)
-        "GAME" -> Color(0xFFF97316)
-        "EXERCISE" -> Color(0xFFEA580C)
-        "WASH" -> Color(0xFFFBBF24)
-        "MEAL" -> Color(0xFFEAB308)
-        "SNACK" -> Color(0xFFFACC15)
-        "TOOTHBRUSH" -> Color(0xFFD97706)
-        "READING" -> Color(0xFFB45309)
-        "MOVE" -> Color(0xFFA16207)
+        "STUDY" -> Color(0xFF6EBD7A)
+        "MEAL" -> Color(0xFFE3A55F)
+        "SNACK" -> Color(0xFFE2BE55)
+        "TOOTHBRUSH" -> Color(0xFF68BDB3)
+        "EXERCISE" -> Color(0xFF6CA8DF)
+        "WORK" -> Color(0xFF7B8790)
+        "COMPANY" -> Color(0xFF6F7E87)
+        "DEVELOPMENT" -> Color(0xFF6672C7)
+        "READING" -> Color(0xFF55A99E)
+        "MOVE" -> Color(0xFF58AAB4)
+        "WASH" -> Color(0xFF70AFE0)
+        "SLEEP" -> Color(0xFFA373C8)
+        "REST" -> Color(0xFF62BBC5)
+        "SCHOOL" -> Color(0xFFD37B9A)
+        "GAME" -> Color(0xFF7581C8)
         "TODO" -> TimetableTodoColor
-        else -> Color(0xFF92400E)
+        else -> Color(0xFF8C8F98)
     }
 }
 
