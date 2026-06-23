@@ -707,12 +707,17 @@ class TodoViewModel(
     }
 
     fun completeDailyCue(cueId: Long) {
-        val updated = sortDailyCues(_dailyCues.value.map { cue ->
-            if (cue.id == cueId) cue.copy(isCompleted = true) else cue
+        val cue = _dailyCues.value.firstOrNull { it.id == cueId }
+        val alreadyCompleted = cue?.isCompleted == true
+        val updated = sortDailyCues(_dailyCues.value.map { c ->
+            if (c.id == cueId) c.copy(isCompleted = true) else c
         })
         _dailyCues.value = updated
         saveDailyCues(updated)
         syncDailyCueDefinitions(updated)
+        if (!alreadyCompleted && cue != null) {
+            viewModelScope.launch { recordDailyCueCheck(cue) }
+        }
     }
 
     private suspend fun recordDailyCueCheck(cue: DailyCueItem) {
