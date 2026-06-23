@@ -157,6 +157,7 @@ class FirebaseRestoreDataSource(context: Context) {
                         durationMillis = doc.getLong("durationMillis") ?: 0L,
                         isFavorite = doc.getBoolean("isFavorite") ?: false,
                         linkedTodoId = linkedTodoLegacyId?.let { "legacy_todo_$it" },
+                        linkedPetiteId = doc.getString("linkedPetiteId"),
                         legacyId = legacyId,
                         legacyLinkedTodoId = linkedTodoLegacyId,
                         tagsJson = tagsJson,

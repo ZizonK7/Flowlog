@@ -384,6 +384,7 @@ class FirestoreSyncRepository(
         },
         "isFavorite" to isFavorite,
         "linkedTodoId" to linkedTodoId,
+        "linkedPetiteId" to linkedPetiteId,
         "sourceType" to sourceType,
         "sourceId" to sourceId,
         "modifiedTime" to modifiedTime

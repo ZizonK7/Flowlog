@@ -1018,7 +1018,7 @@ class ActivityViewModel(
                 linkedTodoId = null,
                 linkedPetiteId = petite.id,
                 sourceType = sourceType,
-                sourceId = plannedItemId,
+                sourceId = petite.id,
                 pendingTitle = recommendation.title,
                 pendingNote = null,
                 dailyCueId = null,
@@ -1033,7 +1033,7 @@ class ActivityViewModel(
             linkedTodoTitle = recommendation.title,
             pendingTitle = recommendation.title,
             sourceType = sourceType,
-            sourceId = plannedItemId
+            sourceId = petite.id
         )
         activityTimerNotifier.showRunningTimer(recommendation.category, startTime)
         startTimer()
