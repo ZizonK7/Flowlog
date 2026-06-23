@@ -402,7 +402,8 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     autoButtonManagerOpen: Boolean = false,
     onAutoButtonManagerDismiss: () -> Unit = {},
-    isDeveloperMode: Boolean = false
+    isDeveloperMode: Boolean = false,
+    scrollToMainTimerRequest: Int = 0
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
@@ -412,6 +413,11 @@ fun HomeScreen(
         TimerStateStore.getPinnedTimer(context)
     }
     var localAutoButtonManagerOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(scrollToMainTimerRequest) {
+        if (scrollToMainTimerRequest > 0) {
+            homeListState.animateScrollToItem(index = 1)
+        }
+    }
     val activityCategories = remember {
         listOf(
             "TOOTHBRUSH",

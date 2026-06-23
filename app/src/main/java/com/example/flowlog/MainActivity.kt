@@ -193,6 +193,11 @@ class MainActivity : ComponentActivity() {
                 val promotedButtons by activityViewModel.promotedButtons.collectAsState()
                 val isNotificationSoundEnabled by activityViewModel.isNotificationSoundEnabled.collectAsState()
                 val isInactivityReminderEnabled by activityViewModel.isInactivityReminderEnabled.collectAsState()
+                var homeMainTimerScrollRequest by remember { mutableStateOf(0) }
+                fun showHomeMainTimer() {
+                    currentScreen = "home"
+                    homeMainTimerScrollRequest += 1
+                }
                 val routineTimerCategories = remember(promotedButtons) {
                     val base = listOf("SLEEP", "REST", "WORK", "STUDY", "EXERCISE", "WASH", "MEAL", "ETC")
                     if (promotedButtons.isNotEmpty()) {
@@ -425,19 +430,19 @@ class MainActivity : ComponentActivity() {
                                     isAiOrganizerAllowed = isDeveloper,
                                     onStartTodo = { todo ->
                                         activityViewModel.startTodoActivity(todo.id, todo.title)
-                                        currentScreen = "home"
+                                        showHomeMainTimer()
                                     },
                                     onStartDailyCueRoutine = { cueId, title, goalMillis, category ->
                                         activityViewModel.startDailyCueRoutineActivity(cueId, title, goalMillis, category)
-                                        currentScreen = "home"
+                                        showHomeMainTimer()
                                     },
                                     onStartExamStudy = { todoId, subjectTitle, dValue ->
                                         activityViewModel.startExamStudyActivity(todoId, subjectTitle, dValue)
-                                        currentScreen = "home"
+                                        showHomeMainTimer()
                                     },
                                     onStartCalendarPetite = { item ->
                                         activityViewModel.startCalendarPetiteActivity(item)
-                                        currentScreen = "home"
+                                        showHomeMainTimer()
                                     },
                                     routineTimerCategories = routineTimerCategories,
                                     modifier = Modifier.fillMaxSize()
@@ -483,6 +488,7 @@ class MainActivity : ComponentActivity() {
                                             }
                                         )
                                     },
+                                    scrollToMainTimerRequest = homeMainTimerScrollRequest,
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
