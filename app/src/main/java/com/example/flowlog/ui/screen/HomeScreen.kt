@@ -5428,7 +5428,7 @@ private fun TimetableBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .offset(y = (-24).dp),
+            .offset(y = (-8).dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         for (hour in 0..24 step 4) {
