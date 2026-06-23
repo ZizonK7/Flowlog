@@ -110,6 +110,10 @@ class TodoViewModel(
     val dailyCues: StateFlow<List<DailyCueItem>> = _dailyCues.asStateFlow()
     private val _organizedPetites = MutableStateFlow<List<OrganizedPetite>>(emptyList())
     val organizedPetites: StateFlow<List<OrganizedPetite>> = _organizedPetites.asStateFlow()
+    private val _dailyCueTodayMillis = MutableStateFlow<Map<Long, Long>>(emptyMap())
+    val dailyCueTodayMillis: StateFlow<Map<Long, Long>> = _dailyCueTodayMillis.asStateFlow()
+    private val _petiteTodayMillis = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val petiteTodayMillis: StateFlow<Map<String, Long>> = _petiteTodayMillis.asStateFlow()
     private val _isTodayOrganizerRunning = MutableStateFlow(false)
     val isTodayOrganizerRunning: StateFlow<Boolean> = _isTodayOrganizerRunning.asStateFlow()
     private val _yesterdaySuggestion = MutableStateFlow<YesterdayFlowSuggestion?>(null)
@@ -157,6 +161,8 @@ class TodoViewModel(
         viewModelScope.launch {
             activityRepository.getAllActivities().collect { activities ->
                 latestActivities = activities
+                _dailyCueTodayMillis.value = computeCueTodayMillis(activities)
+                _petiteTodayMillis.value = computePetiteTodayMillis(activities)
                 _organizedPetites.value = decorateLearningPlanStages(
                     _organizedPetites.value,
                     activities
@@ -1349,6 +1355,31 @@ class TodoViewModel(
             set(java.util.Calendar.MILLISECOND, 0)
         }
         return cal.timeInMillis
+    }
+
+    private fun computeCueTodayMillis(activities: List<ActivitySession>): Map<Long, Long> {
+        val todayStart = startOfDay(System.currentTimeMillis())
+        val todayEnd = todayStart + DAY_MILLIS
+        return activities
+            .filter { it.startTime in todayStart until todayEnd && it.sourceType == ActivitySourceType.DAILY_CUE_ROUTINE }
+            .groupBy { it.sourceId?.toLongOrNull() }
+            .filterKeys { it != null }
+            .mapKeys { it.key!! }
+            .mapValues { (_, sessions) -> sessions.sumOf { it.durationMillis } }
+    }
+
+    private fun computePetiteTodayMillis(activities: List<ActivitySession>): Map<String, Long> {
+        val todayStart = startOfDay(System.currentTimeMillis())
+        val todayEnd = todayStart + DAY_MILLIS
+        return activities
+            .filter { it.startTime in todayStart until todayEnd }
+            .mapNotNull { activity ->
+                val petiteId = activity.linkedPetiteId
+                    ?: activity.sourceId?.takeIf { activity.sourceType == ActivitySourceType.MANUAL }
+                petiteId?.let { it to activity.durationMillis }
+            }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, durations) -> durations.sum() }
     }
 
     private fun daysDiff(fromMs: Long, toMs: Long): Long =

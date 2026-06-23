@@ -172,6 +172,8 @@ fun TodoScreen(
     val focusTodos    by viewModel.todayFocusItems.collectAsState()
     val dailyCues     by viewModel.dailyCues.collectAsState()
     val organizedPetites by viewModel.organizedPetites.collectAsState()
+    val dailyCueTodayMillis by viewModel.dailyCueTodayMillis.collectAsState()
+    val petiteTodayMillis by viewModel.petiteTodayMillis.collectAsState()
     val focusIds      = remember(focusTodos) { focusTodos.map { it.id }.toSet() }
     val todayStart = startOfDay(System.currentTimeMillis())
     // TODAY(오늘 할 일)만 Petites 섹션에 표시. NORMAL(미분류)은 전체 할 일로.
@@ -415,6 +417,20 @@ fun TodoScreen(
                         OrganizedPetiteCard(
                             item = item,
                             modifier = dragMod,
+                            accumulatedMillis = when (item.sourceType) {
+                                PetiteSourceType.ROUTINE ->
+                                    item.sourceId?.toLongOrNull()
+                                        ?.let { dailyCueTodayMillis[it] }
+                                        ?.takeIf { it > 0L }
+                                PetiteSourceType.TODO, PetiteSourceType.PETITE ->
+                                    item.sourceId?.toLongOrNull()
+                                        ?.let { id -> todos.firstOrNull { it.id == id } }
+                                        ?.let { it.accumulatedSeconds * 1000L }
+                                        ?.takeIf { it > 0L }
+                                PetiteSourceType.CALENDAR, PetiteSourceType.STUDY_PLAN ->
+                                    petiteTodayMillis[item.id]?.takeIf { it > 0L }
+                                PetiteSourceType.EXAM -> null
+                            },
                             onStart = {
                                 when (item.sourceType) {
                                     PetiteSourceType.PETITE,
@@ -481,6 +497,7 @@ fun TodoScreen(
         item(key = "daily_cues") {
             DailyCuesSection(
                 cues = dailyCues,
+                cueTodayMillis = dailyCueTodayMillis,
                 onToggleCue = viewModel::toggleDailyCue,
                 onAddCue = viewModel::addDailyCue,
                 onUpdateCue = viewModel::updateDailyCue,
@@ -817,6 +834,7 @@ private fun DragDropTwoColumnGrid(
 private fun OrganizedPetiteCard(
     item: OrganizedPetite,
     modifier: Modifier = Modifier,
+    accumulatedMillis: Long? = null,
     onStart: () -> Unit,
     onComplete: () -> Unit,
     onSave: (String) -> Unit = {},
@@ -827,6 +845,8 @@ private fun OrganizedPetiteCard(
     val accent = organizedPetiteAccent(item.sourceType)
     val label = organizedPetiteLabel(item.sourceType)
     val metaItems = organizedPetiteMetaItems(item)
+    val dateMeta = organizedPetiteDateMeta(item)
+    val timeStr = accumulatedMillis?.takeIf { it > 0L }?.let { formatCueDuration(it) }
 
     Card(
         modifier = modifier
@@ -867,10 +887,15 @@ private fun OrganizedPetiteCard(
                         modifier = Modifier.weight(1f)
                     )
                 }
-                if (metaItems.isNotEmpty()) {
+                val displayMeta = buildList<String> {
+                    dateMeta?.let { add(it) }
+                    timeStr?.let { add(it) }
+                    addAll(metaItems)
+                }
+                if (displayMeta.isNotEmpty()) {
                     Spacer(Modifier.height(5.dp))
                     Text(
-                        metaItems.joinToString(" · "),
+                        displayMeta.joinToString(" · "),
                         fontSize = 11.sp,
                         lineHeight = 14.sp,
                         color = TextMuted,
@@ -1064,8 +1089,10 @@ private fun organizedPetiteLabel(sourceType: PetiteSourceType): String = when (s
     PetiteSourceType.STUDY_PLAN -> "Study Plan"
 }
 
+private fun organizedPetiteDateMeta(item: OrganizedPetite): String? =
+    item.dateMillis?.let { if (item.sourceType == PetiteSourceType.EXAM) examDdayLabel(item.examDValue) else fmtDate(it) }
+
 private fun organizedPetiteMetaItems(item: OrganizedPetite): List<String> = buildList {
-    item.dateMillis?.let { add(if (item.sourceType == PetiteSourceType.EXAM) examDdayLabel(item.examDValue) else fmtDate(it)) }
     item.activityCategory?.let { add(it) }
     item.routineTimerCategory?.let { add(it) }
     item.category
@@ -1081,6 +1108,7 @@ private fun examDdayLabel(dValue: Int?): String = when (dValue) {
 @Composable
 private fun DailyCuesSection(
     cues: List<DailyCueItem>,
+    cueTodayMillis: Map<Long, Long> = emptyMap(),
     onToggleCue: (Long) -> Unit,
     onAddCue: (String, String, Long?, String, DailyCueRecommendationTiming, String) -> Unit,
     onUpdateCue: (Long, String, String, Long?, String, DailyCueRecommendationTiming, String) -> Unit,
@@ -1188,6 +1216,7 @@ private fun DailyCuesSection(
         ) { cue, _, cellModifier ->
             DailyCueCard(
                 cue = cue,
+                todayMillis = cueTodayMillis[cue.id] ?: 0L,
                 onToggle = { onToggleCue(cue.id) },
                 onEdit = { editingCue = cue },
                 onStartRoutine = onStartRoutine,
@@ -1636,6 +1665,7 @@ private fun DailyCueTypeButton(
 @Composable
 private fun DailyCueCard(
     cue: DailyCueItem,
+    todayMillis: Long = 0L,
     onToggle: () -> Unit,
     onEdit: () -> Unit,
     onStartRoutine: (Long, String, Long, String) -> Unit,
@@ -1692,15 +1722,29 @@ private fun DailyCueCard(
                 )
                 if (!isMemo) {
                     Spacer(Modifier.height(2.dp))
-                    Text(
-                        displayCategory(cue.timerCategory),
-                        color = TextMuted,
-                        fontSize = 10.sp,
-                        lineHeight = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Text(
+                            displayCategory(cue.timerCategory),
+                            color = TextMuted,
+                            fontSize = 10.sp,
+                            lineHeight = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (todayMillis > 0L) {
+                            Text(
+                                formatCueDuration(todayMillis),
+                                color = TextMuted,
+                                fontSize = 10.sp,
+                                lineHeight = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
                 }
             }
             if (!isMemo) {

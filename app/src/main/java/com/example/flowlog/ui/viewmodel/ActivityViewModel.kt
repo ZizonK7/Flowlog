@@ -700,6 +700,7 @@ class ActivityViewModel(
                 currentCategory = category,
                 startTime = startTime,
                 linkedTodoId = null,
+                linkedPetiteId = null,
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = null,
                 pendingTitle = null,
@@ -825,6 +826,7 @@ class ActivityViewModel(
                 currentCategory = "TODO",
                 startTime = startTime,
                 linkedTodoId = todoId,
+                linkedPetiteId = null,
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = null,
                 pendingTitle = title,
@@ -865,6 +867,7 @@ class ActivityViewModel(
                 routineGoalMillis = routineGoalMillis,
                 startTime = startTime,
                 linkedTodoId = null,
+                linkedPetiteId = null,
                 sourceType = ActivitySourceType.DAILY_CUE_ROUTINE,
                 sourceId = cueId.toString(),
                 pendingTitle = cleanTitle,
@@ -926,6 +929,7 @@ class ActivityViewModel(
                 currentCategory = category,
                 startTime = startTime,
                 linkedTodoId = null,
+                linkedPetiteId = item.id,
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = item.id,
                 pendingTitle = item.title,
@@ -938,6 +942,7 @@ class ActivityViewModel(
             category = category,
             startTime = startTime,
             goalMillis = goalMillis,
+            linkedPetiteId = item.id,
             linkedTodoTitle = item.title,
             sourceType = ActivitySourceType.MANUAL,
             sourceId = item.id
@@ -1242,6 +1247,7 @@ class ActivityViewModel(
                 currentCategory = "",
                 startTime = 0L,
                 linkedTodoId = null,
+                linkedPetiteId = null,
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = null,
                 pendingTitle = null,
@@ -1604,6 +1610,7 @@ class ActivityViewModel(
                         currentCategory = "",
                         startTime = 0L,
                         linkedTodoId = null,
+                        linkedPetiteId = null,
                         sourceType = ActivitySourceType.MANUAL,
                         sourceId = null,
                         pendingTitle = null,
@@ -1639,6 +1646,7 @@ class ActivityViewModel(
             state.currentCategory != activeTimer.category ||
             state.startTime != activeTimer.startTime ||
             state.linkedTodoId != activeTimer.linkedTodoId ||
+            state.linkedPetiteId != activeTimer.linkedPetiteId ||
             state.sourceType != activeTimer.sourceType ||
             state.sourceId != activeTimer.sourceId
 
@@ -2532,6 +2540,7 @@ class ActivityViewModel(
                 currentCategory = "",
                 startTime = 0L,
                 linkedTodoId = null,
+                linkedPetiteId = null,
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = null,
                 pendingTitle = null,
