@@ -63,6 +63,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bedtime
@@ -6229,8 +6230,15 @@ private fun AutoButtonManagerSheet(
     onCalendarPetiteDismiss: (String) -> Unit
 ) {
     var editing by remember { mutableStateOf<AutoButtonSchedule?>(null) }
+    var selectedDay by remember { mutableStateOf(currentDayOfWeek()) }
+    var actionSchedule by remember { mutableStateOf<AutoButtonSchedule?>(null) }
     var confirmDeleteId by remember { mutableStateOf<String?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val selectedDaySchedules = remember(schedules, selectedDay) {
+        schedules
+            .filter { selectedDay in it.repeatDays }
+            .sortedWith(compareBy<AutoButtonSchedule> { it.startMinuteOfDay }.thenBy { it.title })
+    }
     val blockUpwardOverscroll = remember {
         object : NestedScrollConnection {
             override fun onPostScroll(
@@ -6294,6 +6302,15 @@ private fun AutoButtonManagerSheet(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                WeekdayRoutineSelector(
+                    selectedDay = selectedDay,
+                    onSelectedDayChange = { selectedDay = it }
+                )
+                DayRoutineTimetable(
+                    selectedDay = selectedDay,
+                    schedules = selectedDaySchedules,
+                    onScheduleClick = { actionSchedule = it }
+                )
                 if (calendarPetites.isNotEmpty()) {
                     Text(
                         "오늘 고정 시간",
@@ -6312,7 +6329,7 @@ private fun AutoButtonManagerSheet(
                         Box(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(FlowDivider))
                     }
                 }
-                if (schedules.isNotEmpty()) {
+                if (calendarPetites.isNotEmpty() && selectedDaySchedules.isNotEmpty()) {
                     if (calendarPetites.isNotEmpty()) {
                         Text(
                             "반복 루틴",
@@ -6321,7 +6338,7 @@ private fun AutoButtonManagerSheet(
                             color = FlowMuted
                         )
                     }
-                    schedules.forEach { schedule ->
+                    selectedDaySchedules.forEach { schedule ->
                         AutoButtonScheduleRow(
                             schedule = schedule,
                             onEdit = { editing = schedule },
@@ -6336,7 +6353,7 @@ private fun AutoButtonManagerSheet(
                 }
             }
             Button(
-                onClick = { editing = defaultAutoButtonSchedule() },
+                onClick = { editing = defaultAutoButtonSchedule(selectedDay) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(54.dp),
@@ -6356,6 +6373,40 @@ private fun AutoButtonManagerSheet(
                 Text("반복 루틴 추가", fontWeight = FontWeight.ExtraBold)
             }
         }
+    }
+
+    actionSchedule?.let { schedule ->
+        AutoButtonScheduleActionSheet(
+            schedule = schedule,
+            selectedDay = selectedDay,
+            onDismiss = { actionSchedule = null },
+            onEdit = {
+                editing = schedule
+                actionSchedule = null
+            },
+            onRemoveSelectedDay = {
+                val nextDays = schedule.repeatDays - selectedDay
+                if (nextDays.isEmpty()) {
+                    confirmDeleteId = schedule.scheduleId
+                } else {
+                    onSave(schedule.copy(repeatDays = nextDays))
+                }
+                actionSchedule = null
+            },
+            onToggleEnabled = {
+                onToggleEnabled(schedule.scheduleId, !schedule.isEnabled)
+                actionSchedule = null
+            },
+            onSkipToday = {
+                if (schedule.isSkippedToday) onUnskipToday(schedule.scheduleId)
+                else onSkipToday(schedule.scheduleId)
+                actionSchedule = null
+            },
+            onDelete = {
+                confirmDeleteId = schedule.scheduleId
+                actionSchedule = null
+            }
+        )
     }
 
     editing?.let { schedule ->
@@ -6400,6 +6451,239 @@ private fun AutoButtonManagerSheet(
                     Text("취소")
                 }
             }
+        )
+    }
+}
+
+@Composable
+private fun WeekdayRoutineSelector(
+    selectedDay: Int,
+    onSelectedDayChange: (Int) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF4F4F8), RoundedCornerShape(16.dp))
+            .border(1.dp, FlowDivider, RoundedCornerShape(16.dp))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        dayOptions.forEach { (day, label) ->
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(40.dp)
+                    .background(
+                        if (selectedDay == day) FlowPurple else Color.Transparent,
+                        RoundedCornerShape(12.dp)
+                    )
+                    .combinedClickable(onClick = { onSelectedDayChange(day) }),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (selectedDay == day) Color.White else FlowMuted
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DayRoutineTimetable(
+    selectedDay: Int,
+    schedules: List<AutoButtonSchedule>,
+    onScheduleClick: (AutoButtonSchedule) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White, RoundedCornerShape(18.dp))
+            .border(1.dp, FlowDivider, RoundedCornerShape(18.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "${dayLabel(selectedDay)} 타임테이블",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = FlowInk,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                "${schedules.size}개",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = FlowMuted
+            )
+        }
+
+        RoutineTimelinePreview(
+            startMinute = schedules.minOfOrNull { it.startMinuteOfDay } ?: 0,
+            endMinute = schedules.maxOfOrNull { it.endMinuteOfDay } ?: 0,
+            accent = FlowPurple
+        )
+
+        if (schedules.isEmpty()) {
+            Text(
+                "이 요일에는 반복 루틴이 없습니다.",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = FlowMuted,
+                modifier = Modifier.padding(vertical = 12.dp)
+            )
+        } else {
+            schedules.forEach { schedule ->
+                RoutineTimelineBlockRow(
+                    schedule = schedule,
+                    onClick = { onScheduleClick(schedule) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoutineTimelineBlockRow(
+    schedule: AutoButtonSchedule,
+    onClick: () -> Unit
+) {
+    val accent = categoryColor(schedule.category)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .background(accent.copy(alpha = if (schedule.isEnabled) 0.12f else 0.05f), RoundedCornerShape(14.dp))
+            .border(1.dp, accent.copy(alpha = if (schedule.isEnabled) 0.26f else 0.10f), RoundedCornerShape(14.dp))
+            .combinedClickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .background(accent.copy(alpha = if (schedule.isEnabled) 0.20f else 0.08f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            CategoryGlyph(
+                category = schedule.category,
+                tint = if (schedule.isEnabled) accent else FlowMuted,
+                modifier = Modifier.size(19.dp)
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                schedule.title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = if (schedule.isEnabled) FlowInk else FlowMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "${formatMinuteOfDay(schedule.startMinuteOfDay)} - ${formatMinuteOfDay(schedule.endMinuteOfDay)}  ·  ${displayCategory(schedule.category)}",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = FlowMuted,
+                modifier = Modifier.padding(top = 3.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (!schedule.isEnabled || schedule.isSkippedToday) {
+            Text(
+                if (!schedule.isEnabled) "꺼짐" else "오늘 끔",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier
+                    .background(if (!schedule.isEnabled) FlowMuted else FlowPurple, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 5.dp, vertical = 2.dp)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AutoButtonScheduleActionSheet(
+    schedule: AutoButtonSchedule,
+    selectedDay: Int,
+    onDismiss: () -> Unit,
+    onEdit: () -> Unit,
+    onRemoveSelectedDay: () -> Unit,
+    onToggleEnabled: () -> Unit,
+    onSkipToday: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color.White,
+        contentColor = FlowInk
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+                .padding(bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                schedule.title,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = FlowInk
+            )
+            Text(
+                "${dayLabel(selectedDay)} · ${formatMinuteOfDay(schedule.startMinuteOfDay)} - ${formatMinuteOfDay(schedule.endMinuteOfDay)}",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = FlowMuted,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            SheetActionRow("수정", Icons.Filled.Edit, onEdit)
+            SheetActionRow("${dayLabel(selectedDay)}에서 빼기", Icons.Filled.Delete, onRemoveSelectedDay)
+            SheetActionRow(if (schedule.isEnabled) "비활성화" else "활성화", Icons.Filled.PlayArrow, onToggleEnabled)
+            SheetActionRow(if (schedule.isSkippedToday) "오늘 다시 켜기" else "오늘만 끄기", Icons.Filled.CalendarToday, onSkipToday)
+            SheetActionRow("삭제", Icons.Filled.Delete, onDelete, tint = Color(0xFFD32F2F))
+        }
+    }
+}
+
+@Composable
+private fun SheetActionRow(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    tint: Color = FlowInk
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .combinedClickable(onClick = onClick)
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(21.dp)
+        )
+        Text(
+            label,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            color = tint
         )
     }
 }
@@ -7346,15 +7630,19 @@ private fun weekdayDefaults(): Set<Int> = setOf(
     Calendar.FRIDAY
 )
 
-private fun defaultAutoButtonSchedule(): AutoButtonSchedule {
+private fun defaultAutoButtonSchedule(selectedDay: Int = Calendar.MONDAY): AutoButtonSchedule {
     return AutoButtonSchedule(
         title = "학교",
         category = "SCHOOL",
-        repeatDays = weekdayDefaults(),
+        repeatDays = setOf(selectedDay),
         startMinuteOfDay = 9 * 60,
         endMinuteOfDay = 17 * 60
     )
 }
+
+private fun currentDayOfWeek(): Int = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+
+private fun dayLabel(day: Int): String = dayOptions.firstOrNull { it.first == day }?.second.orEmpty()
 
 private fun formatRepeatDays(days: Set<Int>): String {
     if (days == weekdayDefaults()) return "평일"
