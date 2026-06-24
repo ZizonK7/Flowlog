@@ -10,7 +10,9 @@ data class AutoButtonSchedule(
     val isEnabled: Boolean = true,
     val notifyOnStart: Boolean = true,
     val notifyOnEnd: Boolean = true,
-    val isSkippedToday: Boolean = false
+    val isSkippedToday: Boolean = false,
+    val source: String = "MANUAL",
+    val sourceDateKey: Long? = null
 )
 
 data class ScheduledAutoButtonBlock(

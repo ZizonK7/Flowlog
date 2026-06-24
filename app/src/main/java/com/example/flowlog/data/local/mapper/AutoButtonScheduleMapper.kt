@@ -19,7 +19,9 @@ fun AutoButtonSchedule.toEntity(userId: String): AutoButtonScheduleEntity {
         notifyOnEnd = notifyOnEnd,
         createdAt = now,
         updatedAt = now,
-        isDeleted = false
+        isDeleted = false,
+        source = source,
+        sourceDateKey = sourceDateKey
     )
 }
 
@@ -34,7 +36,9 @@ fun AutoButtonScheduleEntity.toModel(isSkippedToday: Boolean = false): AutoButto
         isEnabled = isEnabled,
         notifyOnStart = notifyOnStart,
         notifyOnEnd = notifyOnEnd,
-        isSkippedToday = isSkippedToday
+        isSkippedToday = isSkippedToday,
+        source = source,
+        sourceDateKey = sourceDateKey
     )
 }
 

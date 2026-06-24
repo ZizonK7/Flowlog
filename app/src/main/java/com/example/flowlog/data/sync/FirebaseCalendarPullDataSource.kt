@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
 import com.example.flowlog.data.local.db.FlowlogDatabase
+import com.example.flowlog.data.local.entity.AutoButtonScheduleEntity
 import com.example.flowlog.data.local.entity.CalendarEventEntity
 import com.example.flowlog.data.local.entity.LectureCalendarInfoEntity
 import com.example.flowlog.data.local.entity.TodoEntity
@@ -222,6 +223,7 @@ class FirebaseCalendarPullDataSource(context: Context) {
         val generalEventEntities = mutableListOf<CalendarEventEntity>()
         val todoEntities = mutableListOf<TodoEntity>()
         val todoDeletedIds = mutableListOf<Pair<String, Long?>>()
+        val calendarScheduleEntities = mutableListOf<AutoButtonScheduleEntity>()
 
         // ── 2. 문서 파싱 ────────────────────────────────────────────────────
         docs.forEach { doc ->
@@ -260,6 +262,14 @@ class FirebaseCalendarPullDataSource(context: Context) {
                                 syncStatus = "SYNCED"
                             )
                         )
+                        calendarScheduleEntityFromPetiteDoc(
+                            userId = userId,
+                            eventId = eventId,
+                            title = title,
+                            startTime = startTime,
+                            updatedAt = updatedAt,
+                            doc = doc
+                        )?.let { calendarScheduleEntities.add(it) }
                     }
 
                     "LECTURE_PLAN", "CLASS_EVENT", "SYLLABUS" -> {
@@ -354,6 +364,7 @@ class FirebaseCalendarPullDataSource(context: Context) {
         calendarPetiteDeletedIds.forEach { eventId ->
             runCatching {
                 todoDao.softDeleteByCalendarSourceId(userId, eventId, now)
+                scheduleDao.softDeleteSchedule(calendarScheduleId(eventId), now)
             }.onFailure { e ->
                 Log.w(TAG, "Calendar petite todo delete failed for eventId=$eventId: ${e.message}")
             }
@@ -412,12 +423,15 @@ class FirebaseCalendarPullDataSource(context: Context) {
             Log.w(TAG, "Calendar organized petites cleanup failed: ${e.message}")
         }
 
-        // ── 4c. 기존 CALENDAR auto-start 스케줄 정리 (더 이상 생성하지 않음) ──
+        // ── 4c. CALENDAR auto-start 문서를 반복 루틴 스케줄로 반영 ──
         runCatching {
-            scheduleDao.deleteCalendarSourcedForUser(userId)
+            scheduleDao.deleteCalendarSourcedForDate(userId, dayStart)
+            calendarScheduleEntities.forEach { schedule ->
+                scheduleDao.upsertCalendarSchedule(schedule)
+            }
             autoButtonScheduler.rescheduleAll()
         }.onFailure { e ->
-            Log.w(TAG, "Calendar schedule cleanup failed: ${e.message}")
+            Log.w(TAG, "Calendar schedule sync failed: ${e.message}")
         }
 
         // ── 5. Lecture + GeneralEvent: atomic replace ──────────────────────
@@ -533,6 +547,61 @@ class FirebaseCalendarPullDataSource(context: Context) {
         }.getOrNull()
     }
 
+    private fun calendarScheduleEntityFromPetiteDoc(
+        userId: String,
+        eventId: String,
+        title: String,
+        startTime: Long,
+        updatedAt: Long,
+        doc: DocumentSnapshot
+    ): AutoButtonScheduleEntity? {
+        if (doc.getBoolean("autoStartEnabled") != true) return null
+        val dayStart = dateKey(startTime)
+        val startMinute = parseMinuteOfDay(doc.getString("autoStartTime24")) ?: return null
+        val endMinute = parseMinuteOfDay(doc.getString("autoStartEndTime24")) ?: return null
+        if (endMinute <= startMinute) return null
+        val dayOfWeek = Calendar.getInstance().apply { timeInMillis = dayStart }.get(Calendar.DAY_OF_WEEK)
+        val createdAt = doc.getLong("createdAt") ?: updatedAt
+        return AutoButtonScheduleEntity(
+            scheduleId = calendarScheduleId(eventId),
+            userId = userId,
+            title = title,
+            category = doc.getString("activityCategory")?.takeIf { it.isNotBlank() } ?: "STUDY",
+            repeatDaysMask = 1 shl dayOfWeek,
+            startMinuteOfDay = startMinute,
+            endMinuteOfDay = endMinute,
+            isEnabled = true,
+            notifyOnStart = true,
+            notifyOnEnd = true,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+            isDeleted = false,
+            source = SOURCE_CALENDAR,
+            sourceDateKey = dayStart
+        )
+    }
+
+    private fun parseMinuteOfDay(time24: String?): Int? {
+        if (time24.isNullOrBlank()) return null
+        val parts = time24.split(":")
+        val hours = parts.getOrNull(0)?.toIntOrNull() ?: return null
+        val minutes = parts.getOrNull(1)?.toIntOrNull() ?: return null
+        if (hours !in 0..23 || minutes !in 0..59) return null
+        return hours * 60 + minutes
+    }
+
+    private fun dateKey(timestamp: Long): Long {
+        return Calendar.getInstance().apply {
+            timeInMillis = timestamp
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+
+    private fun calendarScheduleId(eventId: String): String = "cal-$eventId"
+
     private fun extractWeekNumber(weekLabel: String?): Int? {
         if (weekLabel == null) return null
         return Regex("""(\d+)주차""").find(weekLabel)?.groupValues?.get(1)?.toIntOrNull()
@@ -563,5 +632,6 @@ class FirebaseCalendarPullDataSource(context: Context) {
 
     companion object {
         private const val TAG = "FlowlogCalendarPull"
+        private const val SOURCE_CALENDAR = "CALENDAR"
     }
 }

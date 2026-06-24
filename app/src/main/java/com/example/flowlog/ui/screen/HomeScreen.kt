@@ -763,8 +763,8 @@ fun HomeScreen(
     if (autoButtonManagerOpen || localAutoButtonManagerOpen) {
         AutoButtonManagerSheet(
             schedules = uiState.autoButtonSchedules,
-            calendarPetites = uiState.todayCalendarPetites,
-            categories = activityCategories,
+            calendarPetites = emptyList(),
+            categories = editCategories,
             onDismiss = {
                 localAutoButtonManagerOpen = false
                 onAutoButtonManagerDismiss()
@@ -6361,6 +6361,7 @@ private fun AutoButtonManagerSheet(
     editing?.let { schedule ->
         AutoButtonEditSheet(
             initial = schedule,
+            categories = categories,
             onDismiss = { editing = null },
             onSave = {
                 onSave(it)
@@ -6766,17 +6767,23 @@ private fun RoutineTimelinePreview(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun AutoButtonEditSheet(
     initial: AutoButtonSchedule,
+    categories: List<String>,
     onDismiss: () -> Unit,
     onSave: (AutoButtonSchedule) -> Unit
 ) {
     var title by remember(initial.scheduleId) { mutableStateOf(initial.title) }
-    val fixedCategories = remember { listOf("COMPANY", "SCHOOL") }
-    var category by remember(initial.scheduleId) {
-        mutableStateOf(initial.category.takeIf { it in fixedCategories } ?: "SCHOOL")
+    val routineCategories = remember(categories) {
+        (listOf("COMPANY", "SCHOOL") + categories)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+    var category by remember(initial.scheduleId, routineCategories) {
+        mutableStateOf(initial.category.takeIf { it in routineCategories } ?: "SCHOOL")
     }
     var startMinute by remember(initial.scheduleId) { mutableStateOf(initial.startMinuteOfDay.coerceIn(0, 23 * 60 + 59)) }
     var endMinute by remember(initial.scheduleId) { mutableStateOf(initial.endMinuteOfDay.coerceIn(0, 23 * 60 + 59)) }
@@ -6844,15 +6851,16 @@ private fun AutoButtonEditSheet(
                     fontWeight = FontWeight.ExtraBold,
                     color = FlowInk
                 )
-                Row(
+                FlowRow(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color(0xFFF4F4F8), RoundedCornerShape(18.dp))
                         .border(1.dp, FlowDivider, RoundedCornerShape(18.dp))
-                        .padding(3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    fixedCategories.forEach { item ->
+                    routineCategories.forEach { item ->
                         AutoButtonCategorySegment(
                             category = item,
                             selected = category == item,
@@ -6862,11 +6870,41 @@ private fun AutoButtonEditSheet(
                                 if (title.isBlank() || title == previousCategoryTitle) {
                                     title = displayCategory(item)
                                 }
-                            },
-                            modifier = Modifier.weight(1f)
+                            }
                         )
                     }
                 }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "루틴 이름",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = FlowInk
+                )
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    placeholder = {
+                        Text(
+                            displayCategory(category),
+                            color = FlowMuted.copy(alpha = 0.58f)
+                        )
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = FlowPurple,
+                        unfocusedBorderColor = FlowDivider,
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedTextColor = FlowInk,
+                        unfocusedTextColor = FlowInk,
+                        cursorColor = FlowPurple
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                )
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -81,6 +81,7 @@ class AutoButtonScheduler(private val context: Context) {
             val scheduledToday = offset == 0
             val shouldSkipToday = skipToday && scheduledToday && triggerAt <= now
             if (!shouldSkipToday &&
+                schedule.isValidForDate(dateKey(triggerAt)) &&
                 schedule.repeatDaysMask and (1 shl dayOfWeek) != 0 &&
                 triggerAt > now &&
                 dao.getSkipDate(schedule.scheduleId, dateKey(triggerAt)) == null
@@ -104,8 +105,13 @@ class AutoButtonScheduler(private val context: Context) {
             set(Calendar.MILLISECOND, 0)
         }
         val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
+        if (!schedule.isValidForDate(dateKey(calendar.timeInMillis))) return null
         if (schedule.repeatDaysMask and (1 shl dayOfWeek) == 0) return null
         return calendar.timeInMillis
+    }
+
+    private fun AutoButtonScheduleEntity.isValidForDate(dateKey: Long): Boolean {
+        return source != SOURCE_CALENDAR || sourceDateKey == null || sourceDateKey == dateKey
     }
 
     private fun scheduleAlarm(schedule: AutoButtonScheduleEntity, action: String, triggerAt: Long) {
@@ -163,6 +169,8 @@ class AutoButtonScheduler(private val context: Context) {
     }
 
     companion object {
+        private const val SOURCE_CALENDAR = "CALENDAR"
+
         fun dateKey(timestamp: Long): Long {
             return Calendar.getInstance().apply {
                 timeInMillis = timestamp

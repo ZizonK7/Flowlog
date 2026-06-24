@@ -42,6 +42,7 @@ import com.example.flowlog.data.repository.EventLogRepository
 import com.example.flowlog.data.repository.OrganizedPetiteRepository
 import com.example.flowlog.data.repository.TodoRepository
 import com.example.flowlog.data.remote.FirestoreSyncRepository
+import com.example.flowlog.data.sync.FirebaseCalendarScheduleSyncDataSource
 import com.example.flowlog.data.sync.FirebaseSyncCoordinator
 import com.example.flowlog.notification.ActivityTimerNotifier
 import com.example.flowlog.notification.AutoButtonScheduler
@@ -230,6 +231,7 @@ class ActivityViewModel(
     private val inactivityReminderScheduler = InactivityReminderScheduler(appContext)
     private val eventLogRepository = EventLogRepository(appContext)
     private val autoButtonScheduleRepository = AutoButtonScheduleRepository(appContext)
+    private val calendarScheduleSyncDataSource = FirebaseCalendarScheduleSyncDataSource()
     private val dailyGoalRepository = DailyGoalRepository(appContext)
     private val dailyCueRepository = DailyCueRepository(appContext)
     private val flowRecommendationEngine = FlowRecommendationEngine()
@@ -1352,8 +1354,10 @@ class ActivityViewModel(
 
     fun saveAutoButtonSchedule(schedule: AutoButtonSchedule) {
         viewModelScope.launch {
-            val scheduleId = autoButtonScheduleRepository.upsertSchedule(schedule)
+            val normalizedSchedule = schedule.normalizedForCalendarSource()
+            val scheduleId = autoButtonScheduleRepository.upsertSchedule(normalizedSchedule)
             autoButtonScheduler.reschedule(scheduleId)
+            syncCalendarAutoButtonSchedule(normalizedSchedule.copy(scheduleId = scheduleId))
         }
     }
 
@@ -1458,6 +1462,9 @@ class ActivityViewModel(
         viewModelScope.launch {
             autoButtonScheduleRepository.setEnabled(scheduleId, isEnabled)
             autoButtonScheduler.reschedule(scheduleId)
+            autoButtonScheduleRepository.getSchedule(scheduleId)?.let { schedule ->
+                syncCalendarAutoButtonSchedule(schedule.copy(isEnabled = isEnabled))
+            }
         }
     }
 
@@ -1477,9 +1484,41 @@ class ActivityViewModel(
 
     fun deleteAutoButtonSchedule(scheduleId: String) {
         viewModelScope.launch {
+            val schedule = autoButtonScheduleRepository.getSchedule(scheduleId)
             autoButtonScheduler.cancel(scheduleId)
             autoButtonScheduleRepository.deleteSchedule(scheduleId)
+            schedule?.let { disableCalendarAutoStart(it) }
         }
+    }
+
+    private suspend fun syncCalendarAutoButtonSchedule(schedule: AutoButtonSchedule) {
+        if (schedule.source != AutoButtonScheduleRepository.SOURCE_CALENDAR) return
+        val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        runCatching {
+            if (schedule.isEnabled) {
+                calendarScheduleSyncDataSource.upsertAutoStart(userId, schedule)
+            } else {
+                calendarScheduleSyncDataSource.disableAutoStart(userId, schedule)
+            }
+        }.onFailure { e ->
+            Log.w(TAG, "Calendar auto-start sync failed: ${schedule.scheduleId} ${e.message}", e)
+        }
+    }
+
+    private suspend fun disableCalendarAutoStart(schedule: AutoButtonSchedule) {
+        if (schedule.source != AutoButtonScheduleRepository.SOURCE_CALENDAR) return
+        val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        runCatching {
+            calendarScheduleSyncDataSource.disableAutoStart(userId, schedule)
+        }.onFailure { e ->
+            Log.w(TAG, "Calendar auto-start disable failed: ${schedule.scheduleId} ${e.message}", e)
+        }
+    }
+
+    private fun AutoButtonSchedule.normalizedForCalendarSource(): AutoButtonSchedule {
+        if (source != AutoButtonScheduleRepository.SOURCE_CALENDAR || sourceDateKey == null) return this
+        val dayOfWeek = Calendar.getInstance().apply { timeInMillis = sourceDateKey }.get(Calendar.DAY_OF_WEEK)
+        return copy(repeatDays = setOf(dayOfWeek))
     }
 
     fun regenerateTodayRecommendedTimePlan() {

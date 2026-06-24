@@ -306,6 +306,9 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
     private fun activeAutoActivityId(scheduleId: String, dateKey: Long): String = "active:$scheduleId:$dateKey"
 
     private fun AutoButtonScheduleEntity.repeatsOn(dateKey: Long): Boolean {
+        if (source == SOURCE_CALENDAR && sourceDateKey != null && sourceDateKey != dateKey) {
+            return false
+        }
         val dayOfWeek = Calendar.getInstance().apply { timeInMillis = dateKey }.get(Calendar.DAY_OF_WEEK)
         return repeatDaysMask and (1 shl dayOfWeek) != 0
     }
@@ -317,6 +320,7 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
         const val EXTRA_SCHEDULED_AT = "com.example.flowlog.extra.AUTO_BUTTON_SCHEDULED_AT"
         private const val TAG = "AutoButtonAlarm"
         private const val PREFS_AUTO_BUTTON_EXECUTION = "auto_button_execution"
+        private const val SOURCE_CALENDAR = "CALENDAR"
         private const val DAY_MILLIS = 24L * 60L * 60L * 1000L
         private const val MAX_PLANNED_ALARM_LAG_MILLIS = 2L * 60L * 60L * 1000L
         private const val MARKER_RETENTION_MILLIS = 14L * DAY_MILLIS
