@@ -183,9 +183,7 @@ fun TodoScreen(
             (!todo.isCompleted ||
                 (todo.category == TodoCategory.REVIEW && todo.reviewStage == 1)) &&
             todo.category != TodoCategory.TODAY &&
-            !(todo.category == TodoCategory.UNIVERSITY_EXAM &&
-              todo.selectedDate != null &&
-              startOfDay(todo.selectedDate) < todayStart)
+            todo.category != TodoCategory.UNIVERSITY_EXAM
         }
     }
     val tomorrowStart = todayStart + DAY_MILLIS
@@ -353,14 +351,17 @@ fun TodoScreen(
                 onDateClick  = { showInputDatePick = true },
                 interactionSource = titleSrc,
                 onAdd = {
-                    viewModel.addTodo(newTitle, inputCategory ?: TodoCategory.NORMAL, inputDate)
+                    val effectiveCategory = inputCategory ?: TodoCategory.NORMAL
+                    val effectiveDate = if (effectiveCategory == TodoCategory.REVIEW && inputDate == null) todayStart else inputDate
+                    viewModel.addTodo(newTitle, effectiveCategory, effectiveDate)
                     newTitle = ""; isInputExpanded = false; inputCategory = null; inputDate = null
                     focusManager.clearFocus()
                 },
                 onAddToCalendar = {
                     val titleToSave = newTitle.trim()
-                    val dateToSave = inputDate
-                    viewModel.addTodo(titleToSave, inputCategory ?: TodoCategory.NORMAL, dateToSave)
+                    val effectiveCategory = inputCategory ?: TodoCategory.NORMAL
+                    val dateToSave = if (effectiveCategory == TodoCategory.REVIEW && inputDate == null) todayStart else inputDate
+                    viewModel.addTodo(titleToSave, effectiveCategory, dateToSave)
                     CalendarIntentHelper.openInsertEvent(context, titleToSave, dateToSave)
                     newTitle = ""; isInputExpanded = false; inputCategory = null; inputDate = null
                     focusManager.clearFocus()
@@ -2001,18 +2002,14 @@ private fun NewTodoCard(
                         TypeChip("복습", category == TodoCategory.REVIEW) {
                             onCategoryChange(if (category == TodoCategory.REVIEW) null else TodoCategory.REVIEW)
                         }
-                        TypeChip("과제", category == TodoCategory.ASSIGNMENT) {
+                        TypeChip("마감 있는 일", category == TodoCategory.ASSIGNMENT) {
                             onCategoryChange(if (category == TodoCategory.ASSIGNMENT) null else TodoCategory.ASSIGNMENT)
-                        }
-                        TypeChip("시험", category == TodoCategory.UNIVERSITY_EXAM) {
-                            onCategoryChange(if (category == TodoCategory.UNIVERSITY_EXAM) null else TodoCategory.UNIVERSITY_EXAM)
                         }
                     }
                     Spacer(Modifier.height(8.dp))
                     // 2행: 날짜 선택 + 캘린더 추가
                     val datePlaceholder = when (category) {
                         TodoCategory.ASSIGNMENT -> "마감일 선택"
-                        TodoCategory.UNIVERSITY_EXAM -> "시험일 선택"
                         else -> "날짜 선택"
                     }
                     Row(
@@ -2182,9 +2179,8 @@ private fun TodoCard(
                                     )
                                 }
                                 if (todo.selectedDate != null) {
-                                    val datePrefix = if (todo.category == TodoCategory.UNIVERSITY_EXAM) "시험일 " else "~"
                                     Text(
-                                        "$datePrefix${fmtDate(todo.selectedDate)}",
+                                        "~${fmtDate(todo.selectedDate)}",
                                         fontSize = 12.sp, color = TextMuted
                                     )
                                 }
@@ -2198,18 +2194,16 @@ private fun TodoCard(
                         horizontalArrangement = Arrangement.spacedBy(if (isFocus) 4.dp else 6.dp),
                         modifier = Modifier.padding(end = 2.dp)
                     ) {
-                        // 완료 (연초록 원) — UNIVERSITY_EXAM은 완료 불가
-                        if (todo.category != TodoCategory.UNIVERSITY_EXAM) {
-                            Box(
-                                modifier = Modifier
-                                    .size(if (isFocus) 30.dp else 34.dp)
-                                    .clip(CircleShape)
-                                    .background(GreenSoft)
-                                    .clickable(onClick = onComplete),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Outlined.CheckCircle, "완료", tint = GreenTint, modifier = Modifier.size(18.dp))
-                            }
+                        // 완료 (연초록 원)
+                        Box(
+                            modifier = Modifier
+                                .size(if (isFocus) 30.dp else 34.dp)
+                                .clip(CircleShape)
+                                .background(GreenSoft)
+                                .clickable(onClick = onComplete),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Outlined.CheckCircle, "완료", tint = GreenTint, modifier = Modifier.size(18.dp))
                         }
                         // 시작 (연보라 원, 주요 액션)
                         Box(
@@ -2264,16 +2258,12 @@ private fun TodoCard(
                         TypeChip("복습", editCategory == TodoCategory.REVIEW) {
                             editCategory = if (editCategory == TodoCategory.REVIEW) TodoCategory.NORMAL else TodoCategory.REVIEW
                         }
-                        TypeChip("과제", editCategory == TodoCategory.ASSIGNMENT) {
+                        TypeChip("마감 있는 일", editCategory == TodoCategory.ASSIGNMENT) {
                             editCategory = if (editCategory == TodoCategory.ASSIGNMENT) TodoCategory.NORMAL else TodoCategory.ASSIGNMENT
-                        }
-                        TypeChip("시험", editCategory == TodoCategory.UNIVERSITY_EXAM) {
-                            editCategory = if (editCategory == TodoCategory.UNIVERSITY_EXAM) TodoCategory.NORMAL else TodoCategory.UNIVERSITY_EXAM
                         }
                         Spacer(Modifier.weight(1f))
                         val editDatePlaceholder = when (editCategory) {
                             TodoCategory.ASSIGNMENT -> "마감일 선택"
-                            TodoCategory.UNIVERSITY_EXAM -> "시험일 선택"
                             else -> "날짜 선택"
                         }
                         DateChipButton(editDate, editDatePlaceholder) { showEditDatePick = true }
@@ -2481,9 +2471,8 @@ private fun MoreButton(hiddenCount: Int, onClick: () -> Unit) {
 private fun CategoryTag(category: TodoCategory, muted: Boolean = false) {
     val (bg, fg, label) = when (category) {
         TodoCategory.REVIEW          -> Triple(if (muted) Color(0xFFF0EEFF) else PurpleSoft, if (muted) Purple.copy(.5f) else Purple, "복습")
-        TodoCategory.ASSIGNMENT      -> Triple(if (muted) Color(0xFFFFF0F0) else Color(0xFFFFEFF0), if (muted) Color(0xFFE35B5B).copy(.5f) else Color(0xFFE35B5B), "과제")
-        TodoCategory.UNIVERSITY_EXAM -> Triple(if (muted) Color(0xFFE3F2FD) else Color(0xFFE8F4FF), if (muted) Color(0xFF1565C0).copy(.5f) else Color(0xFF1565C0), "시험")
-        TodoCategory.NORMAL, TodoCategory.TODAY -> return
+        TodoCategory.ASSIGNMENT      -> Triple(if (muted) Color(0xFFFFF0F0) else Color(0xFFFFEFF0), if (muted) Color(0xFFE35B5B).copy(.5f) else Color(0xFFE35B5B), "마감 있는 일")
+        TodoCategory.NORMAL, TodoCategory.TODAY, TodoCategory.UNIVERSITY_EXAM -> return
     }
     Text(
         text = label,

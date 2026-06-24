@@ -6065,8 +6065,8 @@ private fun recommendedTodoCategoryLabel(category: TodoCategory): String {
         TodoCategory.NORMAL -> "일반"
         TodoCategory.TODAY -> "오늘"
         TodoCategory.REVIEW -> "복습"
-        TodoCategory.ASSIGNMENT -> "과제"
-        TodoCategory.UNIVERSITY_EXAM -> "시험"
+        TodoCategory.ASSIGNMENT -> "마감 있는 일"
+        TodoCategory.UNIVERSITY_EXAM -> "마감 있는 일"
     }
 }
 
