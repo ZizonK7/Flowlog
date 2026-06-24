@@ -881,9 +881,12 @@ class ActivityViewModel(
             reminderScheduler.scheduleSnackReminder()
         }.getOrNull()
         val scheduled = triggerAtMillis != null
+        clearBrushTimerState()
         if (triggerAtMillis != null) {
-            clearBrushTimerState()
             rememberSnackButtonTimerState(triggerAtMillis)
+        }
+        if (!scheduled) {
+            clearSnackButtonTimerState(clearNotification = false)
         }
         _uiState.update {
             it.copy(
@@ -892,7 +895,7 @@ class ActivityViewModel(
                 } else {
                     "알림 설정에 실패했어요."
                 },
-                snackButtonEndsAtMillis = triggerAtMillis ?: it.snackButtonEndsAtMillis
+                snackButtonEndsAtMillis = triggerAtMillis ?: 0L
             )
         }
     }
@@ -909,15 +912,14 @@ class ActivityViewModel(
             _uiState.update {
                 it.copy(
                     brushDoneEndsAtMillis = brushDoneAtMillis,
-                    snackButtonEndsAtMillis = eatAllowedAtMillis
+                    snackButtonEndsAtMillis = eatAllowedAtMillis,
+                    isBrushTimerRunning = true,
+                    statusMessage = null
                 )
             }
-        }
-        _uiState.update {
-            it.copy(
-                statusMessage = if (scheduled) null else "양치 타이머 설정에 실패했어요.",
-                isBrushTimerRunning = scheduled || it.isBrushTimerRunning
-            )
+        } else {
+            clearBrushTimerState()
+            _uiState.update { it.copy(statusMessage = "양치 타이머 설정에 실패했어요.") }
         }
     }
 
@@ -931,7 +933,7 @@ class ActivityViewModel(
     fun cancelBrushTimers() {
         reminderScheduler.cancelBrushTimers()
         clearBrushTimerState()
-        clearSnackButtonTimerState()
+        clearSnackButtonTimerState(clearNotification = true)
         _uiState.update { it.copy(statusMessage = "양치 타이머를 껐어요.") }
     }
 
@@ -1620,6 +1622,17 @@ class ActivityViewModel(
         startTimer()
     }
 
+    fun refreshTimerStates() {
+        val now = System.currentTimeMillis()
+        val state = _uiState.value
+        if (state.brushDoneEndsAtMillis > 0 && state.brushDoneEndsAtMillis <= now) {
+            clearBrushTimerState()
+        }
+        if (state.snackButtonEndsAtMillis > 0 && state.snackButtonEndsAtMillis <= now) {
+            clearSnackButtonTimerState(clearNotification = false)
+        }
+    }
+
     private fun restoreBrushTimerState() {
         val endsAtMillis = timerPreferences.getLong(KEY_BRUSH_TIMER_ENDS_AT, 0L)
         if (endsAtMillis <= System.currentTimeMillis()) {
@@ -1634,7 +1647,6 @@ class ActivityViewModel(
         timerPreferences.edit()
             .putLong(KEY_BRUSH_TIMER_ENDS_AT, endsAtMillis)
             .apply()
-        _uiState.update { it.copy(brushDoneEndsAtMillis = endsAtMillis) }
         scheduleBrushTimerStateClear(endsAtMillis)
     }
 

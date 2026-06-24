@@ -56,6 +56,8 @@ object TimerStateStore {
     private const val KEY_PINNED_CATEGORY = "pinned_category"
     private const val KEY_PINNED_START_TIME = "pinned_start_time"
     private const val KEY_PINNED_GOAL_MILLIS = "pinned_goal_millis"
+    private const val KEY_BRUSH_TIMER_ENDS_AT = "brush_timer_ends_at"
+    private const val KEY_SNACK_BUTTON_TIMER_ENDS_AT = "snack_button_timer_ends_at"
     private const val NO_TODO_ID = -1L
     const val DEFAULT_GOAL_MILLIS = 2L * 60L * 60L * 1000L
 
@@ -209,6 +211,16 @@ object TimerStateStore {
             .remove(KEY_ACTIVE_EXERCISE_SETS_JSON)
             .remove(KEY_ACTIVE_ROUTINE_GOAL_MILLIS)
             .apply()
+    }
+
+    fun clearBrushTimer(context: Context) {
+        context.applicationContext.getSharedPreferences(PREFS_TIMER_STATE, Context.MODE_PRIVATE)
+            .edit().remove(KEY_BRUSH_TIMER_ENDS_AT).apply()
+    }
+
+    fun clearSnackButtonTimer(context: Context) {
+        context.applicationContext.getSharedPreferences(PREFS_TIMER_STATE, Context.MODE_PRIVATE)
+            .edit().remove(KEY_SNACK_BUTTON_TIMER_ENDS_AT).apply()
     }
 
     fun saveExerciseSetsJson(context: Context, json: String?) {

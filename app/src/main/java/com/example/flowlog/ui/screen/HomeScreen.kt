@@ -111,6 +111,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -413,6 +416,12 @@ fun HomeScreen(
         TimerStateStore.getPinnedTimer(context)
     }
     var localAutoButtonManagerOpen by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            viewModel.refreshTimerStates()
+        }
+    }
     LaunchedEffect(scrollToMainTimerRequest) {
         if (scrollToMainTimerRequest > 0) {
             homeListState.animateScrollToItem(index = 1)
@@ -2930,7 +2939,7 @@ private fun FlowStartPage(
                         onClick = {
                             when {
                                 category == "SCHOOL" || category == "COMPANY" -> {
-                                    if (pinnedQuickCategory == null) {
+                                    if (pinnedQuickCategory != category) {
                                         onPinQuickCategory(category)
                                     }
                                 }
@@ -3190,6 +3199,7 @@ private fun QuickTimerSection(
         mutableStateOf(quickTimerPrefs.getBoolean(KEY_QUICK_TIMER_SWAPPED, false))
     }
     var showQuickTimerControls by remember { mutableStateOf(false) }
+    val lastQuickClickTimes = remember { mutableMapOf<String, Long>() }
 
     val quickCategories = remember(
         categories,
@@ -3215,7 +3225,7 @@ private fun QuickTimerSection(
     }
     androidx.compose.runtime.LaunchedEffect(snackButtonEndsAtMillis) {
         while (snackButtonEndsAtMillis > System.currentTimeMillis()) {
-            kotlinx.coroutines.delay(30_000L)
+            kotlinx.coroutines.delay(10_000L)
             snackLabel = formatSnackCountdown(snackButtonEndsAtMillis)
         }
         snackLabel = "30분"
@@ -3261,7 +3271,13 @@ private fun QuickTimerSection(
                         "SNACK" -> snackLabel
                         else -> null
                     },
-                    onClick = { onStart(category) },
+                    onClick = {
+                        val now = System.currentTimeMillis()
+                        if (now - (lastQuickClickTimes[category] ?: 0L) > 1500L) {
+                            lastQuickClickTimes[category] = now
+                            onStart(category)
+                        }
+                    },
                     onLongClick = { showQuickTimerControls = true },
                     modifier = Modifier.weight(1f)
                 )

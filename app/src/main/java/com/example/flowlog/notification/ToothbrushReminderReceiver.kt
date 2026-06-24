@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import com.example.flowlog.MainActivity
 import com.example.flowlog.R
 import com.example.flowlog.data.local.FocusModeStore
+import com.example.flowlog.data.local.TimerStateStore
 
 class ToothbrushReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -22,15 +23,20 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
         val activityTimerNotifier = ActivityTimerNotifier(context)
 
         when {
-            category == "SNACK" -> activityTimerNotifier.clearSnackTimer()
+            category == "SNACK" -> {
+                activityTimerNotifier.clearSnackTimer()
+                TimerStateStore.clearSnackButtonTimer(context)
+            }
             category == "MEAL" -> activityTimerNotifier.clearMealTimer()
             reminderType == TYPE_BRUSH_DONE -> {
                 activityTimerNotifier.clearBrushDoneTimer()
                 activityTimerNotifier.clearBrushStartNotification()
+                TimerStateStore.clearBrushTimer(context)
             }
             reminderType == TYPE_EAT_ALLOWED -> {
                 activityTimerNotifier.clearBrushEatTimer()
                 activityTimerNotifier.clearBrushStartNotification()
+                TimerStateStore.clearSnackButtonTimer(context)
             }
         }
 
