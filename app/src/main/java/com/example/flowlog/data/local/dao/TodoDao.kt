@@ -218,4 +218,57 @@ interface TodoDao {
     // TodoReminderBootReceiver: 재예약 대상 전체 조회.
     @Query("SELECT * FROM todos WHERE isDeleted = 0 AND isCompleted = 0 ORDER BY createdAt DESC")
     suspend fun getActiveTodosForReminder(): List<TodoEntity>
+
+    // ── 캘린더 출처 할 일 ──────────────────────────────────────────────────
+
+    // isDeleted 포함: 동기화 재생성 방지 (사용자가 앱에서 삭제한 경우 유지)
+    @Query("SELECT * FROM todos WHERE userId = :userId AND calendarSourceId = :calendarSourceId LIMIT 1")
+    suspend fun getTodoByCalendarSourceId(userId: String, calendarSourceId: String): TodoEntity?
+
+    @Query("""
+        UPDATE todos SET isCompleted = 1, completedAt = :now, updatedAt = :now, syncStatus = '${SyncStatus.SYNCED}'
+        WHERE userId = :userId AND calendarSourceId = :calendarSourceId AND isDeleted = 0
+    """)
+    suspend fun completeTodoByCalendarSourceId(userId: String, calendarSourceId: String, now: Long)
+
+    @Query("""
+        UPDATE todos SET isCompleted = 0, completedAt = NULL, updatedAt = :now, syncStatus = '${SyncStatus.SYNCED}'
+        WHERE userId = :userId AND calendarSourceId = :calendarSourceId AND isDeleted = 0
+    """)
+    suspend fun uncompleteTodoByCalendarSourceId(userId: String, calendarSourceId: String, now: Long)
+
+    @Query("""
+        UPDATE todos
+        SET title = :title,
+            calendarSourceType = :calendarSourceType,
+            calendarPlanId = :calendarPlanId,
+            updatedAt = :updatedAt,
+            syncStatus = '${SyncStatus.SYNCED}'
+        WHERE userId = :userId
+          AND calendarSourceId = :calendarSourceId
+          AND isDeleted = 0
+    """)
+    suspend fun updateCalendarTodoContent(
+        userId: String,
+        calendarSourceId: String,
+        title: String,
+        calendarSourceType: String?,
+        calendarPlanId: String?,
+        updatedAt: Long
+    )
+
+    @Query("SELECT * FROM todos WHERE userId = :userId AND calendarPlanId = :calendarPlanId AND isDeleted = 0 ORDER BY createdAt ASC")
+    suspend fun getTodosByCalendarPlanId(userId: String, calendarPlanId: String): List<TodoEntity>
+
+    @Query("""
+        UPDATE todos
+        SET isDeleted = 1,
+            deletedAt = :deletedAt,
+            updatedAt = :deletedAt,
+            syncStatus = '${SyncStatus.SYNCED}'
+        WHERE userId = :userId
+          AND calendarSourceId = :calendarSourceId
+          AND isDeleted = 0
+    """)
+    suspend fun softDeleteByCalendarSourceId(userId: String, calendarSourceId: String, deletedAt: Long)
 }

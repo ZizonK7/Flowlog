@@ -3,12 +3,8 @@ package com.example.flowlog.ui.viewmodel
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.flowlog.data.agent.AiDecisionProviderFactory
 import com.example.flowlog.data.agent.OrganizedPetite
-import com.example.flowlog.data.agent.OrganizerRoutine
 import com.example.flowlog.data.agent.PetiteSourceType
-import com.example.flowlog.data.agent.TodayExamOrganizer
-import com.example.flowlog.data.agent.TodayOrganizerRules
 import com.example.flowlog.data.constants.ActivitySourceType
 import com.example.flowlog.data.constants.RecommendationReason
 import com.example.flowlog.data.model.ActivitySession
@@ -85,7 +81,6 @@ class TodoViewModel(
     private val firestoreSyncRepository = FirestoreSyncRepository()
     private val eventLogRepository = EventLogRepository(context.applicationContext)
     private val organizedPetiteRepository = OrganizedPetiteRepository(context.applicationContext)
-    private val todayOrganizer = TodayExamOrganizer(AiDecisionProviderFactory.create())
 
     private val _todos = MutableStateFlow<List<TodoItem>>(emptyList())
     val todos: StateFlow<List<TodoItem>> = _todos.asStateFlow()
@@ -114,15 +109,11 @@ class TodoViewModel(
     val dailyCueTodayMillis: StateFlow<Map<Long, Long>> = _dailyCueTodayMillis.asStateFlow()
     private val _petiteTodayMillis = MutableStateFlow<Map<String, Long>>(emptyMap())
     val petiteTodayMillis: StateFlow<Map<String, Long>> = _petiteTodayMillis.asStateFlow()
-    private val _isTodayOrganizerRunning = MutableStateFlow(false)
-    val isTodayOrganizerRunning: StateFlow<Boolean> = _isTodayOrganizerRunning.asStateFlow()
     private val _yesterdaySuggestion = MutableStateFlow<YesterdayFlowSuggestion?>(null)
     val yesterdaySuggestion: StateFlow<YesterdayFlowSuggestion?> = _yesterdaySuggestion.asStateFlow()
     private var latestActivities: List<ActivitySession> = emptyList()
     private var isRefreshing = false
     private var lastRecommendationDateKey = 0L
-    private val hiddenAiSourceKeys = mutableSetOf<String>()
-    private var isTodayOrganizerAllowed = false
 
     val todayFocusItems: StateFlow<List<TodoItem>> = combine(
         _todos,
@@ -163,18 +154,12 @@ class TodoViewModel(
                 latestActivities = activities
                 _dailyCueTodayMillis.value = computeCueTodayMillis(activities)
                 _petiteTodayMillis.value = computePetiteTodayMillis(activities)
-                _organizedPetites.value = decorateLearningPlanStages(
-                    _organizedPetites.value,
-                    activities
-                )
                 _yesterdaySuggestion.value = buildYesterdaySuggestion(_todos.value, activities)
             }
         }
         viewModelScope.launch {
-            hiddenAiSourceKeys.clear()
-            hiddenAiSourceKeys += organizedPetiteRepository.loadDismissedSourceKeys()
             organizedPetiteRepository.observeActivePetites().collect { saved ->
-                _organizedPetites.value = decorateLearningPlanStages(saved, latestActivities)
+                _organizedPetites.value = saved
             }
         }
     }
@@ -205,10 +190,9 @@ class TodoViewModel(
         }
 
         dailyGoalRepository.reconcilePastRecommendations(allTodos, latestActivities)
-        val calendarPetites = activeCalendarPetitesForRecommendation()
-        val burdenAnalyses = analyzeRecommendationBurden(allTodos, calendarPetites)
+        val burdenAnalyses = TodoBurdenCalculator.analyze(allTodos, latestActivities)
         repository.updateBurdenCaches(burdenAnalyses.filter { it.todo.id >= 0L })
-        val selectionResult = selectTodayFocus(allTodos, calendarPetites, burdenAnalyses)
+        val selectionResult = selectTodayFocus(allTodos, burdenAnalyses)
         val newIds = selectionResult.mapNotNull { it.todo?.id }
         _focusIds.value = newIds
 
@@ -293,7 +277,7 @@ class TodoViewModel(
             if (todo.category == TodoCategory.REVIEW && todo.reviewStage < 2) {
                 repository.completeReviewTodo(todo)
             } else {
-                repository.updateCompleted(todo.id, true, System.currentTimeMillis())
+                repository.updateCompleted(todo, true, System.currentTimeMillis())
             }
             syncAllPendingChanges()
         }
@@ -305,7 +289,7 @@ class TodoViewModel(
             if (todo.category == TodoCategory.REVIEW && todo.reviewStage < 2) {
                 repository.completeReviewTodo(todo)
             } else {
-                repository.updateCompleted(todo.id, true, System.currentTimeMillis())
+                repository.updateCompleted(todo, true, System.currentTimeMillis())
             }
             // 오늘의 목표에서 완료된 항목으로 Room에 기록
             runCatching {
@@ -345,7 +329,7 @@ class TodoViewModel(
                     else -> repository.updateCompleted(todo.id, false, null)
                 }
             } else {
-                repository.updateCompleted(todo.id, false, null)
+                repository.updateCompleted(todo, false, null)
             }
             syncAllPendingChanges()
         }
@@ -381,9 +365,8 @@ class TodoViewModel(
         val currentTodos = _todos.value
         if (currentTodos.isEmpty()) return
 
-        val calendarPetites = activeCalendarPetitesForRecommendation()
-        val burdenAnalyses = analyzeRecommendationBurden(currentTodos, calendarPetites)
-        val selectionResult = selectTodayFocus(currentTodos, calendarPetites, burdenAnalyses)
+        val burdenAnalyses = TodoBurdenCalculator.analyze(currentTodos, latestActivities)
+        val selectionResult = selectTodayFocus(currentTodos, burdenAnalyses)
         val newIds = selectionResult.mapNotNull { it.todo?.id }
         val todayKey = startOfDay(System.currentTimeMillis())
         lastRecommendationDateKey = todayKey
@@ -425,57 +408,6 @@ class TodoViewModel(
                 isRefreshing = false
             }
         }
-    }
-
-    fun runTodayOrganizer() {
-        if (!isTodayOrganizerAllowed) return
-        if (_isTodayOrganizerRunning.value) return
-        viewModelScope.launch {
-            _isTodayOrganizerRunning.value = true
-            try {
-                hiddenAiSourceKeys.clear()
-                val organized = todayOrganizer.organize(
-                    todayMillis = System.currentTimeMillis(),
-                    todos = _todos.value,
-                    routines = _dailyCues.value.map {
-                        OrganizerRoutine(
-                            id = it.id,
-                            label = it.label,
-                            title = it.title,
-                            isCompleted = it.isCompleted,
-                            timerDurationMillis = it.timerDurationMillis,
-                            timerCategory = it.timerCategory,
-                            recommendationTiming = it.recommendationTiming
-                        )
-                    },
-                    activities = latestActivities,
-                    hiddenAiSourceKeys = hiddenAiSourceKeys
-                )
-                // CALENDAR items (from calendar pull) are preserved in the immediate UI update.
-                // replaceWith → replaceNonCalendarForUser preserves them in DB as well.
-                val calendarPetites = _organizedPetites.value
-                    .filter { it.sourceType == PetiteSourceType.CALENDAR }
-                _organizedPetites.value = organized + calendarPetites
-                organizedPetiteRepository.replaceWith(organized)
-            } finally {
-                _isTodayOrganizerRunning.value = false
-            }
-        }
-    }
-
-    fun resetTodayOrganizer() {
-        if (!isTodayOrganizerAllowed) return
-        hiddenAiSourceKeys.clear()
-        // CALENDAR items from calendar pull are kept — only organizer-generated items are cleared.
-        _organizedPetites.value = _organizedPetites.value
-            .filter { it.sourceType == PetiteSourceType.CALENDAR }
-        viewModelScope.launch {
-            runCatching { organizedPetiteRepository.replaceWith(emptyList()) }
-        }
-    }
-
-    fun setTodayOrganizerAllowed(allowed: Boolean) {
-        isTodayOrganizerAllowed = allowed
     }
 
     fun dismissOrganizedPetite(item: OrganizedPetite) {
@@ -533,35 +465,6 @@ class TodoViewModel(
     }
 
     fun completeOrganizedPetite(item: OrganizedPetite) {
-        if (item.isCalendarStudyPlan()) {
-            val previewDone = latestActivities.any {
-                it.linkedPetiteId == item.id &&
-                    it.sourceType == ActivitySourceType.LEARNING_PLAN_PREVIEW
-            }
-            if (!previewDone) {
-                val now = System.currentTimeMillis()
-                val baseTitle = item.learningPlanBaseTitle()
-                viewModelScope.launch {
-                    activityRepository.insertActivity(
-                        ActivitySession(
-                            category = "STUDY",
-                            title = "$baseTitle 예습하기",
-                            startTime = now,
-                            endTime = now,
-                            durationMillis = 0L,
-                            linkedPetiteId = item.id,
-                            sourceType = ActivitySourceType.LEARNING_PLAN_PREVIEW,
-                            sourceId = item.id
-                        )
-                    )
-                }
-                _organizedPetites.value = _organizedPetites.value.map {
-                    if (it.id == item.id) it.copy(title = "$baseTitle 공부하기") else it
-                }
-                return
-            }
-        }
-
         val previousCompletedState = when (item.sourceType) {
             PetiteSourceType.PETITE,
             PetiteSourceType.TODO -> item.sourceId
@@ -572,11 +475,9 @@ class TodoViewModel(
                 ?.toLongOrNull()
                 ?.let { id -> _dailyCues.value.firstOrNull { it.id == id } }
                 ?.isCompleted ?: item.isCompleted
-            PetiteSourceType.EXAM,
-            PetiteSourceType.CALENDAR,
-            PetiteSourceType.STUDY_PLAN -> false
+            else -> false
         }
-        var wasHidden = false
+        val wasHidden = false
         when (item.sourceType) {
             PetiteSourceType.PETITE,
             PetiteSourceType.TODO -> {
@@ -588,22 +489,7 @@ class TodoViewModel(
             PetiteSourceType.ROUTINE -> {
                 item.sourceId?.toLongOrNull()?.let { completeDailyCue(it) }
             }
-            PetiteSourceType.EXAM,
-            PetiteSourceType.STUDY_PLAN -> {
-                hiddenAiSourceKeys += item.sourceKey()
-                wasHidden = true
-            }
-            PetiteSourceType.CALENDAR -> {
-                val now = System.currentTimeMillis()
-                viewModelScope.launch {
-                    runCatching {
-                        repository.insertTodo(
-                            TodoItem(title = item.title, category = TodoCategory.TODAY, isCompleted = true, createdAt = now, updatedAt = now)
-                        )
-                    }
-                    runCatching { dailyGoalRepository.markCalendarPetiteCompleted(item.id) }
-                }
-            }
+            else -> {}
         }
         _organizedPetites.value = _organizedPetites.value.filterNot { it.sourceKey() == item.sourceKey() }
         viewModelScope.launch {
@@ -635,17 +521,10 @@ class TodoViewModel(
                     item.sourceId?.toLongOrNull()?.let { toggleDailyCue(it) }
                 }
             }
-            PetiteSourceType.EXAM,
-            PetiteSourceType.STUDY_PLAN -> {
-                if (event.wasHidden) {
-                    hiddenAiSourceKeys -= item.sourceKey()
-                }
-            }
-            PetiteSourceType.CALENDAR -> {}
+            else -> {}
         }
         if (_organizedPetites.value.none { it.sourceKey() == item.sourceKey() }) {
-            val restored = TodayOrganizerRules.sort(_organizedPetites.value + item)
-            _organizedPetites.value = restored
+            _organizedPetites.value = _organizedPetites.value + item
             viewModelScope.launch {
                 runCatching { organizedPetiteRepository.restore(item) }
             }
@@ -1017,7 +896,6 @@ class TodoViewModel(
     // D-0 과제는 개수 제한 없이 모두 포함하고, D-1 등 긴급 Todo가 많으면 최대 3개까지 허용한다.
     private fun selectTodayFocus(
         allTodos: List<TodoItem>,
-        calendarPetites: List<OrganizedPetite> = emptyList(),
         burdenAnalyses: List<TodoBurdenAnalysis> = TodoBurdenCalculator.analyze(allTodos, latestActivities)
     ): List<GoalItem> {
         val todayStart = startOfDay(System.currentTimeMillis())
@@ -1086,109 +964,12 @@ class TodoViewModel(
             }
         }.toMap()
 
-        val petiteCandidates = calendarPetites
-            .filter { isCalendarPetiteEligibleForRecommendation(it) }
-            .map { petite ->
-                CalendarPetiteCandidate(
-                    petite = petite,
-                    analysis = analysisById[petite.syntheticTodoId()]
-                )
-            }
-
-        val available = candidatesById.values.toList() + petiteCandidates
+        val available = candidatesById.values.toList()
         if (available.isEmpty()) return emptyList()
         val selected = selectBurdenCombination(available)
         return sortForTodayFocusDisplay(selected).map { it.toGoalItem() }
     }
 
-    // 예습하기(lecture_preview_*)는 추천 흐름에는 표시되지만 타임 테이블 추천 활동에는 포함하지 않음
-    private fun isCalendarPetiteEligibleForRecommendation(petite: OrganizedPetite): Boolean =
-        petite.sourceId?.startsWith("lecture_preview_") != true
-
-    private fun activeCalendarPetitesForRecommendation(): List<OrganizedPetite> =
-        _organizedPetites.value.filter { it.sourceType == PetiteSourceType.CALENDAR }
-
-    private fun analyzeRecommendationBurden(
-        todos: List<TodoItem>,
-        calendarPetites: List<OrganizedPetite>
-    ): List<TodoBurdenAnalysis> {
-        val studyPlans = calendarPetites.filter { it.isCalendarStudyPlan() }
-        val syntheticTodos = studyPlans.map { it.toBurdenTodo() }
-        val syntheticIdByPetiteId = studyPlans.associate { it.id to it.syntheticTodoId() }
-        val activitiesForAnalysis = latestActivities.map { activity ->
-            val syntheticId = activity.linkedPetiteId?.let(syntheticIdByPetiteId::get)
-            if (syntheticId == null) activity else activity.copy(linkedTodoId = syntheticId)
-        }
-        return TodoBurdenCalculator.analyze(todos + syntheticTodos, activitiesForAnalysis)
-    }
-
-    private fun OrganizedPetite.isCalendarStudyPlan(): Boolean {
-        return sourceType == PetiteSourceType.CALENDAR &&
-            (
-                calendarTaskType.equals("ACADEMIC", ignoreCase = true) ||
-                    category == TodoCategory.NORMAL
-                )
-    }
-
-    private fun OrganizedPetite.learningPlanBaseTitle(): String {
-        return title
-            .removeSuffix(" 예습하기")
-            .removeSuffix(" 공부하기")
-            .trim()
-            .ifBlank { title }
-    }
-
-    private fun decorateLearningPlanStages(
-        petites: List<OrganizedPetite>,
-        activities: List<ActivitySession>
-    ): List<OrganizedPetite> {
-        return petites
-            .filterNot { it.sourceType == PetiteSourceType.EXAM }
-            .map { petite ->
-            if (!petite.isCalendarStudyPlan()) return@map petite
-            val previewDone = activities.any {
-                it.linkedPetiteId == petite.id &&
-                    it.sourceType == ActivitySourceType.LEARNING_PLAN_PREVIEW
-            }
-            val suffix = if (previewDone) "공부하기" else "예습하기"
-            petite.copy(title = "${petite.learningPlanBaseTitle()} $suffix")
-        }
-    }
-
-    private fun OrganizedPetite.syntheticTodoId(): Long {
-        return Long.MIN_VALUE + (id.hashCode().toLong() and 0xffff_ffffL)
-    }
-
-    private fun OrganizedPetite.toBurdenTodo(): TodoItem {
-        return TodoItem(
-            id = syntheticTodoId(),
-            title = title,
-            category = TodoCategory.NORMAL,
-            createdAt = createdAt,
-            selectedDate = dateMillis,
-            isCompleted = isCompleted
-        )
-    }
-
-    private inner class CalendarPetiteCandidate(
-        val petite: OrganizedPetite,
-        private val analysis: TodoBurdenAnalysis?
-    ) : TodayFocusCandidateLike {
-        override val priority: Int = 99
-        override val burdenLevel: String =
-            if (petite.isCalendarStudyPlan()) analysis?.burdenLevel ?: "MEDIUM" else "MEDIUM"
-        override val burdenScore: Int =
-            if (petite.isCalendarStudyPlan()) analysis?.burdenScore ?: 0 else petite.burdenScore ?: 0
-        override val createdAt: Long = petite.createdAt
-        override fun toGoalItem(): GoalItem = GoalItem(
-            petite = petite,
-            reason = RecommendationReason.CALENDAR_TODAY,
-            burdenLevel = burdenLevel,
-            burdenGroupKey = analysis?.burdenGroupKey,
-            burdenScore = burdenScore,
-            burdenReasonJson = analysis?.burdenReasonJson
-        )
-    }
 
     private fun selectBurdenCombination(candidates: List<TodayFocusCandidateLike>): List<TodayFocusCandidateLike> {
         if (candidates.size <= 1) return candidates

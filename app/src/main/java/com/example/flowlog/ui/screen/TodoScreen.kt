@@ -164,7 +164,6 @@ fun TodoScreen(
     onStartCalendarPetite: (OrganizedPetite) -> Unit = {},
     routineTimerCategories: List<String> = DefaultDailyCueTimerCategories,
     isDeveloperMode: Boolean = false,
-    isAiOrganizerAllowed: Boolean = isDeveloperMode,
     modifier: Modifier = Modifier
 ) {
     val todos         by viewModel.todos.collectAsState()
@@ -209,27 +208,17 @@ fun TodoScreen(
     val titleSrc = remember { MutableInteractionSource() }
     val isTitleFocused by titleSrc.collectIsFocusedAsState()
     LaunchedEffect(isTitleFocused) { if (isTitleFocused) isInputExpanded = true }
-    LaunchedEffect(isAiOrganizerAllowed) {
-        viewModel.setTodayOrganizerAllowed(isAiOrganizerAllowed)
-    }
-
     // 카드 인터랙션 상태
-    var editingId          by remember { mutableStateOf<Long?>(null) }
-    var completingId       by remember { mutableStateOf<Long?>(null) }
+    var editingId          by remember { mutableStateOf<String?>(null) }
+    var completingId       by remember { mutableStateOf<String?>(null) }
     var isActiveExpanded   by remember { mutableStateOf(false) }
     var isAnchorsExpanded  by remember { mutableStateOf(false) }
     val visibleNormalTodos = remember(normalTodos, isAnchorsExpanded) { if (isAnchorsExpanded) normalTodos else normalTodos.take(4) }
-    val adminOrganizedPetites = remember(organizedPetites, isAiOrganizerAllowed) {
-        if (isAiOrganizerAllowed) organizedPetites else emptyList()
-    }
+    val adminOrganizedPetites = organizedPetites
     val visibleOrganizedPetites = remember(adminOrganizedPetites, isAnchorsExpanded) {
         if (isAnchorsExpanded) adminOrganizedPetites else adminOrganizedPetites.take(4)
     }
-    // CALENDAR-only organized petites must not hide the normal todos (TODAY-category) section.
-    // Normal todos are treated as "로컬 Petites" when the AI organizer has never been run.
-    val hasNonCalendarOrganizedPetites = remember(adminOrganizedPetites) {
-        adminOrganizedPetites.any { it.sourceType != PetiteSourceType.CALENDAR }
-    }
+    val hasNonCalendarOrganizedPetites = adminOrganizedPetites.isNotEmpty()
     val scope = rememberCoroutineScope()
 
     val normalSnackbarHostState = remember { SnackbarHostState() }
@@ -253,7 +242,7 @@ fun TodoScreen(
     // 오늘의 목표 완료: 항목이 섹션에 그대로 남음 (다음 날 자동 삭제)
     val onCompleteFocus: (TodoItem) -> Unit = { todo ->
         scope.launch {
-            completingId = todo.id
+            completingId = todo.calendarSourceId ?: "${todo.id}_${todo.createdAt}"
             delay(380)
             viewModel.completeFocusTodo(todo)
             completingId = null
@@ -263,11 +252,11 @@ fun TodoScreen(
     // 오늘 할 일 완료: 완료 후 되돌리기 스낵바 표시
     val onCompleteNormal: (TodoItem) -> Unit = { todo ->
         scope.launch {
-            completingId = todo.id
+            completingId = todo.calendarSourceId ?: "${todo.id}_${todo.createdAt}"
             delay(380)
             viewModel.completeTodo(todo)
             completingId = null
-            if (editingId == todo.id) editingId = null
+            if (editingId == (todo.calendarSourceId ?: "${todo.id}_${todo.createdAt}")) editingId = null
             val result = normalSnackbarHostState.showSnackbar(
                 message = "${todo.title} 완료됨",
                 actionLabel = "되돌리기",
@@ -282,11 +271,11 @@ fun TodoScreen(
     // 전체 할 일 완료: 이전 완료 항목 삭제 후 현재 항목만 하단에 표시
     val onCompleteRegular: (TodoItem) -> Unit = { todo ->
         scope.launch {
-            completingId = todo.id
+            completingId = todo.calendarSourceId ?: "${todo.id}_${todo.createdAt}"
             delay(380)
             viewModel.completeTodo(todo)
             completingId = null
-            if (editingId == todo.id) editingId = null
+            if (editingId == (todo.calendarSourceId ?: "${todo.id}_${todo.createdAt}")) editingId = null
         }
     }
 
@@ -480,13 +469,13 @@ fun TodoScreen(
                         TodoCard(
                             todo         = todo,
                             modifier     = dragMod,
-                            isEditing    = editingId == todo.id,
-                            isCompleting = completingId == todo.id,
+                            isEditing    = editingId == (todo.calendarSourceId ?: "${todo.id}_${todo.createdAt}"),
+                            isCompleting = completingId == (todo.calendarSourceId ?: "${todo.id}_${todo.createdAt}"),
                             isFocus      = false,
                             onStartTodo  = { onStartTodo(todo) },
                             onComplete   = { onCompleteNormal(todo) },
                             onUncomplete = { viewModel.uncompleteTodo(todo) },
-                            onEditToggle = { editingId = if (editingId == todo.id) null else todo.id },
+                            onEditToggle = { val k = todo.calendarSourceId ?: "${todo.id}_${todo.createdAt}"; editingId = if (editingId == k) null else k },
                             onSave       = { t, c, d -> viewModel.updateTodo(todo.copy(title = t, category = c, selectedDate = d)); editingId = null },
                             onDelete     = { viewModel.deleteTodo(todo); editingId = null }
                         )
@@ -525,16 +514,16 @@ fun TodoScreen(
             }
         }
 
-        items(visibleActive, key = { "active_${it.id}" }) { todo ->
+        items(visibleActive, key = { it.calendarSourceId?.let { cid -> "active_cal_$cid" } ?: "active_${it.id}" }) { todo ->
             TodoCard(
                 todo         = todo,
-                isEditing    = editingId == todo.id,
-                isCompleting = completingId == todo.id,
+                isEditing    = editingId == (todo.calendarSourceId ?: "${todo.id}_${todo.createdAt}"),
+                isCompleting = completingId == (todo.calendarSourceId ?: "${todo.id}_${todo.createdAt}"),
                 isFocus      = false,
                 onStartTodo  = { onStartTodo(todo) },
                 onComplete   = { onCompleteRegular(todo) },
                 onUncomplete = { viewModel.uncompleteTodo(todo) },
-                onEditToggle = { editingId = if (editingId == todo.id) null else todo.id },
+                onEditToggle = { val k = todo.calendarSourceId ?: "${todo.id}_${todo.createdAt}"; editingId = if (editingId == k) null else k },
                 onSave       = { t, c, d -> viewModel.updateTodo(todo.copy(title = t, category = c, selectedDate = d)); editingId = null },
                 onDelete     = { viewModel.deleteTodo(todo); editingId = null }
             )

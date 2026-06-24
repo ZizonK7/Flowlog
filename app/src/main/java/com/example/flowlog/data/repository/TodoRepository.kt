@@ -81,22 +81,23 @@ class TodoRepository(context: Context) {
     suspend fun updateCompleted(id: Long, isCompleted: Boolean, completedAt: Long?) {
         if (isCompleted) {
             runCatching { roomDataSource.completeTodoByLegacyId(id) }
-            runCatching {
-                eventLogRepository.log(
-                    eventType = EventType.TODO_COMPLETED,
-                    entityType = EntityType.TODO,
-                    entityId = id.toString()
-                )
-            }
+            runCatching { eventLogRepository.log(EventType.TODO_COMPLETED, EntityType.TODO, id.toString()) }
         } else {
             runCatching { roomDataSource.uncompleteTodoByLegacyId(id) }
-            runCatching {
-                eventLogRepository.log(
-                    eventType = EventType.TODO_UNCOMPLETED,
-                    entityType = EntityType.TODO,
-                    entityId = id.toString()
-                )
+            runCatching { eventLogRepository.log(EventType.TODO_UNCOMPLETED, EntityType.TODO, id.toString()) }
+        }
+    }
+
+    suspend fun updateCompleted(todo: TodoItem, isCompleted: Boolean, completedAt: Long?) {
+        val cid = todo.calendarSourceId
+        if (cid != null) {
+            if (isCompleted) {
+                runCatching { roomDataSource.completeByCalendarSourceId(userId, cid) }
+            } else {
+                runCatching { roomDataSource.uncompleteByCalendarSourceId(userId, cid) }
             }
+        } else {
+            updateCompleted(todo.id, isCompleted, completedAt)
         }
     }
 
@@ -112,7 +113,11 @@ class TodoRepository(context: Context) {
     }
 
     suspend fun deleteTodo(todo: TodoItem) {
-        runCatching { roomDataSource.softDeleteByLegacyId(todo.id) }
+        if (todo.calendarSourceId != null) {
+            runCatching { roomDataSource.softDeleteByCalendarSourceId(userId, todo.calendarSourceId) }
+        } else {
+            runCatching { roomDataSource.softDeleteByLegacyId(todo.id) }
+        }
         runCatching {
             eventLogRepository.log(
                 eventType = EventType.TODO_DELETED,

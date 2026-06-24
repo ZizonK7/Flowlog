@@ -21,7 +21,8 @@ data class TodoItem(
     val burdenReasonJson: String? = null,
     val updatedAt: Long = System.currentTimeMillis(),
     val reviewStage: Int = 0,                      // 0=미시작, 1=D+1완료(D+7대기), 2=D+7완료(최종)
-    val reviewStage1CompletedAt: Long? = null       // D+1 복습 완료 시각
+    val reviewStage1CompletedAt: Long? = null,      // D+1 복습 완료 시각
+    val calendarSourceId: String? = null            // 캘린더 출처 할 일만 non-null
 )
 
 data class RecommendedTodoBlock(

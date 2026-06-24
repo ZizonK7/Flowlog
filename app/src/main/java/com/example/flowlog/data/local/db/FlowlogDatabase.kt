@@ -71,7 +71,7 @@ import com.example.flowlog.data.local.entity.UserEntity
         LectureCalendarInfoEntity::class,
         DailyCueEntity::class,
     ],
-    version = 19,
+    version = 21,
     // 장기적으로는 schema export + Migration 검증을 붙이는 것이 바람직하지만,
     // 현재 단계에서는 개발 편의상 schema 파일 생성을 보류한다.
     exportSchema = false
@@ -111,7 +111,7 @@ abstract class FlowlogDatabase : RoomDatabase() {
                     FlowlogDatabase::class.java,
                     "flowlog.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
                     .build().also { INSTANCE = it }
             }
         }
@@ -412,6 +412,20 @@ abstract class FlowlogDatabase : RoomDatabase() {
                       AND sourceType IN ('LEARNING_PLAN_PREVIEW', 'LEARNING_PLAN_STUDY')
                     """.trimIndent()
                 )
+            }
+        }
+
+        private val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE todos ADD COLUMN calendarSourceId TEXT")
+                db.execSQL("ALTER TABLE todos ADD COLUMN calendarSourceType TEXT")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_todos_calendarSourceId ON todos(calendarSourceId)")
+            }
+        }
+
+        private val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE todos ADD COLUMN calendarPlanId TEXT")
             }
         }
 

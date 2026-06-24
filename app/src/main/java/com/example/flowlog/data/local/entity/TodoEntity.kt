@@ -12,7 +12,8 @@ import com.example.flowlog.data.constants.SyncStatus
         Index("isDeleted"),
         Index("isCompleted"),
         Index("syncStatus"),
-        Index(value = ["userId", "isDeleted"])
+        Index(value = ["userId", "isDeleted"]),
+        Index("calendarSourceId")
     ]
 )
 data class TodoEntity(
@@ -38,5 +39,8 @@ data class TodoEntity(
     val legacyId: Long? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val syncStatus: String = SyncStatus.PENDING
+    val syncStatus: String = SyncStatus.PENDING,
+    val calendarSourceId: String? = null,
+    val calendarSourceType: String? = null,
+    val calendarPlanId: String? = null
 )

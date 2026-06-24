@@ -14,7 +14,7 @@ import kotlinx.coroutines.sync.withLock
 import java.util.Calendar
 
 data class CalendarPullOutcome(
-    val pulledPetiteCount: Int = 0,
+    val pulledCalendarTodoCount: Int = 0,
     val pulledLectureInfoCount: Int = 0,
     val pulledGeneralEventCount: Int = 0,
     val failed: Boolean = false
@@ -112,7 +112,6 @@ object FirebaseSyncAlarmScheduler {
 class FirebaseSyncCoordinator(context: Context) {
     private val appContext = context.applicationContext
     private val dataSource = FirebaseSyncDataSource(appContext)
-    private val studyPlanPetiteSync = StudyPlanPetiteSyncDataSource(appContext)
 
     suspend fun syncAll(userId: String): SyncOutcome {
         return globalSyncMutex.withLock {

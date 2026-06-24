@@ -3,12 +3,9 @@ package com.example.flowlog.data.sync
 import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
-import com.example.flowlog.data.agent.PetiteSourceType
 import com.example.flowlog.data.local.db.FlowlogDatabase
-import com.example.flowlog.data.local.entity.AutoButtonScheduleEntity
 import com.example.flowlog.data.local.entity.CalendarEventEntity
 import com.example.flowlog.data.local.entity.LectureCalendarInfoEntity
-import com.example.flowlog.data.local.entity.OrganizedPetiteEntity
 import com.example.flowlog.data.local.entity.TodoEntity
 import com.example.flowlog.notification.AutoButtonScheduler
 import com.example.flowlog.data.remote.awaitResult
@@ -36,7 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 조회 조건: startTime >= 오늘 00:00, startTime < 내일 00:00 (앱 로컬 타임존)
  *
  * type 분기:
- *   CALENDAR_PETITE        → organized_petites (사용자 상태 보존 upsert; deletedAt 있으면 dismiss)
+ *   CALENDAR_PETITE        → todos (NORMAL 카테고리 NORMAL 할 일로 자동 추가; calendarSourceId로 중복 방지)
  *   LECTURE_PLAN / CLASS_EVENT / SYLLABUS → lecture_calendar_infos (오늘 범위 atomic replace)
  *   GENERAL_EVENT          → calendar_events (오늘 범위 atomic replace)
  *
@@ -219,8 +216,8 @@ class FirebaseCalendarPullDataSource(context: Context) {
         docs: List<DocumentSnapshot>
     ): CalendarPullOutcome = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        val petiteEntities = mutableListOf<OrganizedPetiteEntity>()
-        val petiteDeletedEventIds = mutableListOf<String>()   // deletedAt 있는 CALENDAR_PETITE
+        val calendarPetiteEntities = mutableListOf<Pair<String, TodoEntity>>()  // eventId to entity
+        val calendarPetiteDeletedIds = mutableListOf<String>()                   // deletedAt 있는 CALENDAR_PETITE
         val lectureEntities = mutableListOf<LectureCalendarInfoEntity>()
         val generalEventEntities = mutableListOf<CalendarEventEntity>()
         val todoEntities = mutableListOf<TodoEntity>()
@@ -239,53 +236,28 @@ class FirebaseCalendarPullDataSource(context: Context) {
                 when (type) {
                     "CALENDAR_PETITE" -> {
                         if (deletedAt != null) {
-                            // #7: 취소된 이벤트 → 기존 Petite dismiss
-                            petiteDeletedEventIds.add(eventId)
+                            calendarPetiteDeletedIds.add(eventId)
                             return@runCatching
                         }
                         val title = doc.getString("title") ?: return@runCatching
-                        val durationMinutes = endTime
-                            ?.let { end -> ((end - startTime) / 60_000L).toInt().coerceAtLeast(1) }
-                        val autoStartEnabled = doc.getBoolean("autoStartEnabled") ?: false
-                        val autoStartTime24 = doc.getString("autoStartTime24") ?: ""
-                        val autoStartEndTime24 = doc.getString("autoStartEndTime24") ?: ""
                         val origin = doc.getString("origin")
                         val calendarTaskType = doc.getString("calendarTaskType")
                             ?: doc.getString("taskType")
                             ?: if (origin.equals("studyPlan", ignoreCase = true)) "ACADEMIC" else null
-                        petiteEntities.add(
-                            OrganizedPetiteEntity(
-                                id = "calendar_$eventId",
+                        val calendarPlanId = doc.getString("planGroupId")?.takeIf { it.isNotBlank() }
+                        calendarPetiteEntities.add(
+                            eventId to TodoEntity(
+                                todoId = "calendar_petite_$eventId",
                                 userId = userId,
                                 title = title,
-                                sourceType = PetiteSourceType.CALENDAR.name,
-                                sourceId = eventId,
-                                category = doc.getString("category"),
-                                // #6: dateMillis = 오늘 자정(day-level, 다른 Petite 타입과 일관)
-                                dateMillis = dayStart,
-                                linkedActivityName = null,
-                                activityCategory = doc.getString("activityCategory"),
-                                isCompleted = false,          // 신규 삽입 시 초기값; 재-pull 시 보존됨
-                                priorityScore = (doc.getLong("priorityScore") ?: 0L).toInt(),
-                                burdenScore = null,
-                                isSeverelyBehind = null,
-                                totalStudyMinutesSinceD7 = null,
-                                studiedDaysSinceD7 = null,
-                                missedDaysSinceD7 = null,
-                                aiComment = doc.getString("description"),
-                                estimatedMinutes = durationMinutes,
-                                stepsJson = "[]",
-                                examDValue = null,
-                                routineTimerDurationMillis = null,
-                                routineTimerCategory = null,
-                                rank = (doc.getLong("rank") ?: 0L).toInt(),
-                                isDismissed = false,          // 신규 삽입 시 초기값; 재-pull 시 보존됨
+                                category = "NORMAL",
+                                selectedDate = dayStart,
+                                calendarSourceId = eventId,
+                                calendarSourceType = calendarTaskType,
+                                calendarPlanId = calendarPlanId,
                                 createdAt = doc.getLong("createdAt") ?: now,
                                 updatedAt = updatedAt,
-                                calendarTaskType = calendarTaskType,
-                                autoStartEnabled = autoStartEnabled,
-                                autoStartTime24 = autoStartTime24,
-                                autoStartEndTime24 = autoStartEndTime24
+                                syncStatus = "SYNCED"
                             )
                         )
                     }
@@ -378,18 +350,12 @@ class FirebaseCalendarPullDataSource(context: Context) {
             }
         }
 
-        // ── 3. CALENDAR_PETITE: deletedAt 처리 (dismiss) ────────────────────
-        // #7: 취소된 이벤트의 기존 Petite를 isDismissed=true로 처리
-        petiteDeletedEventIds.forEach { eventId ->
+        // ── 3. CALENDAR_PETITE: 삭제된 이벤트 → todos soft delete ──────────
+        calendarPetiteDeletedIds.forEach { eventId ->
             runCatching {
-                petiteDao.dismissBySource(
-                    userId = userId,
-                    sourceType = PetiteSourceType.CALENDAR.name,
-                    sourceId = eventId,
-                    updatedAt = now
-                )
+                todoDao.softDeleteByCalendarSourceId(userId, eventId, now)
             }.onFailure { e ->
-                Log.w(TAG, "Petite dismiss failed for eventId=$eventId: ${e.message}")
+                Log.w(TAG, "Calendar petite todo delete failed for eventId=$eventId: ${e.message}")
             }
         }
 
@@ -421,50 +387,37 @@ class FirebaseCalendarPullDataSource(context: Context) {
             }
         }
 
-        // ── 4. CALENDAR_PETITE: upsert (isDismissed, isCompleted 보존) ─────
-        // #1: updateCalendarPetiteContent는 isDismissed, isCompleted를 건드리지 않음
-        var petiteCount = 0
-        petiteEntities.forEach { entity ->
+        // ── 4. CALENDAR_PETITE: todos에 NORMAL 할 일로 upsert (isCompleted 보존) ──
+        var calendarPetiteCount = 0
+        calendarPetiteEntities.forEach { (eventId, entity) ->
             runCatching {
-                petiteDao.upsertCalendarPetitePreservingUserState(entity)
-                petiteCount++
+                val existing = todoDao.getTodoByCalendarSourceId(userId, eventId)
+                when {
+                    existing == null -> todoDao.insertTodo(entity)
+                    existing.isDeleted -> { /* 사용자가 앱에서 삭제한 항목 — 재생성 금지 */ }
+                    existing.updatedAt < entity.updatedAt ->
+                        todoDao.updateCalendarTodoContent(userId, eventId, entity.title, entity.calendarSourceType, entity.calendarPlanId, entity.updatedAt)
+                }
+                calendarPetiteCount++
             }.onFailure { e ->
-                Log.w(TAG, "Petite upsert failed: ${entity.id} — ${e.message}")
+                Log.w(TAG, "Calendar petite todo upsert failed: $eventId — ${e.message}")
             }
         }
 
-        // ── 4b. CALENDAR_PETITE: autoStart → auto_button_schedules 임시 row 동기화 ──
+        // ── 4b. 기존 CALENDAR/STUDY_PLAN organized petites 정리 (NORMAL 할 일로 전환됨) ──
         runCatching {
-            val todayDayOfWeek = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
-            val todayMask = 1 shl todayDayOfWeek
+            petiteDao.deleteAllForUserBySource(userId, "CALENDAR")
+            petiteDao.deleteAllForUserBySource(userId, "STUDY_PLAN")
+        }.onFailure { e ->
+            Log.w(TAG, "Calendar organized petites cleanup failed: ${e.message}")
+        }
+
+        // ── 4c. 기존 CALENDAR auto-start 스케줄 정리 (더 이상 생성하지 않음) ──
+        runCatching {
             scheduleDao.deleteCalendarSourcedForUser(userId)
-            petiteEntities.filter { it.autoStartEnabled && it.autoStartTime24.isNotEmpty() && it.autoStartEndTime24.isNotEmpty() }
-                .forEach { petite ->
-                    val startMinute = parseTime24ToMinute(petite.autoStartTime24) ?: return@forEach
-                    val endMinute = parseTime24ToMinute(petite.autoStartEndTime24) ?: return@forEach
-                    val scheduleId = "cal-${petite.sourceId}"
-                    scheduleDao.upsertCalendarSchedule(
-                        AutoButtonScheduleEntity(
-                            scheduleId = scheduleId,
-                            userId = userId,
-                            title = petite.title,
-                            category = petite.activityCategory?.ifBlank { null } ?: "STUDY",
-                            repeatDaysMask = todayMask,
-                            startMinuteOfDay = startMinute,
-                            endMinuteOfDay = endMinute,
-                            isEnabled = true,
-                            notifyOnStart = true,
-                            notifyOnEnd = false,
-                            createdAt = now,
-                            updatedAt = now,
-                            isDeleted = false,
-                            source = "CALENDAR"
-                        )
-                    )
-                }
             autoButtonScheduler.rescheduleAll()
         }.onFailure { e ->
-            Log.w(TAG, "Calendar schedule sync failed: ${e.message}")
+            Log.w(TAG, "Calendar schedule cleanup failed: ${e.message}")
         }
 
         // ── 5. Lecture + GeneralEvent: atomic replace ──────────────────────
@@ -493,11 +446,11 @@ class FirebaseCalendarPullDataSource(context: Context) {
 
         Log.i(
             TAG,
-            "Calendar pull complete — petites=$petiteCount lectureInfos=$lectureInfoCount generalEvents=$generalEventCount syllabusLessons=$syllabusCount"
+            "Calendar pull complete — calendarTodos=$calendarPetiteCount lectureInfos=$lectureInfoCount generalEvents=$generalEventCount syllabusLessons=$syllabusCount"
         )
 
         CalendarPullOutcome(
-            pulledPetiteCount = petiteCount,
+            pulledCalendarTodoCount = calendarPetiteCount,
             pulledLectureInfoCount = lectureInfoCount,
             pulledGeneralEventCount = generalEventCount,
             failed = false
@@ -566,45 +519,6 @@ class FirebaseCalendarPullDataSource(context: Context) {
             return 0
         }
 
-        // 각 강의마다 "예습하기" Petite upsert (isDismissed/isCompleted 보존)
-        todayLessons.forEachIndexed { index, lesson ->
-            runCatching {
-                val previewId = "lecture_preview_${lesson.eventId}"
-                val title = "${lesson.courseTitle ?: lesson.lectureTitle ?: "강의"} 예습하기"
-                petiteDao.upsertCalendarPetitePreservingUserState(
-                    OrganizedPetiteEntity(
-                        id = previewId,
-                        userId = userId,
-                        title = title,
-                        sourceType = PetiteSourceType.CALENDAR.name,
-                        sourceId = previewId,
-                        category = null,
-                        dateMillis = dayStart,
-                        linkedActivityName = null,
-                        activityCategory = "STUDY",
-                        isCompleted = false,
-                        priorityScore = 1,
-                        burdenScore = null,
-                        isSeverelyBehind = null,
-                        totalStudyMinutesSinceD7 = null,
-                        studiedDaysSinceD7 = null,
-                        missedDaysSinceD7 = null,
-                        aiComment = lesson.syllabusText,
-                        estimatedMinutes = 30,
-                        stepsJson = "[]",
-                        examDValue = null,
-                        routineTimerDurationMillis = null,
-                        routineTimerCategory = null,
-                        rank = index,
-                        isDismissed = false,
-                        createdAt = now,
-                        updatedAt = now
-                    )
-                )
-            }.onFailure { e ->
-                Log.w(TAG, "Lecture preview petite upsert failed: ${lesson.eventId} — ${e.message}")
-            }
-        }
 
         Log.i(TAG, "Syllabus pull complete — saved=${todayLessons.size} date=$todayDateStr course=$courseTitle")
         return todayLessons.size
@@ -637,14 +551,6 @@ class FirebaseCalendarPullDataSource(context: Context) {
         val dayEnd = cal.timeInMillis
 
         return dayStart to dayEnd
-    }
-
-    private fun parseTime24ToMinute(time24: String): Int? {
-        val parts = time24.split(":")
-        val h = parts.getOrNull(0)?.toIntOrNull() ?: return null
-        val m = parts.getOrNull(1)?.toIntOrNull() ?: return null
-        if (h !in 0..23 || m !in 0..59) return null
-        return h * 60 + m
     }
 
     class CalendarSubscription internal constructor(

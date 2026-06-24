@@ -34,10 +34,14 @@ class RoomTodoLocalDataSource(context: Context) {
 
     /**
      * Todo 전체 필드 업데이트.
-     * legacyId가 있으면 "legacy_todo_${id}"로 todoId를 유도.
+     * legacyId가 있으면 "legacy_todo_${id}", 캘린더 출처면 calendarSourceId로 조회.
      */
     suspend fun update(todo: TodoItem, userId: String) {
-        val todoId = if (todo.id != 0L) "legacy_todo_${todo.id}" else return
+        val todoId = when {
+            todo.id != 0L -> "legacy_todo_${todo.id}"
+            todo.calendarSourceId != null -> dao.getTodoByCalendarSourceId(userId, todo.calendarSourceId)?.todoId ?: return
+            else -> return
+        }
         val existing = dao.getTodoById(todoId)
         if (existing == null) {
             // 엔티티가 Room에 없으면 (migration 미완료 등) upsert로 삽입
@@ -80,6 +84,19 @@ class RoomTodoLocalDataSource(context: Context) {
 
     suspend fun softDeleteByLegacyId(legacyId: Long) {
         softDelete("legacy_todo_$legacyId")
+    }
+
+    suspend fun softDeleteByCalendarSourceId(userId: String, calendarSourceId: String) {
+        val now = System.currentTimeMillis()
+        dao.softDeleteByCalendarSourceId(userId, calendarSourceId, now)
+    }
+
+    suspend fun completeByCalendarSourceId(userId: String, calendarSourceId: String) {
+        dao.completeTodoByCalendarSourceId(userId, calendarSourceId, System.currentTimeMillis())
+    }
+
+    suspend fun uncompleteByCalendarSourceId(userId: String, calendarSourceId: String) {
+        dao.uncompleteTodoByCalendarSourceId(userId, calendarSourceId, System.currentTimeMillis())
     }
 
     suspend fun uncompleteTodo(todoId: String) {

@@ -87,7 +87,6 @@ import com.example.flowlog.data.sync.FirebaseCalendarPullDataSource
 import com.example.flowlog.data.sync.FirebaseRestoreDataSource
 import com.example.flowlog.data.sync.FirebaseSyncAlarmScheduler
 import com.example.flowlog.data.sync.FirebaseSyncCoordinator
-import com.example.flowlog.data.sync.StudyPlanPetiteSyncDataSource
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
@@ -274,9 +273,6 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         runCatching {
-                            StudyPlanPetiteSyncDataSource(applicationContext).sync(user.uid)
-                        }
-                        runCatching {
                             uploadLocalFlowlogSnapshot()
                         }
                         activityViewModel.handleLoginMainButtonSync()
@@ -427,7 +423,6 @@ class MainActivity : ComponentActivity() {
                                 page == todoPage -> TodoScreen(
                                     viewModel = todoViewModel,
                                     isDeveloperMode = isDeveloperMode,
-                                    isAiOrganizerAllowed = isDeveloper,
                                     onStartTodo = { todo ->
                                         activityViewModel.startTodoActivity(todo.id, todo.title)
                                         showHomeMainTimer()
@@ -644,9 +639,9 @@ class MainActivity : ComponentActivity() {
         val calendarPart = when {
             pull == null -> null
             pull.failed -> "캘린더 불러오기 실패"
-            pull.pulledPetiteCount + pull.pulledLectureInfoCount + pull.pulledGeneralEventCount == 0 -> null
+            pull.pulledCalendarTodoCount + pull.pulledLectureInfoCount + pull.pulledGeneralEventCount == 0 -> null
             else -> buildString {
-                if (pull.pulledPetiteCount > 0) append("Petites ${pull.pulledPetiteCount}개")
+                if (pull.pulledCalendarTodoCount > 0) append("할 일 ${pull.pulledCalendarTodoCount}개")
                 if (pull.pulledLectureInfoCount > 0) {
                     if (isNotEmpty()) append(", ")
                     append("수업 정보 ${pull.pulledLectureInfoCount}개")

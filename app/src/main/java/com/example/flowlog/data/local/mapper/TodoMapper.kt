@@ -71,6 +71,7 @@ fun TodoEntity.toTodoItem(): TodoItem {
         burdenReasonJson = burdenReasonJson,
         updatedAt = updatedAt,
         reviewStage = reviewStage,
-        reviewStage1CompletedAt = reviewStage1CompletedAt
+        reviewStage1CompletedAt = reviewStage1CompletedAt,
+        calendarSourceId = calendarSourceId
     )
 }
