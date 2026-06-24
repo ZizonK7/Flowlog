@@ -892,15 +892,16 @@ class TodoViewModel(
     }
 
     // ── 오늘의 목표 선정 ──────────────────────────────────────────────────
-    // 우선순위: D-0 과제는 최우선. 일반 추천은 Todo 2개를 목표로 하되,
-    // D-0 과제는 개수 제한 없이 모두 포함하고, D-1 등 긴급 Todo가 많으면 최대 3개까지 허용한다.
     private fun selectTodayFocus(
         allTodos: List<TodoItem>,
         burdenAnalyses: List<TodoBurdenAnalysis> = TodoBurdenCalculator.analyze(allTodos, latestActivities)
     ): List<GoalItem> {
         val todayStart = startOfDay(System.currentTimeMillis())
+
+        // Step 1: TODAY 카테고리 제외
         val active = allTodos.filter {
             it.category != TodoCategory.UNIVERSITY_EXAM &&
+            it.category != TodoCategory.TODAY &&
             (!it.isCompleted || (it.category == TodoCategory.REVIEW && it.reviewStage == 1))
         }
 
@@ -911,7 +912,6 @@ class TodoViewModel(
             override val priority: Int,
             val reason: String
         ) : TodayFocusCandidateLike {
-            val isUrgent: Boolean = priority <= 1
             val analysis: TodoBurdenAnalysis? get() = analysisById[todo.id]
             override val burdenLevel: String get() = analysis?.burdenLevel ?: todo.burdenLevel ?: "MEDIUM"
             override val burdenScore: Int get() = analysis?.burdenScore ?: todo.burdenScore
@@ -933,60 +933,82 @@ class TodoViewModel(
             }
         }
 
-        val priorityCandidates = active.mapNotNull { todo ->
-            val (priority, reason) = when (todo.category) {
-                TodoCategory.ASSIGNMENT -> {
-                    val deadline = todo.selectedDate ?: return@mapNotNull null
-                    val daysUntil = daysDiff(todayStart, startOfDay(deadline))
-                    when (daysUntil) {
-                        0L -> 0 to RecommendationReason.ASSIGNMENT_TODAY
-                        1L -> 1 to RecommendationReason.ASSIGNMENT_D_MINUS_1
-                        7L -> 4 to RecommendationReason.ASSIGNMENT_D_MINUS_7
-                        else -> return@mapNotNull null
-                    }
-                }
-                TodoCategory.REVIEW -> {
-                    val eligibility = ReviewRecommendationPolicy.eligibility(todo, todayStart)
-                        ?: return@mapNotNull null
-                    eligibility.priority to eligibility.reason
-                }
-                TodoCategory.NORMAL, TodoCategory.TODAY -> return@mapNotNull null
-                TodoCategory.UNIVERSITY_EXAM -> return@mapNotNull null
-            }
-            Candidate(todo, priority, reason)
+        fun makeCandidate(todo: TodoItem, priority: Int, reason: String) = Candidate(todo, priority, reason)
+
+        val selected = mutableListOf<TodayFocusCandidateLike>()
+        val selectedIds = mutableSetOf<Long>()
+
+        fun addOne(c: TodayFocusCandidateLike) {
+            val id = (c as? Candidate)?.todo?.id ?: return
+            if (id !in selectedIds) { selected.add(c); selectedIds.add(id) }
         }
-        val candidatesById = active.mapNotNull { todo ->
-            val priorityCandidate = priorityCandidates.firstOrNull { it.todo.id == todo.id }
-            if (todo.category == TodoCategory.REVIEW && priorityCandidate == null) {
-                null
+
+        fun applyBurdenRules(candidates: List<TodayFocusCandidateLike>) {
+            val available = candidates.filter { (it as? Candidate)?.todo?.id !in selectedIds }
+            if (selected.size >= 2 || available.isEmpty()) return
+            val toAdd = if (selected.size == 1) {
+                listOfNotNull(pickCompatiblePartner(selected.first(), available))
             } else {
-                todo.id to (priorityCandidate ?: Candidate(todo, 99, RecommendationReason.EMPTY_GOAL_FILL))
+                pickByBurdenCombination(available, 2)
             }
-        }.toMap()
-
-        val available = candidatesById.values.toList()
-        if (available.isEmpty()) return emptyList()
-        val selected = selectBurdenCombination(available)
-        return sortForTodayFocusDisplay(selected).map { it.toGoalItem() }
-    }
-
-
-    private fun selectBurdenCombination(candidates: List<TodayFocusCandidateLike>): List<TodayFocusCandidateLike> {
-        if (candidates.size <= 1) return candidates
-
-        // priority <= 1 (D-0, D-1)은 부담도와 무관하게 무조건 포함
-        val mandatory = candidates.filter { it.priority <= 1 }.sortedBy { it.priority }
-        if (mandatory.size >= 2) return mandatory.take(3)
-
-        val remaining = candidates.filter { it.priority > 1 }
-        if (mandatory.size == 1) {
-            val partner = pickCompatiblePartner(mandatory.first(), remaining)
-            return mandatory + listOfNotNull(partner)
+            toAdd.forEach(::addOne)
         }
 
-        val slotsLeft = 2 - mandatory.size
-        val fill = pickByBurdenCombination(remaining, slotsLeft)
-        return mandatory + fill
+        // Step 2: D-0 과제 - 개수 제한 없이 전부
+        active.filter {
+            it.category == TodoCategory.ASSIGNMENT &&
+            it.selectedDate?.let { d -> daysDiff(todayStart, startOfDay(d)) == 0L } == true
+        }.forEach { addOne(makeCandidate(it, 0, RecommendationReason.ASSIGNMENT_TODAY)) }
+
+        // Step 3: D-1 과제 - 총합 2개 이하인 선에서
+        active.filter {
+            it.category == TodoCategory.ASSIGNMENT &&
+            it.selectedDate?.let { d -> daysDiff(todayStart, startOfDay(d)) == 1L } == true
+        }.forEach { todo ->
+            if (selected.size < 2) addOne(makeCandidate(todo, 1, RecommendationReason.ASSIGNMENT_D_MINUS_1))
+        }
+
+        // Step 4: D+1 복습 - 과중도 규칙
+        val d1Reviews = active.mapNotNull { todo ->
+            val e = ReviewRecommendationPolicy.eligibility(todo, todayStart) ?: return@mapNotNull null
+            if (e.reason != RecommendationReason.REVIEW_D_PLUS_1 &&
+                e.reason != RecommendationReason.REVIEW_D_PLUS_1_LATE) return@mapNotNull null
+            makeCandidate(todo, e.priority, e.reason)
+        }
+        applyBurdenRules(d1Reviews)
+
+        // Step 5: 오늘 날짜 NORMAL - 총합 3개 이하인 선에서
+        active.filter {
+            it.category == TodoCategory.NORMAL &&
+            it.selectedDate?.let { d -> startOfDay(d) == todayStart } == true
+        }.forEach { todo ->
+            if (selected.size < 3) addOne(makeCandidate(todo, 99, RecommendationReason.EMPTY_GOAL_FILL))
+        }
+
+        // Step 6: D-7 과제 - 과중도 규칙
+        val d7 = active.filter {
+            it.category == TodoCategory.ASSIGNMENT &&
+            it.selectedDate?.let { d -> daysDiff(todayStart, startOfDay(d)) == 7L } == true
+        }.map { makeCandidate(it, 4, RecommendationReason.ASSIGNMENT_D_MINUS_7) }
+        applyBurdenRules(d7)
+
+        // Step 7: D+7 복습 - 과중도 규칙
+        val d7Reviews = active.mapNotNull { todo ->
+            val e = ReviewRecommendationPolicy.eligibility(todo, todayStart) ?: return@mapNotNull null
+            if (e.reason != RecommendationReason.REVIEW_D_PLUS_7 &&
+                e.reason != RecommendationReason.REVIEW_D_PLUS_7_LATE) return@mapNotNull null
+            makeCandidate(todo, e.priority, e.reason)
+        }
+        applyBurdenRules(d7Reviews)
+
+        // Step 8: 미완료 NORMAL (오늘 날짜 제외) - 과중도 규칙
+        val remainingNormals = active.filter {
+            it.category == TodoCategory.NORMAL &&
+            it.selectedDate?.let { d -> startOfDay(d) == todayStart } != true
+        }.map { makeCandidate(it, 99, RecommendationReason.EMPTY_GOAL_FILL) }
+        applyBurdenRules(remainingNormals)
+
+        return sortForTodayFocusDisplay(selected).map { it.toGoalItem() }
     }
 
     private fun pickCompatiblePartner(
