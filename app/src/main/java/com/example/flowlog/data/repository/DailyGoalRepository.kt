@@ -757,7 +757,8 @@ class DailyGoalRepository(context: Context) {
             plannedEndMillis = end,
             recommendedDurationMinutes = recommendedDurationMinutes ?: ((end - start) / 60_000L).toInt().coerceAtLeast(1),
             userActionStatus = userActionStatus,
-            notificationScheduledAtMillis = notificationScheduledAtMillis
+            notificationScheduledAtMillis = notificationScheduledAtMillis,
+            calendarSourceId = todoSnapshot?.calendarSourceId
         )
     }
 
