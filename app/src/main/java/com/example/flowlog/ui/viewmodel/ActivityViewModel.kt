@@ -157,6 +157,7 @@ data class ActivityUiState(
     val brushDoneEndsAtMillis: Long = 0L,
     val snackButtonEndsAtMillis: Long = 0L,
     val autoButtonSchedules: List<AutoButtonSchedule> = emptyList(),
+    val weekSkipDatesByDateKey: Map<Long, Set<String>> = emptyMap(),
     val scheduledAutoButtonBlocks: List<ScheduledAutoButtonBlock> = emptyList(),
     val todayCalendarPetites: List<OrganizedPetiteEntity> = emptyList(),
     val recommendedTodoBlocks: List<RecommendedTodoBlock> = emptyList(),
@@ -269,6 +270,7 @@ class ActivityViewModel(
         observeTodayActivities()
         observeAnalytics()
         observeAutoButtonSchedules()
+        observeWeekSkipDates()
         observeScheduledAutoButtonBlocks()
         observeTodayCalendarAutoStartPetites()
         observeRecommendedTodoBlocks()
@@ -1492,6 +1494,13 @@ class ActivityViewModel(
         }
     }
 
+    fun unskipAutoButtonNextDay(scheduleId: String, dayOfWeek: Int) {
+        viewModelScope.launch {
+            autoButtonScheduleRepository.unskipToday(scheduleId, nextDateKeyForDay(dayOfWeek))
+            autoButtonScheduler.reschedule(scheduleId)
+        }
+    }
+
     fun deleteAutoButtonSchedule(scheduleId: String) {
         viewModelScope.launch {
             val schedule = autoButtonScheduleRepository.getSchedule(scheduleId)
@@ -2419,6 +2428,14 @@ class ActivityViewModel(
         viewModelScope.launch {
             autoButtonScheduleRepository.observeSchedules().collect { schedules ->
                 _uiState.update { it.copy(autoButtonSchedules = schedules) }
+            }
+        }
+    }
+
+    private fun observeWeekSkipDates() {
+        viewModelScope.launch {
+            autoButtonScheduleRepository.observeWeekSkipDates().collect { map ->
+                _uiState.update { it.copy(weekSkipDatesByDateKey = map) }
             }
         }
     }

@@ -763,6 +763,7 @@ fun HomeScreen(
     if (autoButtonManagerOpen || localAutoButtonManagerOpen) {
         AutoButtonManagerSheet(
             schedules = uiState.autoButtonSchedules,
+            weekSkipDatesByDateKey = uiState.weekSkipDatesByDateKey,
             calendarPetites = emptyList(),
             categories = editCategories,
             onDismiss = {
@@ -774,6 +775,7 @@ fun HomeScreen(
             onSkipToday = viewModel::skipAutoButtonToday,
             onSkipNextDay = viewModel::skipAutoButtonNextDay,
             onUnskipToday = viewModel::unskipAutoButtonToday,
+            onUnskipNextDay = viewModel::unskipAutoButtonNextDay,
             onDelete = viewModel::deleteAutoButtonSchedule,
             onCalendarPetiteTimeUpdate = viewModel::updateCalendarPetiteTime,
             onCalendarPetiteDismiss = viewModel::dismissCalendarPetiteToday
@@ -6118,6 +6120,7 @@ private fun MainButtonMenuRow(
 @Composable
 private fun AutoButtonManagerSheet(
     schedules: List<AutoButtonSchedule>,
+    weekSkipDatesByDateKey: Map<Long, Set<String>>,
     calendarPetites: List<OrganizedPetiteEntity>,
     categories: List<String>,
     onDismiss: () -> Unit,
@@ -6126,6 +6129,7 @@ private fun AutoButtonManagerSheet(
     onSkipToday: (String) -> Unit,
     onSkipNextDay: (String, Int) -> Unit,
     onUnskipToday: (String) -> Unit,
+    onUnskipNextDay: (String, Int) -> Unit,
     onDelete: (String) -> Unit,
     onCalendarPetiteTimeUpdate: (String, String, String) -> Unit,
     onCalendarPetiteDismiss: (String) -> Unit
@@ -6140,9 +6144,10 @@ private fun AutoButtonManagerSheet(
             .filter { selectedDay in it.repeatDays }
             .sortedWith(compareBy<AutoButtonSchedule> { it.startMinuteOfDay }.thenBy { it.title })
     }
-    val timetableSchedules = remember(selectedDaySchedules, selectedDay) {
-        val isToday = selectedDay == currentDayOfWeek()
-        if (isToday) selectedDaySchedules.filter { !it.isSkippedToday } else selectedDaySchedules
+    val timetableSchedules = remember(selectedDaySchedules, selectedDay, weekSkipDatesByDateKey) {
+        val dateKey = currentWeekDateKeyForDay(selectedDay)
+        val skippedIds = weekSkipDatesByDateKey[dateKey] ?: emptySet()
+        selectedDaySchedules.filter { it.scheduleId !in skippedIds }
     }
     val blockUpwardOverscroll = remember {
         object : NestedScrollConnection {
@@ -6234,7 +6239,7 @@ private fun AutoButtonManagerSheet(
                         Box(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(FlowDivider))
                     }
                 }
-                if (calendarPetites.isNotEmpty() && selectedDaySchedules.isNotEmpty()) {
+                if (selectedDaySchedules.isNotEmpty()) {
                     if (calendarPetites.isNotEmpty()) {
                         Text(
                             "반복 루틴",
@@ -6246,6 +6251,8 @@ private fun AutoButtonManagerSheet(
                     selectedDaySchedules.forEach { schedule ->
                         AutoButtonScheduleRow(
                             schedule = schedule,
+                            isToday = selectedDay == currentDayOfWeek(),
+                            onActionClick = { actionSchedule = schedule },
                             onEdit = { editing = schedule },
                             onToggleEnabled = { onToggleEnabled(schedule.scheduleId, it) },
                             onSkipToday = {
@@ -6281,20 +6288,24 @@ private fun AutoButtonManagerSheet(
     }
 
     actionSchedule?.let { schedule ->
+        val isSkippedForSelectedDay = weekSkipDatesByDateKey[currentWeekDateKeyForDay(selectedDay)]
+            ?.contains(schedule.scheduleId) ?: false
         AutoButtonScheduleActionSheet(
             schedule = schedule,
             selectedDay = selectedDay,
+            isSkippedForSelectedDay = isSkippedForSelectedDay,
             onDismiss = { actionSchedule = null },
             onEdit = {
                 editing = schedule
                 actionSchedule = null
             },
-            onRemoveSelectedDay = {
-                onSkipNextDay(schedule.scheduleId, selectedDay)
+            onToggleNextDay = {
+                if (isSkippedForSelectedDay) onUnskipNextDay(schedule.scheduleId, selectedDay)
+                else onSkipNextDay(schedule.scheduleId, selectedDay)
                 actionSchedule = null
             },
             onSkipToday = {
-                if (schedule.isSkippedToday) onUnskipToday(schedule.scheduleId)
+                if (isSkippedForSelectedDay) onUnskipToday(schedule.scheduleId)
                 else onSkipToday(schedule.scheduleId)
                 actionSchedule = null
             },
@@ -6509,9 +6520,10 @@ private fun RoutineTimelineBlockRow(
 private fun AutoButtonScheduleActionSheet(
     schedule: AutoButtonSchedule,
     selectedDay: Int,
+    isSkippedForSelectedDay: Boolean,
     onDismiss: () -> Unit,
     onEdit: () -> Unit,
-    onRemoveSelectedDay: () -> Unit,
+    onToggleNextDay: () -> Unit,
     onSkipToday: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -6544,11 +6556,12 @@ private fun AutoButtonScheduleActionSheet(
                 modifier = Modifier.padding(bottom = 8.dp)
             )
             SheetActionRow("수정", Icons.Filled.Edit, onEdit)
-            if (schedule.canSkipNextDay(selectedDay)) {
-                SheetActionRow(skipNextDayLabel(selectedDay), Icons.Filled.CalendarToday, onRemoveSelectedDay)
+            if (selectedDay != currentDayOfWeek() && schedule.canSkipNextDay(selectedDay)) {
+                val nextDayLabel = if (isSkippedForSelectedDay) unskipNextDayLabel(selectedDay) else skipNextDayLabel(selectedDay)
+                SheetActionRow(nextDayLabel, Icons.Filled.CalendarToday, onToggleNextDay)
             }
             if (selectedDay == currentDayOfWeek()) {
-                SheetActionRow(if (schedule.isSkippedToday) "오늘 다시 켜기" else "오늘만 끄기", Icons.Filled.CalendarToday, onSkipToday)
+                SheetActionRow(if (isSkippedForSelectedDay) "오늘 다시 켜기" else "오늘만 끄기", Icons.Filled.CalendarToday, onSkipToday)
             }
             SheetActionRow("삭제", Icons.Filled.Delete, onDelete, tint = Color(0xFFD32F2F))
         }
@@ -6751,6 +6764,8 @@ private fun CalendarPetiteTimeEditSheet(
 @Composable
 private fun AutoButtonScheduleRow(
     schedule: AutoButtonSchedule,
+    isToday: Boolean,
+    onActionClick: () -> Unit,
     onEdit: () -> Unit,
     onToggleEnabled: (Boolean) -> Unit,
     onSkipToday: () -> Unit,
@@ -6762,6 +6777,7 @@ private fun AutoButtonScheduleRow(
             .fillMaxWidth()
             .background(Color.White, RoundedCornerShape(16.dp))
             .border(1.dp, FlowDivider, RoundedCornerShape(16.dp))
+            .combinedClickable(onClick = onActionClick)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -6868,16 +6884,18 @@ private fun AutoButtonScheduleRow(
                 )
             )
             Spacer(modifier = Modifier.weight(1f))
-            TextButton(
-                onClick = onSkipToday,
-                colors = ButtonDefaults.textButtonColors(contentColor = FlowPurple),
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    if (schedule.isSkippedToday) "오늘 다시 켜기" else "오늘만 끄기",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
+            if (isToday) {
+                TextButton(
+                    onClick = onSkipToday,
+                    colors = ButtonDefaults.textButtonColors(contentColor = FlowPurple),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        if (schedule.isSkippedToday) "오늘 다시 켜기" else "오늘만 끄기",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }
@@ -7546,6 +7564,10 @@ private fun skipNextDayLabel(day: Int): String {
     return "돌아오는 ${fullDayLabel(day)} 끄기"
 }
 
+private fun unskipNextDayLabel(day: Int): String {
+    return "돌아오는 ${fullDayLabel(day)} 다시 켜기"
+}
+
 private fun AutoButtonSchedule.canSkipNextDay(day: Int): Boolean {
     if (source != "CALENDAR" || sourceDateKeys.isEmpty()) return true
     return nextDateKeyForDay(day) in sourceDateKeys
@@ -7560,6 +7582,19 @@ private fun nextDateKeyForDay(dayOfWeek: Int): Long {
         val currentDay = get(Calendar.DAY_OF_WEEK)
         val daysUntil = (dayOfWeek - currentDay + 7) % 7
         add(Calendar.DAY_OF_YEAR, if (daysUntil == 0) 7 else daysUntil)
+    }.timeInMillis
+}
+
+// 오늘 포함 0~6일 뒤 범위 내 해당 요일의 dateKey (오늘이면 오늘 dateKey 반환)
+private fun currentWeekDateKeyForDay(dayOfWeek: Int): Long {
+    return Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+        val currentDay = get(Calendar.DAY_OF_WEEK)
+        val daysUntil = (dayOfWeek - currentDay + 7) % 7
+        add(Calendar.DAY_OF_YEAR, daysUntil)
     }.timeInMillis
 }
 

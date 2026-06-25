@@ -107,6 +107,15 @@ class AutoButtonScheduleRepository(context: Context) {
         dao.setScheduleEnabled(scheduleId, isEnabled, System.currentTimeMillis())
     }
 
+    fun observeWeekSkipDates(): Flow<Map<Long, Set<String>>> {
+        val from = todayDateKey()
+        val to = from + 6 * DAY_MILLIS
+        return dao.observeSkipDatesInRange(from, to).map { skipDates ->
+            skipDates.groupBy({ it.dateKey }) { it.scheduleId }
+                .mapValues { (_, ids) -> ids.toSet() }
+        }
+    }
+
     suspend fun skipToday(scheduleId: String, dateKey: Long = todayDateKey()) {
         dao.insertSkipDate(
             AutoButtonSkipDateEntity(
