@@ -48,6 +48,11 @@ class ActivityRepository(context: Context) {
         }
     }
 
+    fun getActivitiesByDateRange(startTime: Long, endTime: Long): Flow<List<ActivitySession>> =
+        userIdFlow().flatMapLatest { uid ->
+            roomDataSource.getActivitiesByDateRange(uid, startTime, endTime)
+        }
+
     suspend fun getActivityById(id: Long): ActivitySession? =
         roomDataSource.getActivityByLegacyId(id)
 

@@ -152,9 +152,13 @@ class TodoViewModel(
         viewModelScope.launch {
             activityRepository.getAllActivities().collect { activities ->
                 latestActivities = activities
-                _dailyCueTodayMillis.value = computeCueTodayMillis(activities)
-                _petiteTodayMillis.value = computePetiteTodayMillis(activities)
                 _yesterdaySuggestion.value = buildYesterdaySuggestion(_todos.value, activities)
+            }
+        }
+        viewModelScope.launch {
+            activityRepository.getTodayActivities(startOfDay(System.currentTimeMillis())).collect { todayActivities ->
+                _dailyCueTodayMillis.value = computeCueTodayMillis(todayActivities)
+                _petiteTodayMillis.value = computePetiteTodayMillis(todayActivities)
             }
         }
         viewModelScope.launch {

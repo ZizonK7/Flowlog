@@ -21,7 +21,6 @@ import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.ScheduledAutoButtonBlock
 import com.example.flowlog.data.model.TodoCategory
 import com.example.flowlog.data.model.TodoItem
-import com.example.flowlog.data.recommendation.ButtonRecommendationEngine
 import com.example.flowlog.data.recommendation.FlowRecommendationDecision
 import com.example.flowlog.data.recommendation.FlowRecommendationEngine
 import com.example.flowlog.data.recommendation.FlowRecommendationSource
@@ -86,18 +85,9 @@ data class CategoryStat(
     val averageMillis: Long
 )
 
-data class TrendPoint(
-    val label: String,
-    val categoryMillis: Map<String, Long>
-) {
-    val totalMillis: Long = categoryMillis.values.sum()
-}
-
 data class AnalyticsState(
     val todayCategoryStats: List<CategoryStat> = emptyList(),
-    val yesterdayCategoryStats: List<CategoryStat> = emptyList(),
-    val weeklyDailyAverageStats: List<CategoryStat> = emptyList(),
-    val weeklyTrend: List<TrendPoint> = emptyList()
+    val yesterdayCategoryStats: List<CategoryStat> = emptyList()
 )
 
 data class RecommendedTodoCompletionEvent(
@@ -235,7 +225,6 @@ class ActivityViewModel(
     private val dailyGoalRepository = DailyGoalRepository(appContext)
     private val dailyCueRepository = DailyCueRepository(appContext)
     private val flowRecommendationEngine = FlowRecommendationEngine()
-    private val buttonRecommendationEngine = ButtonRecommendationEngine()
     private val autoButtonScheduler = AutoButtonScheduler(appContext)
     private val organizedPetiteRepository = OrganizedPetiteRepository(appContext)
     private var lastFlowRecommendationSignature: String? = null
@@ -278,6 +267,7 @@ class ActivityViewModel(
         seedMissingSleepRecord()
         observeAllActivities()
         observeTodayActivities()
+        observeAnalytics()
         observeAutoButtonSchedules()
         observeScheduledAutoButtonBlocks()
         observeTodayCalendarAutoStartPetites()
@@ -300,7 +290,10 @@ class ActivityViewModel(
                 ) { blocks, progress -> blocks to progress },
                 combine(
                     todoRepository.getIncompleteTodos(),
-                    repository.getAllActivities()
+                    repository.getActivitiesByDateRange(
+                        System.currentTimeMillis() - TimeUnit.DAYS.toMillis(14),
+                        Long.MAX_VALUE
+                    )
                 ) { todos, activities -> todos to activities },
                 organizedPetiteRepository.observeActivePetites(),
                 flowRecommendationMinuteTicker()
@@ -2156,22 +2149,28 @@ class ActivityViewModel(
     private fun observeAllActivities() {
         viewModelScope.launch {
             repository.getAllActivities().collect { activities ->
+                _uiState.update { it.copy(allActivities = activities) }
+            }
+        }
+    }
+
+    private fun observeAnalytics() {
+        val todayStart = startOfDay(Calendar.getInstance()).timeInMillis
+        val yesterdayStart = startOfDay(Calendar.getInstance().apply {
+            timeInMillis = todayStart
+            add(Calendar.DAY_OF_YEAR, -1)
+        }).timeInMillis
+        val tomorrowStart = startOfDay(Calendar.getInstance().apply {
+            timeInMillis = todayStart
+            add(Calendar.DAY_OF_YEAR, 1)
+        }).timeInMillis
+        viewModelScope.launch {
+            repository.getActivitiesByDateRange(yesterdayStart, tomorrowStart).collect { activities ->
                 val timedActivities = activities.filter { isTimedCategory(it.category) }
                 val analytics = withContext(Dispatchers.Default) {
                     buildAnalytics(timedActivities)
                 }
-                // TODO: 승인형 추천 기능으로 전환 예정. 현재는 mainButtonConfig가 버튼 목록을 관리하므로
-                //  이 결과를 FlowStartPage에 직접 삽입하지 않는다. 나중에 "추천 버튼 추가" 제안 UI에 활용한다.
-                val promotedButtons = withContext(Dispatchers.Default) {
-                    buttonRecommendationEngine.computePromotedCategories(activities)
-                }
-                _promotedButtons.value = promotedButtons
-                _uiState.update {
-                    it.copy(
-                        allActivities = activities,
-                        analytics = analytics
-                    )
-                }
+                _uiState.update { it.copy(analytics = analytics) }
             }
         }
     }
@@ -2242,10 +2241,6 @@ class ActivityViewModel(
         val todayStart = startOfDay(Calendar.getInstance().apply {
             timeInMillis = now
         }).timeInMillis
-        val weekStart = startOfDay(Calendar.getInstance().apply {
-            timeInMillis = todayStart
-            add(Calendar.DAY_OF_YEAR, -7)
-        }).timeInMillis
         val tomorrowStart = startOfDay(Calendar.getInstance().apply {
             timeInMillis = todayStart
             add(Calendar.DAY_OF_YEAR, 1)
@@ -2256,24 +2251,14 @@ class ActivityViewModel(
         }).timeInMillis
         val analyticsActivities = splitActivitiesAcrossDays(
             activities = activities,
-            rangeStartMillis = weekStart,
+            rangeStartMillis = yesterdayStart,
             rangeEndMillis = tomorrowStart
         )
-        val weekActivities = analyticsActivities.filter { activity ->
-            activity.startTime >= weekStart && activity.startTime < todayStart
-        }
-        val todayActivities = analyticsActivities.filter { activity ->
-            activity.startTime >= todayStart && activity.startTime < tomorrowStart
-        }
-        val yesterdayActivities = analyticsActivities.filter { activity ->
-            activity.startTime >= yesterdayStart && activity.startTime < todayStart
-        }
-
+        val todayActivities = analyticsActivities.filter { it.startTime >= todayStart && it.startTime < tomorrowStart }
+        val yesterdayActivities = analyticsActivities.filter { it.startTime >= yesterdayStart && it.startTime < todayStart }
         return AnalyticsState(
             todayCategoryStats = buildCategoryStats(todayActivities),
-            yesterdayCategoryStats = buildCategoryStats(yesterdayActivities),
-            weeklyDailyAverageStats = buildDailyAverageCategoryStats(weekActivities, days = 7),
-            weeklyTrend = buildTrend(weekActivities, weekStart, 7)
+            yesterdayCategoryStats = buildCategoryStats(yesterdayActivities)
         )
     }
 
@@ -2289,42 +2274,6 @@ class ActivityViewModel(
                 )
             }
             .sortedByDescending { it.totalMillis }
-    }
-
-    private fun buildDailyAverageCategoryStats(
-        activities: List<ActivitySession>,
-        days: Int
-    ): List<CategoryStat> {
-        return activities.groupBy { it.category }
-            .map { (category, sessions) ->
-                val total = sessions.sumOf { it.durationMillis }
-                CategoryStat(
-                    category = category,
-                    totalMillis = total,
-                    count = sessions.size,
-                    averageMillis = total / days.coerceAtLeast(1)
-                )
-            }
-            .sortedByDescending { it.averageMillis }
-    }
-
-    private fun buildTrend(
-        activities: List<ActivitySession>,
-        startMillis: Long,
-        days: Int
-    ): List<TrendPoint> {
-        val dayMillis = 24L * 60L * 60L * 1000L
-        return (0 until days).map { index ->
-            val dayStart = startMillis + index * dayMillis
-            val dayEnd = dayStart + dayMillis
-            val dayActivities = activities.filter { it.startTime in dayStart until dayEnd }
-            TrendPoint(
-                label = dayLabel(dayStart),
-                categoryMillis = dayActivities
-                    .groupBy { it.category }
-                    .mapValues { entry -> entry.value.sumOf { it.durationMillis } }
-            )
-        }
     }
 
     private fun startOfDay(calendar: Calendar): Calendar {
@@ -2353,11 +2302,6 @@ class ActivityViewModel(
             set(Calendar.SECOND, second)
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
-    }
-
-    private fun dayLabel(timestamp: Long): String {
-        val calendar = Calendar.getInstance().apply { timeInMillis = timestamp }
-        return "${calendar.get(Calendar.MONTH) + 1}/${calendar.get(Calendar.DAY_OF_MONTH)}"
     }
 
     private fun currentElapsedTime(): Long {
