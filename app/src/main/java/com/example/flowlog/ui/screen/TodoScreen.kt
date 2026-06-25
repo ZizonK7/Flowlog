@@ -173,6 +173,8 @@ fun TodoScreen(
     val organizedPetites by viewModel.organizedPetites.collectAsState()
     val dailyCueTodayMillis by viewModel.dailyCueTodayMillis.collectAsState()
     val petiteTodayMillis by viewModel.petiteTodayMillis.collectAsState()
+    val dailyCuesShowAll by viewModel.dailyCuesShowAll.collectAsState()
+    val petitesShowAll by viewModel.petitesShowAll.collectAsState()
     val focusIds      = remember(focusTodos) { focusTodos.map { it.id }.toSet() }
     val todayStart = startOfDay(System.currentTimeMillis())
     // TODAY(오늘 할 일)만 Petites 섹션에 표시. NORMAL(미분류)은 전체 할 일로.
@@ -212,11 +214,10 @@ fun TodoScreen(
     var editingId          by remember { mutableStateOf<String?>(null) }
     var completingId       by remember { mutableStateOf<String?>(null) }
     var isActiveExpanded   by remember { mutableStateOf(false) }
-    var isAnchorsExpanded  by remember { mutableStateOf(false) }
-    val visibleNormalTodos = remember(normalTodos, isAnchorsExpanded) { if (isAnchorsExpanded) normalTodos else normalTodos.take(4) }
+    val visibleNormalTodos = remember(normalTodos, petitesShowAll) { if (petitesShowAll) normalTodos else normalTodos.take(4) }
     val adminOrganizedPetites = organizedPetites
-    val visibleOrganizedPetites = remember(adminOrganizedPetites, isAnchorsExpanded) {
-        if (isAnchorsExpanded) adminOrganizedPetites else adminOrganizedPetites.take(4)
+    val visibleOrganizedPetites = remember(adminOrganizedPetites, petitesShowAll) {
+        if (petitesShowAll) adminOrganizedPetites else adminOrganizedPetites.take(4)
     }
     val hasNonCalendarOrganizedPetites = adminOrganizedPetites.isNotEmpty()
     val scope = rememberCoroutineScope()
@@ -377,13 +378,13 @@ fun TodoScreen(
                         Text("✦", fontSize = 14.sp, color = Purple.copy(alpha = 0.7f))
                     }
                     TextButton(
-                        onClick = { isAnchorsExpanded = !isAnchorsExpanded },
+                        onClick = { viewModel.setPetitesShowAll(!petitesShowAll) },
                         enabled = petiteCount > 4,
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                         modifier = Modifier.height(32.dp)
                     ) {
                         Text(
-                            if (isAnchorsExpanded) "접기" else "더보기",
+                            if (petitesShowAll) "접기" else "더보기",
                             fontSize = 13.sp,
                             color = if (petiteCount > 4) Purple else TextMuted.copy(alpha = 0.45f),
                             fontWeight = FontWeight.SemiBold
@@ -488,6 +489,8 @@ fun TodoScreen(
             DailyCuesSection(
                 cues = dailyCues,
                 cueTodayMillis = dailyCueTodayMillis,
+                isShowingAll = dailyCuesShowAll,
+                onToggleShowAll = { viewModel.setDailyCuesShowAll(!dailyCuesShowAll) },
                 onToggleCue = viewModel::toggleDailyCue,
                 onAddCue = viewModel::addDailyCue,
                 onUpdateCue = viewModel::updateDailyCue,
@@ -1099,6 +1102,8 @@ private fun examDdayLabel(dValue: Int?): String = when (dValue) {
 private fun DailyCuesSection(
     cues: List<DailyCueItem>,
     cueTodayMillis: Map<Long, Long> = emptyMap(),
+    isShowingAll: Boolean,
+    onToggleShowAll: () -> Unit,
     onToggleCue: (Long) -> Unit,
     onAddCue: (String, String, Long?, String, DailyCueRecommendationTiming, String) -> Unit,
     onUpdateCue: (Long, String, String, Long?, String, DailyCueRecommendationTiming, String) -> Unit,
@@ -1107,7 +1112,6 @@ private fun DailyCuesSection(
     onReorderCue: (Int, Int) -> Unit,
     timerCategories: List<String>
 ) {
-    var isShowingAll by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
     var editingCue by remember { mutableStateOf<DailyCueItem?>(null) }
     val visibleCues = remember(cues, isShowingAll) {
@@ -1123,7 +1127,7 @@ private fun DailyCuesSection(
             onSave = { title, label, timerDurationMillis, timerCategory, timing, note ->
                 onAddCue(title, label, timerDurationMillis, timerCategory, timing, note)
                 showAddDialog = false
-                isShowingAll = true
+                if (!isShowingAll) onToggleShowAll()
             }
         )
     }
@@ -1166,7 +1170,7 @@ private fun DailyCuesSection(
                 }
             }
             TextButton(
-                onClick = { isShowingAll = !isShowingAll },
+                onClick = { onToggleShowAll() },
                 enabled = cues.size > 4,
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 modifier = Modifier.height(32.dp)

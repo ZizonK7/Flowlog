@@ -103,6 +103,21 @@ class TodoViewModel(
     private val _focusIds = MutableStateFlow<List<Long>>(emptyList())
     private val _dailyCues = MutableStateFlow<List<DailyCueItem>>(loadDailyCues())
     val dailyCues: StateFlow<List<DailyCueItem>> = _dailyCues.asStateFlow()
+    private val _dailyCuesShowAll = MutableStateFlow(cuePrefs.getBoolean("show_all", false))
+    val dailyCuesShowAll: StateFlow<Boolean> = _dailyCuesShowAll.asStateFlow()
+
+    fun setDailyCuesShowAll(value: Boolean) {
+        _dailyCuesShowAll.value = value
+        cuePrefs.edit().putBoolean("show_all", value).apply()
+    }
+
+    private val _petitesShowAll = MutableStateFlow(focusPrefs.getBoolean("petites_show_all", false))
+    val petitesShowAll: StateFlow<Boolean> = _petitesShowAll.asStateFlow()
+
+    fun setPetitesShowAll(value: Boolean) {
+        _petitesShowAll.value = value
+        focusPrefs.edit().putBoolean("petites_show_all", value).apply()
+    }
     private val _organizedPetites = MutableStateFlow<List<OrganizedPetite>>(emptyList())
     val organizedPetites: StateFlow<List<OrganizedPetite>> = _organizedPetites.asStateFlow()
     private val _dailyCueTodayMillis = MutableStateFlow<Map<Long, Long>>(emptyMap())
