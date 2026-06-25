@@ -3037,7 +3037,6 @@ private fun FlowPageDots(activePage: Int) {
 private fun ActivityRecommendationRow(
     category: String,
     activityName: String,
-    isEnabled: Boolean,
     isCompleted: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -3046,18 +3045,15 @@ private fun ActivityRecommendationRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(
-                if (isEnabled || isCompleted) FlowPurpleSoft.copy(alpha = 0.6f)
-                else Color(0xFFF1F1F4)
-            )
-            .clickable(enabled = isEnabled || isCompleted, onClick = onClick)
+            .background(FlowPurpleSoft.copy(alpha = 0.6f))
+            .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = Icons.Outlined.Lightbulb,
             contentDescription = null,
-            tint = if (isCompleted) Color(0xFF18A058) else if (isEnabled) FlowPurple else FlowMuted,
+            tint = if (isCompleted) Color(0xFF18A058) else FlowPurple,
             modifier = Modifier.size(18.dp)
         )
         Spacer(Modifier.width(10.dp))
@@ -3071,12 +3067,11 @@ private fun ActivityRecommendationRow(
             Text(
                 text = when {
                     isCompleted -> "$activityName · 완료"
-                    !isEnabled -> "$activityName · 예습 후 시작"
                     else -> activityName
                 },
                 fontSize = 15.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = if (isEnabled || isCompleted) FlowInk else FlowMuted
+                color = FlowInk
             )
         }
         Icon(
@@ -3097,7 +3092,6 @@ private fun ActivityRecommendationSheet(
     onDismiss: () -> Unit,
     onStart: () -> Unit,
     onComplete: () -> Unit,
-    isEnabled: Boolean = true,
     isCompleted: Boolean = false
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -3146,7 +3140,7 @@ private fun ActivityRecommendationSheet(
             Spacer(Modifier.height(28.dp))
             Button(
                 onClick = onStart,
-                enabled = isEnabled && !isCompleted,
+                enabled = !isCompleted,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
@@ -3165,7 +3159,7 @@ private fun ActivityRecommendationSheet(
             Spacer(Modifier.height(6.dp))
             TextButton(
                 onClick = onComplete,
-                enabled = isEnabled && !isCompleted,
+                enabled = !isCompleted,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
@@ -4595,7 +4589,6 @@ private fun TimetableCard(
                 ActivityRecommendationRow(
                     category = recommendation.category,
                     activityName = recommendation.title,
-                    isEnabled = recommendation.isEnabled,
                     isCompleted = recommendation.isCompleted,
                     onClick = {
                         onOpenFlowRecommendation(recommendation)
@@ -4621,7 +4614,6 @@ private fun TimetableCard(
                 onCompleteFlowRecommendation(recommendation)
                 selectedFlowRecommendation = null
             },
-            isEnabled = recommendation.isEnabled,
             isCompleted = recommendation.isCompleted
         )
     }

@@ -117,7 +117,6 @@ data class FlowActivityRecommendation(
     val recommendationId: String = UUID.randomUUID().toString(),
     val algorithmStep: Int = 0,
     val reasonCode: String = "LEGACY_PETITE",
-    val isEnabled: Boolean = true,
     val isCompleted: Boolean = false
 )
 
@@ -471,7 +470,7 @@ class ActivityViewModel(
 
 
     fun completeFlowRecommendation(recommendation: FlowActivityRecommendation) {
-        if (!recommendation.isEnabled || recommendation.isCompleted) return
+        if (recommendation.isCompleted) return
         viewModelScope.launch {
             when (recommendation.source) {
                 FlowRecommendationSource.ROUTINE -> {
@@ -791,7 +790,7 @@ class ActivityViewModel(
         plannedItemId: String? = null,
         logEvent: Boolean = true
     ) {
-        if (!recommendation.isEnabled || recommendation.isCompleted || _uiState.value.isRunning) return
+        if (recommendation.isCompleted || _uiState.value.isRunning) return
         when (recommendation.source) {
             FlowRecommendationSource.ROUTINE -> {
                 val routine = recommendation.routine ?: return
