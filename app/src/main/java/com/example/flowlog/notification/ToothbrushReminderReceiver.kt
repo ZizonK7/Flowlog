@@ -119,7 +119,7 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
 
     companion object {
         const val CHANNEL_ID = "flowlog_timer_alerts"
-        const val DING_CHANNEL_ID = "flowlog_timer_alerts_app_sound_v2"
+        const val DING_CHANNEL_ID = "flowlog_timer_alerts_app_sound_v3"
         const val EXTRA_CATEGORY = "extra_category"
         const val EXTRA_ACTIVITY_ID = "extra_activity_id"
         const val EXTRA_REMINDER_TYPE = "extra_reminder_type"

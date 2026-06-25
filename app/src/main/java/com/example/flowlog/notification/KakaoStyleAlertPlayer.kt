@@ -21,7 +21,7 @@ object KakaoStyleAlertPlayer {
     fun play(context: Context) {
         if (!FocusModeStore.shouldPlayRegularSound(context)) return
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        if (audioManager.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
+        if (audioManager.ringerMode == AudioManager.RINGER_MODE_SILENT) return
 
         runCatching {
             MediaPlayer().apply {
