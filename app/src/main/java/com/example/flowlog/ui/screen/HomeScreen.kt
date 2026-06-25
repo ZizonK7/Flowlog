@@ -6644,7 +6644,9 @@ private fun AutoButtonScheduleActionSheet(
             if (schedule.canSkipNextDay(selectedDay)) {
                 SheetActionRow(skipNextDayLabel(selectedDay), Icons.Filled.CalendarToday, onRemoveSelectedDay)
             }
-            SheetActionRow(if (schedule.isSkippedToday) "오늘 다시 켜기" else "오늘만 끄기", Icons.Filled.CalendarToday, onSkipToday)
+            if (selectedDay == currentDayOfWeek()) {
+                SheetActionRow(if (schedule.isSkippedToday) "오늘 다시 켜기" else "오늘만 끄기", Icons.Filled.CalendarToday, onSkipToday)
+            }
             SheetActionRow("삭제", Icons.Filled.Delete, onDelete, tint = Color(0xFFD32F2F))
         }
     }
