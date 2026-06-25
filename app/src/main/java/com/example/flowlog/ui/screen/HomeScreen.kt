@@ -773,6 +773,7 @@ fun HomeScreen(
             onSave = viewModel::saveAutoButtonSchedule,
             onToggleEnabled = viewModel::setAutoButtonEnabled,
             onSkipToday = viewModel::skipAutoButtonToday,
+            onSkipNextDay = viewModel::skipAutoButtonNextDay,
             onUnskipToday = viewModel::unskipAutoButtonToday,
             onDelete = viewModel::deleteAutoButtonSchedule,
             onCalendarPetiteTimeUpdate = viewModel::updateCalendarPetiteTime,
@@ -6224,6 +6225,7 @@ private fun AutoButtonManagerSheet(
     onSave: (AutoButtonSchedule) -> Unit,
     onToggleEnabled: (String, Boolean) -> Unit,
     onSkipToday: (String) -> Unit,
+    onSkipNextDay: (String, Int) -> Unit,
     onUnskipToday: (String) -> Unit,
     onDelete: (String) -> Unit,
     onCalendarPetiteTimeUpdate: (String, String, String) -> Unit,
@@ -6385,16 +6387,7 @@ private fun AutoButtonManagerSheet(
                 actionSchedule = null
             },
             onRemoveSelectedDay = {
-                val nextDays = schedule.repeatDays - selectedDay
-                if (nextDays.isEmpty()) {
-                    confirmDeleteId = schedule.scheduleId
-                } else {
-                    onSave(schedule.copy(repeatDays = nextDays))
-                }
-                actionSchedule = null
-            },
-            onToggleEnabled = {
-                onToggleEnabled(schedule.scheduleId, !schedule.isEnabled)
+                onSkipNextDay(schedule.scheduleId, selectedDay)
                 actionSchedule = null
             },
             onSkipToday = {
@@ -6616,7 +6609,6 @@ private fun AutoButtonScheduleActionSheet(
     onDismiss: () -> Unit,
     onEdit: () -> Unit,
     onRemoveSelectedDay: () -> Unit,
-    onToggleEnabled: () -> Unit,
     onSkipToday: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -6649,8 +6641,9 @@ private fun AutoButtonScheduleActionSheet(
                 modifier = Modifier.padding(bottom = 8.dp)
             )
             SheetActionRow("수정", Icons.Filled.Edit, onEdit)
-            SheetActionRow("${dayLabel(selectedDay)}에서 빼기", Icons.Filled.Delete, onRemoveSelectedDay)
-            SheetActionRow(if (schedule.isEnabled) "비활성화" else "활성화", Icons.Filled.PlayArrow, onToggleEnabled)
+            if (schedule.canSkipNextDay(selectedDay)) {
+                SheetActionRow(skipNextDayLabel(selectedDay), Icons.Filled.CalendarToday, onRemoveSelectedDay)
+            }
             SheetActionRow(if (schedule.isSkippedToday) "오늘 다시 켜기" else "오늘만 끄기", Icons.Filled.CalendarToday, onSkipToday)
             SheetActionRow("삭제", Icons.Filled.Delete, onDelete, tint = Color(0xFFD32F2F))
         }
@@ -7643,6 +7636,38 @@ private fun defaultAutoButtonSchedule(selectedDay: Int = Calendar.MONDAY): AutoB
 private fun currentDayOfWeek(): Int = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
 
 private fun dayLabel(day: Int): String = dayOptions.firstOrNull { it.first == day }?.second.orEmpty()
+
+private fun skipNextDayLabel(day: Int): String {
+    return "돌아오는 ${fullDayLabel(day)} 끄기"
+}
+
+private fun AutoButtonSchedule.canSkipNextDay(day: Int): Boolean {
+    if (source != "CALENDAR" || sourceDateKeys.isEmpty()) return true
+    return nextDateKeyForDay(day) in sourceDateKeys
+}
+
+private fun nextDateKeyForDay(dayOfWeek: Int): Long {
+    return Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+        val currentDay = get(Calendar.DAY_OF_WEEK)
+        val daysUntil = (dayOfWeek - currentDay + 7) % 7
+        add(Calendar.DAY_OF_YEAR, if (daysUntil == 0) 7 else daysUntil)
+    }.timeInMillis
+}
+
+private fun fullDayLabel(day: Int): String = when (day) {
+    Calendar.SUNDAY -> "일요일"
+    Calendar.MONDAY -> "월요일"
+    Calendar.TUESDAY -> "화요일"
+    Calendar.WEDNESDAY -> "수요일"
+    Calendar.THURSDAY -> "목요일"
+    Calendar.FRIDAY -> "금요일"
+    Calendar.SATURDAY -> "토요일"
+    else -> "해당 요일"
+}
 
 private fun formatRepeatDays(days: Set<Int>): String {
     if (days == weekdayDefaults()) return "평일"

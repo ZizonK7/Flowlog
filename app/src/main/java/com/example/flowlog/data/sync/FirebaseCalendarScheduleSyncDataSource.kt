@@ -10,14 +10,12 @@ class FirebaseCalendarScheduleSyncDataSource {
     private val firestore = FirebaseFirestore.getInstance()
 
     suspend fun upsertAutoStart(userId: String, schedule: AutoButtonSchedule) = withContext(Dispatchers.IO) {
-        val eventId = schedule.calendarEventId() ?: return@withContext
-        val sourceDateKey = schedule.sourceDateKey ?: return@withContext
+        val eventIds = schedule.calendarEventIds()
+        if (eventIds.isEmpty()) return@withContext
         val now = System.currentTimeMillis()
         val data = mapOf(
-            "eventId" to eventId,
             "type" to "CALENDAR_PETITE",
             "title" to schedule.title,
-            "startTime" to sourceDateKey + schedule.startMinuteOfDay * MILLIS_PER_MINUTE,
             "autoStartEnabled" to schedule.isEnabled,
             "autoStartTime24" to formatMinuteOfDay(schedule.startMinuteOfDay),
             "autoStartEndTime24" to formatMinuteOfDay(schedule.endMinuteOfDay),
@@ -25,21 +23,29 @@ class FirebaseCalendarScheduleSyncDataSource {
             "updatedAt" to now,
             "deletedAt" to null
         )
-        calendarEventDoc(userId, eventId).set(data, com.google.firebase.firestore.SetOptions.merge()).awaitResult()
+        eventIds.forEach { eventId ->
+            calendarEventDoc(userId, eventId)
+                .set(data + ("eventId" to eventId), com.google.firebase.firestore.SetOptions.merge())
+                .awaitResult()
+        }
     }
 
     suspend fun disableAutoStart(userId: String, schedule: AutoButtonSchedule) = withContext(Dispatchers.IO) {
-        val eventId = schedule.calendarEventId() ?: return@withContext
+        val eventIds = schedule.calendarEventIds()
+        if (eventIds.isEmpty()) return@withContext
         val now = System.currentTimeMillis()
         val data = mapOf(
-            "eventId" to eventId,
             "type" to "CALENDAR_PETITE",
             "autoStartEnabled" to false,
             "autoStartTime24" to "",
             "autoStartEndTime24" to "",
             "updatedAt" to now
         )
-        calendarEventDoc(userId, eventId).set(data, com.google.firebase.firestore.SetOptions.merge()).awaitResult()
+        eventIds.forEach { eventId ->
+            calendarEventDoc(userId, eventId)
+                .set(data + ("eventId" to eventId), com.google.firebase.firestore.SetOptions.merge())
+                .awaitResult()
+        }
     }
 
     private fun calendarEventDoc(userId: String, eventId: String) = firestore
@@ -47,9 +53,13 @@ class FirebaseCalendarScheduleSyncDataSource {
         .collection("flowlog").document("data")
         .collection("calendarEvents").document(eventId)
 
-    private fun AutoButtonSchedule.calendarEventId(): String? {
-        if (source != SOURCE_CALENDAR) return null
-        return scheduleId.removePrefix(CALENDAR_SCHEDULE_PREFIX).takeIf { it != scheduleId && it.isNotBlank() }
+    private fun AutoButtonSchedule.calendarEventIds(): Set<String> {
+        if (source != SOURCE_CALENDAR) return emptySet()
+        if (sourceEventIds.isNotEmpty()) return sourceEventIds
+        return setOfNotNull(
+            scheduleId.removePrefix(CALENDAR_SCHEDULE_PREFIX)
+                .takeIf { it != scheduleId && it.isNotBlank() }
+        )
     }
 
     private fun formatMinuteOfDay(minuteOfDay: Int): String {
@@ -60,6 +70,5 @@ class FirebaseCalendarScheduleSyncDataSource {
     companion object {
         private const val SOURCE_CALENDAR = "CALENDAR"
         private const val CALENDAR_SCHEDULE_PREFIX = "cal-"
-        private const val MILLIS_PER_MINUTE = 60_000L
     }
 }

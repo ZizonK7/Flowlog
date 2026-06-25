@@ -21,7 +21,9 @@ fun AutoButtonSchedule.toEntity(userId: String): AutoButtonScheduleEntity {
         updatedAt = now,
         isDeleted = false,
         source = source,
-        sourceDateKey = sourceDateKey
+        sourceDateKey = sourceDateKey,
+        sourceDateKeysCsv = sourceDateKeys.toLongCsv(),
+        sourceEventIdsCsv = sourceEventIds.toStringCsv()
     )
 }
 
@@ -38,10 +40,25 @@ fun AutoButtonScheduleEntity.toModel(isSkippedToday: Boolean = false): AutoButto
         notifyOnEnd = notifyOnEnd,
         isSkippedToday = isSkippedToday,
         source = source,
-        sourceDateKey = sourceDateKey
+        sourceDateKey = sourceDateKey,
+        sourceDateKeys = sourceDateKeysCsv.toLongSet(),
+        sourceEventIds = sourceEventIdsCsv.toStringSet()
     )
 }
 
 fun Set<Int>.toMask(): Int = fold(0) { mask, day -> mask or (1 shl day) }
 
 fun Int.toDays(): Set<Int> = (1..7).filter { day -> this and (1 shl day) != 0 }.toSet()
+
+private fun Set<Long>.toLongCsv(): String = sorted().joinToString(",")
+
+private fun String.toLongSet(): Set<Long> = split(",")
+    .mapNotNull { it.trim().toLongOrNull() }
+    .toSet()
+
+private fun Set<String>.toStringCsv(): String = sorted().joinToString(",") { it.replace(",", "") }
+
+private fun String.toStringSet(): Set<String> = split(",")
+    .map { it.trim() }
+    .filter { it.isNotBlank() }
+    .toSet()

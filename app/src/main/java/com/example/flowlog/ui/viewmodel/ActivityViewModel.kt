@@ -1475,6 +1475,13 @@ class ActivityViewModel(
         }
     }
 
+    fun skipAutoButtonNextDay(scheduleId: String, dayOfWeek: Int) {
+        viewModelScope.launch {
+            autoButtonScheduleRepository.skipToday(scheduleId, nextDateKeyForDay(dayOfWeek))
+            autoButtonScheduler.reschedule(scheduleId)
+        }
+    }
+
     fun unskipAutoButtonToday(scheduleId: String) {
         viewModelScope.launch {
             autoButtonScheduleRepository.unskipToday(scheduleId)
@@ -1516,9 +1523,25 @@ class ActivityViewModel(
     }
 
     private fun AutoButtonSchedule.normalizedForCalendarSource(): AutoButtonSchedule {
-        if (source != AutoButtonScheduleRepository.SOURCE_CALENDAR || sourceDateKey == null) return this
-        val dayOfWeek = Calendar.getInstance().apply { timeInMillis = sourceDateKey }.get(Calendar.DAY_OF_WEEK)
-        return copy(repeatDays = setOf(dayOfWeek))
+        if (source != AutoButtonScheduleRepository.SOURCE_CALENDAR) return this
+        val dateKeys = sourceDateKeys.ifEmpty { setOfNotNull(sourceDateKey) }
+        if (dateKeys.isEmpty()) return this
+        val repeatDays = dateKeys.map {
+            Calendar.getInstance().apply { timeInMillis = it }.get(Calendar.DAY_OF_WEEK)
+        }.toSet()
+        return copy(repeatDays = repeatDays)
+    }
+
+    private fun nextDateKeyForDay(dayOfWeek: Int): Long {
+        return Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            val currentDay = get(Calendar.DAY_OF_WEEK)
+            val daysUntil = (dayOfWeek - currentDay + 7) % 7
+            add(Calendar.DAY_OF_YEAR, if (daysUntil == 0) 7 else daysUntil)
+        }.timeInMillis
     }
 
     fun regenerateTodayRecommendedTimePlan() {

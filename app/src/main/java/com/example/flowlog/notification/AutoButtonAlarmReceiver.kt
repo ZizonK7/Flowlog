@@ -306,7 +306,11 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
     private fun activeAutoActivityId(scheduleId: String, dateKey: Long): String = "active:$scheduleId:$dateKey"
 
     private fun AutoButtonScheduleEntity.repeatsOn(dateKey: Long): Boolean {
-        if (source == SOURCE_CALENDAR && sourceDateKey != null && sourceDateKey != dateKey) {
+        val dateKeys = sourceDateKeysCsv.split(",").mapNotNull { it.trim().toLongOrNull() }.toSet()
+        if (source == SOURCE_CALENDAR && dateKeys.isNotEmpty() && dateKey !in dateKeys) {
+            return false
+        }
+        if (source == SOURCE_CALENDAR && dateKeys.isEmpty() && sourceDateKey != null && sourceDateKey != dateKey) {
             return false
         }
         val dayOfWeek = Calendar.getInstance().apply { timeInMillis = dateKey }.get(Calendar.DAY_OF_WEEK)

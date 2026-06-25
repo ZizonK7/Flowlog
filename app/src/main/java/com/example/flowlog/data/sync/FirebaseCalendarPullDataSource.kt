@@ -132,6 +132,27 @@ class FirebaseCalendarPullDataSource(context: Context) {
                 }
             }
 
+        val fixedRoutineRegistration = firestore.collection("users").document(userId)
+            .collection("flowlog").document("data")
+            .collection("calendarEvents")
+            .whereEqualTo("type", "CALENDAR_PETITE")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.w(TAG, "Calendar fixed routine listener failed: ${error.message}", error)
+                    onOutcome(CalendarPullOutcome(failed = true))
+                    return@addSnapshotListener
+                }
+                val docs = snapshot?.documents ?: return@addSnapshotListener
+                listenerScope.launch {
+                    val failed = runCatching {
+                        calendarApplyMutex.withLock {
+                            applyCalendarFixedRoutineDocuments(userId, docs)
+                        }
+                    }.isFailure
+                    if (failed) onOutcome(CalendarPullOutcome(failed = true))
+                }
+            }
+
         val syllabusInitialSnapshot = AtomicBoolean(true)
         val syllabusRegistration = firestore.collection("users").document(userId)
             .collection("flowlog").document("calendar")
@@ -146,7 +167,7 @@ class FirebaseCalendarPullDataSource(context: Context) {
                 }
             }
 
-        return CalendarSubscription(listOf(eventRegistration, todoRegistration, syllabusRegistration))
+        return CalendarSubscription(listOf(eventRegistration, todoRegistration, fixedRoutineRegistration, syllabusRegistration))
     }
 
     private suspend fun applyTodoCalendarDocuments(
@@ -210,6 +231,78 @@ class FirebaseCalendarPullDataSource(context: Context) {
         }
     }
 
+    private suspend fun applyCalendarFixedRoutineDocuments(
+        userId: String,
+        docs: List<DocumentSnapshot>
+    ) = withContext(Dispatchers.IO) {
+        val items = docs.mapNotNull { doc ->
+            runCatching {
+                val deletedAt = doc.getLong("deletedAt")
+                if (deletedAt != null || doc.getBoolean("autoStartEnabled") != true) return@runCatching null
+                val eventId = doc.getString("eventId") ?: doc.id
+                val title = doc.getString("title")?.takeIf { it.isNotBlank() } ?: return@runCatching null
+                val startTime = doc.getLong("startTime") ?: return@runCatching null
+                val startMinute = parseMinuteOfDay(doc.getString("autoStartTime24")) ?: return@runCatching null
+                val endMinute = parseMinuteOfDay(doc.getString("autoStartEndTime24")) ?: return@runCatching null
+                if (endMinute <= startMinute) return@runCatching null
+                val category = doc.getString("activityCategory")?.takeIf { it.isNotBlank() } ?: "STUDY"
+                CalendarFixedRoutineItem(
+                    eventId = eventId,
+                    groupKey = calendarFixedRoutineGroupKey(doc, title, category, startMinute, endMinute),
+                    title = title,
+                    category = category,
+                    startMinute = startMinute,
+                    endMinute = endMinute,
+                    dateKey = dateKey(startTime),
+                    createdAt = doc.getLong("createdAt") ?: doc.getLong("updatedAt") ?: System.currentTimeMillis(),
+                    updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+                )
+            }.getOrElse { e ->
+                Log.w(TAG, "Calendar fixed routine doc parse failed: ${doc.id} ${e.message}")
+                null
+            }
+        }
+
+        val schedules = items
+            .groupBy { it.groupKey }
+            .mapNotNull { (groupKey, groupItems) ->
+                val sorted = groupItems.sortedBy { it.dateKey }
+                val first = sorted.firstOrNull() ?: return@mapNotNull null
+                val dateKeys = sorted.map { it.dateKey }.distinct().sorted()
+                val repeatMask = dateKeys
+                    .map { dateKey -> Calendar.getInstance().apply { timeInMillis = dateKey }.get(Calendar.DAY_OF_WEEK) }
+                    .toSet()
+                    .fold(0) { mask, day -> mask or (1 shl day) }
+                AutoButtonScheduleEntity(
+                    scheduleId = "calgrp-${groupKey.hashCode()}",
+                    userId = userId,
+                    title = first.title,
+                    category = first.category,
+                    repeatDaysMask = repeatMask,
+                    startMinuteOfDay = first.startMinute,
+                    endMinuteOfDay = first.endMinute,
+                    isEnabled = true,
+                    notifyOnStart = true,
+                    notifyOnEnd = true,
+                    createdAt = sorted.minOf { it.createdAt },
+                    updatedAt = sorted.maxOf { it.updatedAt },
+                    isDeleted = false,
+                    source = SOURCE_CALENDAR,
+                    sourceDateKey = dateKeys.firstOrNull(),
+                    sourceDateKeysCsv = dateKeys.joinToString(","),
+                    sourceEventIdsCsv = sorted.map { it.eventId }.distinct().sorted().joinToString(",")
+                )
+            }
+
+        runCatching {
+            scheduleDao.deleteCalendarSourcedForUser(userId)
+            schedules.forEach { schedule -> scheduleDao.upsertCalendarSchedule(schedule) }
+            autoButtonScheduler.rescheduleAll()
+        }.onFailure { e ->
+            Log.w(TAG, "Calendar fixed routine sync failed: ${e.message}", e)
+        }
+    }
+
     private suspend fun applyTodayCalendarDocuments(
         userId: String,
         dayStart: Long,
@@ -223,7 +316,6 @@ class FirebaseCalendarPullDataSource(context: Context) {
         val generalEventEntities = mutableListOf<CalendarEventEntity>()
         val todoEntities = mutableListOf<TodoEntity>()
         val todoDeletedIds = mutableListOf<Pair<String, Long?>>()
-        val calendarScheduleEntities = mutableListOf<AutoButtonScheduleEntity>()
 
         // ── 2. 문서 파싱 ────────────────────────────────────────────────────
         docs.forEach { doc ->
@@ -262,14 +354,6 @@ class FirebaseCalendarPullDataSource(context: Context) {
                                 syncStatus = "SYNCED"
                             )
                         )
-                        calendarScheduleEntityFromPetiteDoc(
-                            userId = userId,
-                            eventId = eventId,
-                            title = title,
-                            startTime = startTime,
-                            updatedAt = updatedAt,
-                            doc = doc
-                        )?.let { calendarScheduleEntities.add(it) }
                     }
 
                     "LECTURE_PLAN", "CLASS_EVENT", "SYLLABUS" -> {
@@ -364,7 +448,6 @@ class FirebaseCalendarPullDataSource(context: Context) {
         calendarPetiteDeletedIds.forEach { eventId ->
             runCatching {
                 todoDao.softDeleteByCalendarSourceId(userId, eventId, now)
-                scheduleDao.softDeleteSchedule(calendarScheduleId(eventId), now)
             }.onFailure { e ->
                 Log.w(TAG, "Calendar petite todo delete failed for eventId=$eventId: ${e.message}")
             }
@@ -421,17 +504,6 @@ class FirebaseCalendarPullDataSource(context: Context) {
             petiteDao.deleteAllForUserBySource(userId, "STUDY_PLAN")
         }.onFailure { e ->
             Log.w(TAG, "Calendar organized petites cleanup failed: ${e.message}")
-        }
-
-        // ── 4c. CALENDAR auto-start 문서를 반복 루틴 스케줄로 반영 ──
-        runCatching {
-            scheduleDao.deleteCalendarSourcedForDate(userId, dayStart)
-            calendarScheduleEntities.forEach { schedule ->
-                scheduleDao.upsertCalendarSchedule(schedule)
-            }
-            autoButtonScheduler.rescheduleAll()
-        }.onFailure { e ->
-            Log.w(TAG, "Calendar schedule sync failed: ${e.message}")
         }
 
         // ── 5. Lecture + GeneralEvent: atomic replace ──────────────────────
@@ -547,40 +619,6 @@ class FirebaseCalendarPullDataSource(context: Context) {
         }.getOrNull()
     }
 
-    private fun calendarScheduleEntityFromPetiteDoc(
-        userId: String,
-        eventId: String,
-        title: String,
-        startTime: Long,
-        updatedAt: Long,
-        doc: DocumentSnapshot
-    ): AutoButtonScheduleEntity? {
-        if (doc.getBoolean("autoStartEnabled") != true) return null
-        val dayStart = dateKey(startTime)
-        val startMinute = parseMinuteOfDay(doc.getString("autoStartTime24")) ?: return null
-        val endMinute = parseMinuteOfDay(doc.getString("autoStartEndTime24")) ?: return null
-        if (endMinute <= startMinute) return null
-        val dayOfWeek = Calendar.getInstance().apply { timeInMillis = dayStart }.get(Calendar.DAY_OF_WEEK)
-        val createdAt = doc.getLong("createdAt") ?: updatedAt
-        return AutoButtonScheduleEntity(
-            scheduleId = calendarScheduleId(eventId),
-            userId = userId,
-            title = title,
-            category = doc.getString("activityCategory")?.takeIf { it.isNotBlank() } ?: "STUDY",
-            repeatDaysMask = 1 shl dayOfWeek,
-            startMinuteOfDay = startMinute,
-            endMinuteOfDay = endMinute,
-            isEnabled = true,
-            notifyOnStart = true,
-            notifyOnEnd = true,
-            createdAt = createdAt,
-            updatedAt = updatedAt,
-            isDeleted = false,
-            source = SOURCE_CALENDAR,
-            sourceDateKey = dayStart
-        )
-    }
-
     private fun parseMinuteOfDay(time24: String?): Int? {
         if (time24.isNullOrBlank()) return null
         val parts = time24.split(":")
@@ -600,7 +638,35 @@ class FirebaseCalendarPullDataSource(context: Context) {
         }.timeInMillis
     }
 
-    private fun calendarScheduleId(eventId: String): String = "cal-$eventId"
+    private fun calendarFixedRoutineGroupKey(
+        doc: DocumentSnapshot,
+        title: String,
+        category: String,
+        startMinute: Int,
+        endMinute: Int
+    ): String {
+        doc.getString("planGroupId")?.takeIf { it.isNotBlank() }?.let { return "plan:$it" }
+        doc.getString("groupId")?.takeIf { it.isNotBlank() }?.let { return "repeat:$it" }
+        return listOf(
+            doc.getString("source") ?: "calendar",
+            title,
+            category,
+            startMinute.toString(),
+            endMinute.toString()
+        ).joinToString("|")
+    }
+
+    private data class CalendarFixedRoutineItem(
+        val eventId: String,
+        val groupKey: String,
+        val title: String,
+        val category: String,
+        val startMinute: Int,
+        val endMinute: Int,
+        val dateKey: Long,
+        val createdAt: Long,
+        val updatedAt: Long
+    )
 
     private fun extractWeekNumber(weekLabel: String?): Int? {
         if (weekLabel == null) return null

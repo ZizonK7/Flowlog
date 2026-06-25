@@ -111,7 +111,10 @@ class AutoButtonScheduler(private val context: Context) {
     }
 
     private fun AutoButtonScheduleEntity.isValidForDate(dateKey: Long): Boolean {
-        return source != SOURCE_CALENDAR || sourceDateKey == null || sourceDateKey == dateKey
+        if (source != SOURCE_CALENDAR) return true
+        val dateKeys = sourceDateKeysCsv.split(",").mapNotNull { it.trim().toLongOrNull() }.toSet()
+        if (dateKeys.isNotEmpty()) return dateKey in dateKeys
+        return sourceDateKey == null || sourceDateKey == dateKey
     }
 
     private fun scheduleAlarm(schedule: AutoButtonScheduleEntity, action: String, triggerAt: Long) {

@@ -34,7 +34,7 @@ class AutoButtonScheduleRepository(context: Context) {
             val skippedIds = skipDates.map { it.scheduleId }.toSet()
             schedules
                 .map { it.toModel(isSkippedToday = it.scheduleId in skippedIds) }
-                .filter { it.source != SOURCE_CALENDAR || it.sourceDateKey == null || it.sourceDateKey == dateKey }
+                .filter { it.isVisibleFromDate(dateKey) }
         }
     }
 
@@ -135,7 +135,15 @@ class AutoButtonScheduleRepository(context: Context) {
     }
 
     private fun AutoButtonSchedule.isValidForDate(dateKey: Long): Boolean {
-        return source != SOURCE_CALENDAR || sourceDateKey == null || sourceDateKey == dateKey
+        if (source != SOURCE_CALENDAR) return true
+        if (sourceDateKeys.isNotEmpty()) return dateKey in sourceDateKeys
+        return sourceDateKey == null || sourceDateKey == dateKey
+    }
+
+    private fun AutoButtonSchedule.isVisibleFromDate(dateKey: Long): Boolean {
+        if (source != SOURCE_CALENDAR) return true
+        if (sourceDateKeys.isNotEmpty()) return sourceDateKeys.any { it >= dateKey }
+        return sourceDateKey == null || sourceDateKey >= dateKey
     }
 
     companion object {
