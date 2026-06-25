@@ -6136,11 +6136,13 @@ private fun AutoButtonManagerSheet(
     var confirmDeleteId by remember { mutableStateOf<String?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val selectedDaySchedules = remember(schedules, selectedDay) {
-        val isToday = selectedDay == currentDayOfWeek()
         schedules
             .filter { selectedDay in it.repeatDays }
-            .filter { !isToday || !it.isSkippedToday }
             .sortedWith(compareBy<AutoButtonSchedule> { it.startMinuteOfDay }.thenBy { it.title })
+    }
+    val timetableSchedules = remember(selectedDaySchedules, selectedDay) {
+        val isToday = selectedDay == currentDayOfWeek()
+        if (isToday) selectedDaySchedules.filter { !it.isSkippedToday } else selectedDaySchedules
     }
     val blockUpwardOverscroll = remember {
         object : NestedScrollConnection {
@@ -6211,7 +6213,7 @@ private fun AutoButtonManagerSheet(
                 )
                 DayRoutineTimetable(
                     selectedDay = selectedDay,
-                    schedules = selectedDaySchedules,
+                    schedules = timetableSchedules,
                     onScheduleClick = { actionSchedule = it }
                 )
                 if (calendarPetites.isNotEmpty()) {
