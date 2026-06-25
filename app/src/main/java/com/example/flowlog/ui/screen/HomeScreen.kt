@@ -186,7 +186,6 @@ import com.example.flowlog.ui.viewmodel.FlowActivityRecommendation
 import com.example.flowlog.ui.viewmodel.TimerDisplayState
 import com.example.flowlog.ui.viewmodel.AnalyticsState
 import com.example.flowlog.ui.viewmodel.CategoryStat
-import com.example.flowlog.ui.viewmodel.TrendPoint
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -4417,106 +4416,6 @@ private fun formatDurationWithoutSeconds(durationMillis: Long): String {
     }
 }
 
-@Composable
-private fun TrendBars(points: List<TrendPoint>, stats: List<CategoryStat>) {
-    val visiblePoints = remember(points) {
-        if (points.size > 14) {
-            points.filterIndexed { index, _ -> index % 3 == 0 || index == points.lastIndex }
-        } else {
-            points
-        }
-    }
-    val categories = remember(visiblePoints, stats) {
-        val statMap = stats.associate { it.category to it.averageMillis }
-        visiblePoints
-            .flatMap { it.categoryMillis.keys }
-            .distinct()
-            .sortedBy { statMap[it] ?: 0L }
-    }
-    val maxMillis = remember(visiblePoints) {
-        visiblePoints.maxOfOrNull { it.totalMillis }?.coerceAtLeast(1L) ?: 1L
-    }
-
-    if (categories.isEmpty()) {
-        Text("아직 추세 데이터가 없습니다.", fontSize = 12.sp, color = FlowMuted)
-        return
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(108.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.Bottom
-    ) {
-        visiblePoints.forEach { point ->
-            val totalHeight = ((point.totalMillis.toFloat() / maxMillis.toFloat()) * 66f)
-                .coerceAtLeast(if (point.totalMillis > 0L) 3f else 0f)
-                .dp
-            Column(
-                modifier = Modifier.weight(1f),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Bottom
-            ) {
-                Column(
-                    modifier = Modifier
-                        .width(14.dp)
-                        .height(totalHeight),
-                    verticalArrangement = Arrangement.Bottom
-                ) {
-                    categories.forEach { category ->
-                        val categoryMillis = point.categoryMillis[category] ?: 0L
-                        if (categoryMillis > 0L && point.totalMillis > 0L) {
-                            val segmentHeight = ((totalHeight.value * categoryMillis.toFloat()) / point.totalMillis.toFloat())
-                                .coerceAtLeast(2f)
-                                .dp
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(segmentHeight)
-                                    .background(categoryColor(category))
-                            )
-                        }
-                    }
-                }
-                Text(point.label, fontSize = 9.sp, color = FlowMuted, maxLines = 1)
-            }
-        }
-    }
-
-    CategoryLegend(categories)
-}
-
-@Composable
-private fun CategoryLegend(categories: List<String>) {
-    LazyRow(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        items(
-            items = categories,
-            key = { category -> category }
-        ) { category ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .width(8.dp)
-                        .height(8.dp)
-                        .background(categoryColor(category), shape = MaterialTheme.shapes.small)
-                )
-                Text(
-                    text = displayCategory(category),
-                    fontSize = 11.sp,
-                    color = FlowMuted,
-                    modifier = Modifier.padding(start = 4.dp)
-                )
-            }
-        }
-    }
-}
-
 private sealed class TimelineBlock {
     data class ActualActivity(val segment: DisplayActivitySegment) : TimelineBlock()
     data class ScheduledAutoButton(val block: ScheduledAutoButtonBlock) : TimelineBlock()
@@ -6237,8 +6136,10 @@ private fun AutoButtonManagerSheet(
     var confirmDeleteId by remember { mutableStateOf<String?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val selectedDaySchedules = remember(schedules, selectedDay) {
+        val isToday = selectedDay == currentDayOfWeek()
         schedules
             .filter { selectedDay in it.repeatDays }
+            .filter { !isToday || !it.isSkippedToday }
             .sortedWith(compareBy<AutoButtonSchedule> { it.startMinuteOfDay }.thenBy { it.title })
     }
     val blockUpwardOverscroll = remember {

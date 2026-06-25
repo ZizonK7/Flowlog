@@ -98,6 +98,12 @@ interface AutoButtonScheduleDao {
 
     @Query("""
         SELECT * FROM auto_button_skip_dates
+        WHERE dateKey >= :fromDateKey AND dateKey <= :toDateKey
+    """)
+    fun observeSkipDatesInRange(fromDateKey: Long, toDateKey: Long): Flow<List<AutoButtonSkipDateEntity>>
+
+    @Query("""
+        SELECT * FROM auto_button_skip_dates
         WHERE scheduleId = :scheduleId
           AND dateKey = :dateKey
         LIMIT 1
