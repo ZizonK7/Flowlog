@@ -38,6 +38,9 @@ interface AutoButtonScheduleDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertCalendarSchedule(schedule: AutoButtonScheduleEntity)
 
+    @Query("SELECT * FROM auto_button_schedules WHERE userId = :userId AND source = 'CALENDAR' AND isDeleted = 0")
+    suspend fun getCalendarSchedulesForUser(userId: String): List<AutoButtonScheduleEntity>
+
     @Query("DELETE FROM auto_button_schedules WHERE userId = :userId AND source = 'CALENDAR'")
     suspend fun deleteCalendarSourcedForUser(userId: String)
 

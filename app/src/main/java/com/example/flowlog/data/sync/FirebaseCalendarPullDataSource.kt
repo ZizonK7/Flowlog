@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.room.withTransaction
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.local.entity.AutoButtonScheduleEntity
+import com.example.flowlog.data.local.entity.AutoButtonSkipDateEntity
 import com.example.flowlog.data.local.entity.CalendarEventEntity
 import com.example.flowlog.data.local.entity.LectureCalendarInfoEntity
 import com.example.flowlog.data.local.entity.TodoEntity
@@ -295,8 +296,25 @@ class FirebaseCalendarPullDataSource(context: Context) {
             }
 
         runCatching {
+            val todayMs = dateKey(System.currentTimeMillis())
+            val existingDateKeysMap = scheduleDao.getCalendarSchedulesForUser(userId)
+                .associate { it.scheduleId to it.sourceDateKeysCsv.split(",").mapNotNull { v -> v.trim().toLongOrNull() }.toSet() }
+
             scheduleDao.deleteCalendarSourcedForUser(userId)
             schedules.forEach { schedule -> scheduleDao.upsertCalendarSchedule(schedule) }
+
+            schedules.forEach { newSchedule ->
+                val oldDateKeys = existingDateKeysMap[newSchedule.scheduleId] ?: emptySet()
+                val newDateKeys = newSchedule.sourceDateKeysCsv.split(",").mapNotNull { it.trim().toLongOrNull() }.toSet()
+                (oldDateKeys - newDateKeys).filter { it >= todayMs }.forEach { removedDate ->
+                    scheduleDao.insertSkipDate(AutoButtonSkipDateEntity(
+                        id = "${newSchedule.scheduleId}:$removedDate",
+                        scheduleId = newSchedule.scheduleId,
+                        dateKey = removedDate
+                    ))
+                }
+            }
+
             autoButtonScheduler.rescheduleAll()
         }.onFailure { e ->
             Log.w(TAG, "Calendar fixed routine sync failed: ${e.message}", e)
