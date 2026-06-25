@@ -241,6 +241,7 @@ class ActivityViewModel(
     private var lastFlowRecommendationSignature: String? = null
     private var activeFlowRecommendationId: String? = null
     private var lastLoggedFlowRecommendationId: String? = null
+    private var undoInProgress = false
     private val firestoreSyncRepository = FirestoreSyncRepository()
     private val undoPreferences = appContext.getSharedPreferences(
         PREFS_ACTIVITY_UNDO,
@@ -1163,39 +1164,48 @@ class ActivityViewModel(
     fun deleteActivity(activity: ActivitySession) {
         viewModelScope.launch {
             repository.deleteActivity(activity)
+            activity.linkedTodoId?.let { todoId ->
+                todoRepository.addAccumulatedSeconds(todoId, -activity.durationMillis / 1000L)
+            }
+            rememberLastAddedActivity(activity)
         }
     }
 
     fun undoLastAddedActivity() {
+        if (undoInProgress) return
         val lastAddedActivity = _uiState.value.lastAddedActivity ?: return
-
+        undoInProgress = true
         viewModelScope.launch {
-            val existingActivity = repository.getActivityById(lastAddedActivity.id)
-            if (existingActivity != null) {
-                repository.deleteActivity(existingActivity)
-                existingActivity.linkedTodoId?.let { todoId ->
-                    todoRepository.addAccumulatedSeconds(todoId, -existingActivity.durationMillis / 1000L)
-                }
-                _uiState.update {
-                    it.copy(
-                        pendingSavedActivity = null,
-                        statusMessage = "최근 추가한 활동을 삭제했습니다."
+            try {
+                val existingActivity = repository.getActivityById(lastAddedActivity.id)
+                if (existingActivity != null) {
+                    repository.deleteActivity(existingActivity)
+                    existingActivity.linkedTodoId?.let { todoId ->
+                        todoRepository.addAccumulatedSeconds(todoId, -existingActivity.durationMillis / 1000L)
+                    }
+                    _uiState.update {
+                        it.copy(
+                            pendingSavedActivity = null,
+                            statusMessage = "최근 추가한 활동을 삭제했습니다."
+                        )
+                    }
+                } else {
+                    val restoreDraft = lastAddedActivity.copy(
+                        id = 0L,
+                        modifiedTime = System.currentTimeMillis()
                     )
+                    val restoredId = repository.insertActivity(restoreDraft)
+                    val restoredActivity = restoreDraft.copy(id = restoredId)
+                    restoredActivity.linkedTodoId?.let { todoId ->
+                        todoRepository.addAccumulatedSeconds(todoId, restoredActivity.durationMillis / 1000L)
+                    }
+                    rememberLastAddedActivity(restoredActivity)
+                    _uiState.update {
+                        it.copy(statusMessage = "삭제된 최근 활동을 다시 불러왔습니다.")
+                    }
                 }
-            } else {
-                val restoreDraft = lastAddedActivity.copy(
-                    id = 0L,
-                    modifiedTime = System.currentTimeMillis()
-                )
-                val restoredId = repository.insertActivity(restoreDraft)
-                val restoredActivity = restoreDraft.copy(id = restoredId)
-                restoredActivity.linkedTodoId?.let { todoId ->
-                    todoRepository.addAccumulatedSeconds(todoId, restoredActivity.durationMillis / 1000L)
-                }
-                rememberLastAddedActivity(restoredActivity)
-                _uiState.update {
-                    it.copy(statusMessage = "삭제된 최근 활동을 다시 불러왔습니다.")
-                }
+            } finally {
+                undoInProgress = false
             }
         }
     }
