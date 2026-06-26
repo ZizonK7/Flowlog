@@ -11,6 +11,7 @@ import com.example.flowlog.data.agent.OrganizedPetite
 import com.example.flowlog.data.local.entity.DailyGoalItemEntity
 import com.example.flowlog.data.local.entity.DailyGoalRecommendationEntity
 import com.example.flowlog.data.local.entity.OrganizedPetiteEntity
+import com.example.flowlog.data.local.entity.TodoEntity
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.RecommendedTodoBlock
 import com.example.flowlog.data.model.TodoCategory
@@ -141,9 +142,13 @@ class DailyGoalRepository(context: Context) {
                 .map { it.todoId }
                 .toSet()
             val calendarPetitesById = calendarPetites.associateBy { "calendar_petite_${it.id}" }
+            val calendarTodosById = todos
+                .filter { it.calendarSourceId != null }
+                .associateBy { "calendar_petite_${it.calendarSourceId}" }
             items.mapNotNull { item ->
                 val block = if (item.todoId.startsWith("calendar_petite_")) {
-                    item.toRecommendedBlockFromPetite(calendarPetitesById[item.todoId])
+                    calendarTodosById[item.todoId]?.let { item.toRecommendedBlockFromCalendarTodo(it) }
+                        ?: item.toRecommendedBlockFromPetite(calendarPetitesById[item.todoId])
                 } else {
                     item.toRecommendedBlock()
                 }
@@ -409,7 +414,7 @@ class DailyGoalRepository(context: Context) {
                     itemId = newItemId,
                     recommendationId = block.recommendationId,
                     userId = userId,
-                    todoId = "legacy_todo_${newTodo.id}",
+                    todoId = newTodo.dailyGoalTodoKey(),
                     rank = inheritedRank,
                     reason = RecommendationReason.USER_REPLACED,
                     todoSnapshotJson = runCatching { json.encodeToString(newTodo) }.getOrNull(),
@@ -441,7 +446,7 @@ class DailyGoalRepository(context: Context) {
                         oldItemId = block.itemId,
                         newItemId = newItemId,
                         oldTodoId = "legacy_todo_${block.todoId}",
-                        newTodoId = "legacy_todo_${newTodo.id}",
+                        newTodoId = newTodo.dailyGoalTodoKey(),
                         oldTitle = block.title,
                         newTitle = newTodo.title,
                         oldRank = oldItem?.rank,
@@ -762,6 +767,33 @@ class DailyGoalRepository(context: Context) {
         )
     }
 
+    private fun DailyGoalItemEntity.toRecommendedBlockFromCalendarTodo(
+        todoEntity: TodoEntity
+    ): RecommendedTodoBlock? {
+        val start = plannedStartMillis ?: return null
+        val end = plannedEndMillis ?: return null
+        val parsedCategory = runCatching {
+            TodoCategory.valueOf(todoEntity.category)
+        }.getOrDefault(TodoCategory.NORMAL)
+        return RecommendedTodoBlock(
+            itemId = itemId,
+            recommendationId = recommendationId,
+            todoId = todoEntity.legacyId ?: 0L,
+            petiteId = null,
+            title = todoEntity.title,
+            category = parsedCategory,
+            selectedDate = todoEntity.selectedDate,
+            burdenLevel = burdenLevel ?: burdenLevel(this),
+            reason = reason,
+            plannedStartMillis = start,
+            plannedEndMillis = end,
+            recommendedDurationMinutes = recommendedDurationMinutes ?: ((end - start) / 60_000L).toInt().coerceAtLeast(1),
+            userActionStatus = userActionStatus,
+            notificationScheduledAtMillis = notificationScheduledAtMillis,
+            calendarSourceId = todoEntity.calendarSourceId
+        )
+    }
+
     private fun DailyGoalItemEntity.toRecommendedBlockFromPetite(
         petiteEntity: OrganizedPetiteEntity?
     ): RecommendedTodoBlock? {
@@ -791,6 +823,10 @@ class DailyGoalRepository(context: Context) {
 
     private fun DailyGoalItemEntity.displayTitle(): String {
         return decodedTodoSnapshot()?.title ?: todoId.removePrefix("legacy_todo_")
+    }
+
+    private fun TodoItem.dailyGoalTodoKey(): String {
+        return calendarSourceId?.let { "calendar_petite_$it" } ?: "legacy_todo_$id"
     }
 
     private fun DailyGoalItemEntity.decodedTodoSnapshot(): TodoItem? {

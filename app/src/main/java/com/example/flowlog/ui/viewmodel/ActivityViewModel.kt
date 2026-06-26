@@ -24,6 +24,7 @@ import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.data.recommendation.FlowRecommendationDecision
 import com.example.flowlog.data.recommendation.FlowRecommendationEngine
 import com.example.flowlog.data.recommendation.FlowRecommendationSource
+import com.example.flowlog.data.recommendation.ReviewRecommendationPolicy
 import com.example.flowlog.data.recommendation.TimetableProgress
 import com.example.flowlog.data.constants.EntityType
 import com.example.flowlog.data.constants.EventSource
@@ -161,6 +162,7 @@ data class ActivityUiState(
     val todayCalendarPetites: List<OrganizedPetiteEntity> = emptyList(),
     val recommendedTodoBlocks: List<RecommendedTodoBlock> = emptyList(),
     val incompleteTodos: List<TodoItem> = emptyList(),
+    val recommendedTodoCandidates: List<TodoItem> = emptyList(),
     val isFocusModeActive: Boolean = false,
     val focusModeEndsAtMillis: Long = 0L,
     val isRoutineActive: Boolean = false,
@@ -274,6 +276,7 @@ class ActivityViewModel(
         observeTodayCalendarAutoStartPetites()
         observeRecommendedTodoBlocks()
         observeIncompleteTodos()
+        observeRecommendedTodoCandidates()
         watchActiveSessionStore()
         observeFlowRecommendation()
     }
@@ -1660,6 +1663,39 @@ class ActivityViewModel(
         }
     }
 
+    private fun observeRecommendedTodoCandidates() {
+        viewModelScope.launch {
+            todoRepository.getAllTodos().collect { todos ->
+                _uiState.update {
+                    it.copy(recommendedTodoCandidates = todos.filter(::isRecommendedTodoCandidate))
+                }
+            }
+        }
+    }
+
+    private fun isRecommendedTodoCandidate(todo: TodoItem): Boolean {
+        if (todo.category == TodoCategory.TODAY || todo.category == TodoCategory.UNIVERSITY_EXAM) return false
+        if (todo.isCompleted && !(todo.category == TodoCategory.REVIEW && todo.reviewStage == 1)) return false
+
+        val todayStart = startOfDayMillis(System.currentTimeMillis())
+        return when (todo.category) {
+            TodoCategory.NORMAL -> true
+            TodoCategory.REVIEW -> ReviewRecommendationPolicy.eligibility(todo, todayStart) != null
+            TodoCategory.ASSIGNMENT -> {
+                val dueDay = todo.selectedDate?.let(::startOfDayMillis) ?: return false
+                daysDiff(todayStart, dueDay) in setOf(0L, 1L, 7L)
+            }
+            TodoCategory.TODAY,
+            TodoCategory.UNIVERSITY_EXAM -> false
+        }
+    }
+
+    private fun startOfDayMillis(millis: Long): Long {
+        return startOfDay(Calendar.getInstance().apply { timeInMillis = millis }).timeInMillis
+    }
+
+    private fun daysDiff(fromMs: Long, toMs: Long): Long = (toMs - fromMs) / DAY_MILLIS
+
     fun startExamStudyActivity(todoId: Long, subjectTitle: String, dValue: Int) {
         if (_uiState.value.isRunning) return
         val dLabel = if (dValue == 0) "D-Day" else "D-$dValue"
@@ -2706,6 +2742,7 @@ class ActivityViewModel(
         private const val KEY_SNACK_BUTTON_TIMER_ENDS_AT = "snack_button_timer_ends_at"
         private val undoJson = Json { ignoreUnknownKeys = true }
         private const val KEY_SLEEP_RECORD_2026_05_19 = "sleep_record_2026_05_19_212957"
+        private const val DAY_MILLIS = 24L * 60L * 60L * 1000L
         private val DEFAULT_SCHOOL_COMPANY_GOAL_MILLIS = TimeUnit.HOURS.toMillis(10)
         private val SEVENTY_FIVE_MINUTE_GOAL_MILLIS = TimeUnit.MINUTES.toMillis(75)
         private val IMMEDIATE_SYNC_ACTIVITY_DURATION_MILLIS = TimeUnit.MINUTES.toMillis(10)

@@ -650,7 +650,7 @@ fun HomeScreen(
                 activities = if (isDeveloperMode) SampleTimetableData.activitiesForIndex(samplePresetIndex) else uiState.todayActivities,
                 scheduledBlocks = if (isDeveloperMode) emptyList() else uiState.scheduledAutoButtonBlocks,
                 recommendedBlocks = if (isDeveloperMode) emptyList() else uiState.recommendedTodoBlocks,
-                incompleteTodos = if (isDeveloperMode) emptyList() else uiState.incompleteTodos,
+                incompleteTodos = if (isDeveloperMode) emptyList() else uiState.recommendedTodoCandidates,
                 activeCategory = uiState.currentCategory.takeIf { uiState.isRunning },
                 allActivities = if (isDeveloperMode) emptyList() else uiState.allActivities,
                 timerStartMillis = if (!isDeveloperMode && uiState.isRunning) uiState.startTime else null,
@@ -4634,9 +4634,14 @@ private fun TimetableCard(
     }
 
     selectedRecommendedBlock?.let { block ->
+        val alreadyRecommendedKeys = recommendedBlocks
+            .asSequence()
+            .filter { it.itemId != block.itemId }
+            .map { it.replacementKey() }
+            .toSet()
         RecommendedTodoActionSheet(
             block = block,
-            incompleteTodos = incompleteTodos,
+            incompleteTodos = incompleteTodos.filter { it.replacementKey() !in alreadyRecommendedKeys },
             onDismiss = { selectedRecommendedBlock = null },
             onStart = {
                 onStartRecommended(block)
@@ -5023,6 +5028,16 @@ private fun combineDisplaySegments(
 
 private fun RecommendedTodoBlock.displayEndMillis(): Long {
     return plannedStartMillis + RECOMMENDED_TODO_DISPLAY_DURATION_MILLIS
+}
+
+private fun RecommendedTodoBlock.replacementKey(): String {
+    return calendarSourceId?.let { "calendar_petite_$it" }
+        ?: petiteId?.let { "calendar_petite_$it" }
+        ?: "legacy_todo_$todoId"
+}
+
+private fun TodoItem.replacementKey(): String {
+    return calendarSourceId?.let { "calendar_petite_$it" } ?: "legacy_todo_$id"
 }
 
 private fun displayTitleForMergedSegment(
@@ -5745,8 +5760,9 @@ private fun RecommendedTodoActionSheet(
                 }
             }
             "CHANGE_ITEM" -> {
-                val selectableTodos = remember(incompleteTodos, block.todoId) {
-                    incompleteTodos.filter { it.id != block.todoId }
+                val currentKey = remember(block) { block.replacementKey() }
+                val selectableTodos = remember(incompleteTodos, currentKey) {
+                    incompleteTodos.filter { it.replacementKey() != currentKey }
                 }
                 Column(
                     modifier = Modifier
