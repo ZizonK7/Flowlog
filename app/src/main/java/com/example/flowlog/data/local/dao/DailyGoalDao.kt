@@ -441,4 +441,5 @@ interface DailyGoalDao {
             AND userActionStatus IN ('PLANNED', 'RESCHEDULED')
     """)
     suspend fun dismissItemsByTodoId(todoId: String, updatedAt: Long)
+
 }
