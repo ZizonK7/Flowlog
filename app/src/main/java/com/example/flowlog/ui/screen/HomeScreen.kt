@@ -2900,8 +2900,6 @@ private fun FlowStartPage(
                         color = FlowPurple
                     )
                 }
-            } else {
-                FlowPageDots(activePage = 1)
             }
         }
 
@@ -3725,6 +3723,13 @@ private fun RecentRecordRow(
     val startTimeText = timeFormat.format(Date(activity.startTime))
     val endTimeText = timeFormat.format(Date(activity.endTime))
     val durationMinutes = TimeUnit.MILLISECONDS.toMinutes(activity.durationMillis).coerceAtLeast(1L)
+    val durationText = if (durationMinutes >= 60) {
+        val h = durationMinutes / 60
+        val m = durationMinutes % 60
+        if (m == 0L) "${h}시간" else "${h}시간 ${m}분"
+    } else {
+        "${durationMinutes}분"
+    }
     val categoryColor = categoryColor(activity.category)
 
     Row(
@@ -3766,7 +3771,7 @@ private fun RecentRecordRow(
                 modifier = Modifier.padding(top = 2.dp)
             )
             Text(
-                text = "${durationMinutes}\uBD84",
+                text = durationText,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = FlowMuted,

@@ -159,7 +159,7 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                     builder
                         .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
                         .setSound(KakaoStyleAlertPlayer.soundUri(context))
-                        .setVibrate(longArrayOf(0L, 400L, 200L, 400L))
+                        .setVibrate(FlowlogVibrationPatterns.alert())
                 }
 
                 notifySafely(context, notificationId, builder.build())

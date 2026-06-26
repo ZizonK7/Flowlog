@@ -9,6 +9,7 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
+import android.os.VibrationEffect
 import com.example.flowlog.MainActivity
 import com.example.flowlog.data.model.ActivitySession
 
@@ -44,8 +45,18 @@ class ReminderScheduler(private val context: Context) {
                     KakaoStyleAlertPlayer.audioAttributes()
                 )
                 enableVibration(true)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                    setVibrationEffect(
+                        VibrationEffect.createWaveform(
+                            FlowlogVibrationPatterns.alert(),
+                            FlowlogVibrationPatterns.alertAmplitudes(),
+                            -1
+                        )
+                    )
+                } else {
+                    setVibrationPattern(FlowlogVibrationPatterns.alert())
+                }
             }
-
             val notificationManager =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(legacyChannel)

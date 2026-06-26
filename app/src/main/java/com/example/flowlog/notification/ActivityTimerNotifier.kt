@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -175,7 +176,7 @@ class ActivityTimerNotifier(private val context: Context) {
             .setTimeoutAfter(ALERT_NOTIFICATION_TIMEOUT_MILLIS * 10)
             .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
             .setSound(KakaoStyleAlertPlayer.soundUri(context))
-            .setVibrate(longArrayOf(0L, 500L, 250L, 500L))
+            .setVibrate(FlowlogVibrationPatterns.alert())
 
         notifySafely(FOCUS_MODE_END_NOTIFICATION_ID, builder.build())
     }
@@ -209,7 +210,7 @@ class ActivityTimerNotifier(private val context: Context) {
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
-            .setTimeoutAfter(ALERT_NOTIFICATION_TIMEOUT_MILLIS)
+            .setTimeoutAfter(ALERT_NOTIFICATION_TIMEOUT_MILLIS * 3)
 
         if (shouldSilence) {
             builder.setSilent(true).setDefaults(0).setVibrate(null).setSound(null)
@@ -217,7 +218,7 @@ class ActivityTimerNotifier(private val context: Context) {
             builder
                 .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
                 .setSound(KakaoStyleAlertPlayer.soundUri(context))
-                .setVibrate(longArrayOf(0L, 500L, 250L, 500L))
+                .setVibrate(FlowlogVibrationPatterns.alert())
         }
 
         notifySafely(ROUTINE_GOAL_NOTIFICATION_ID, builder.build())
@@ -442,6 +443,17 @@ class ActivityTimerNotifier(private val context: Context) {
                 KakaoStyleAlertPlayer.audioAttributes()
             )
             enableVibration(true)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                setVibrationEffect(
+                    VibrationEffect.createWaveform(
+                        FlowlogVibrationPatterns.alert(),
+                        FlowlogVibrationPatterns.alertAmplitudes(),
+                        -1
+                    )
+                )
+            } else {
+                setVibrationPattern(FlowlogVibrationPatterns.alert())
+            }
         }
 
         val notificationManager =
