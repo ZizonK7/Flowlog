@@ -1904,10 +1904,12 @@ private fun RoutineDurationPickerSheet(
 private fun formatCueDuration(durationMillis: Long): String {
     val hours = TimeUnit.MILLISECONDS.toHours(durationMillis)
     val minutes = TimeUnit.MILLISECONDS.toMinutes(durationMillis) % 60
+    val seconds = TimeUnit.MILLISECONDS.toSeconds(durationMillis) % 60
     return when {
         hours > 0 && minutes > 0 -> "${hours}시간 ${minutes}분"
         hours > 0 -> "${hours}시간"
         minutes > 0 -> "${minutes}분"
+        seconds > 0 -> "${seconds}초"
         else -> "No timer"
     }
 }

@@ -424,7 +424,7 @@ class MainActivity : ComponentActivity() {
                                     viewModel = todoViewModel,
                                     isDeveloperMode = isDeveloperMode,
                                     onStartTodo = { todo ->
-                                        activityViewModel.startTodoActivity(todo.id, todo.title)
+                                        activityViewModel.startTodoActivity(todo.id, todo.title, todo.calendarSourceId)
                                         showHomeMainTimer()
                                     },
                                     onStartDailyCueRoutine = { cueId, title, goalMillis, category ->

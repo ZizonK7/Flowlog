@@ -656,7 +656,7 @@ class ActivityViewModel(
         )
     }
 
-    fun startTodoActivity(todoId: Long, title: String) {
+    fun startTodoActivity(todoId: Long, title: String, calendarSourceId: String? = null) {
         if (_uiState.value.isRunning) return
 
         val startTime = System.currentTimeMillis()
@@ -671,7 +671,7 @@ class ActivityViewModel(
                 currentCategory = "TODO",
                 startTime = startTime,
                 linkedTodoId = todoId,
-                linkedPetiteId = null,
+                linkedPetiteId = calendarSourceId,
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = null,
                 pendingTitle = title,
@@ -685,6 +685,7 @@ class ActivityViewModel(
             startTime = startTime,
             goalMillis = goalMillis,
             linkedTodoId = todoId,
+            linkedPetiteId = calendarSourceId,
             linkedTodoTitle = title
         )
         activityTimerNotifier.showRunningTimer("TODO", startTime)
@@ -819,7 +820,7 @@ class ActivityViewModel(
             }
             FlowRecommendationSource.TODAY_TODO -> {
                 val todo = recommendation.todayTodo ?: return
-                startTodoActivity(todo.id, todo.title)
+                startTodoActivity(todo.id, todo.title, todo.calendarSourceId)
                 viewModelScope.launch {
                     logFlowRecommendationEvent(EventType.FLOW_RECOMMENDATION_STARTED, recommendation)
                 }
