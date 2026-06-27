@@ -575,6 +575,9 @@ fun HomeScreen(
                 onStop = { title, note, sets ->
                     viewModel.stopActivityAndSave(title, note, sets)
                 },
+                onStopAndComplete = { title, note, sets ->
+                    viewModel.stopActivityAndSave(title, note, sets, markLinkedAsComplete = true)
+                },
                 onApplyTitle = { title ->
                     viewModel.setRunningActivityTitle(title)
                 },
@@ -594,6 +597,9 @@ fun HomeScreen(
                 isFocusFireActive = isFocusFireActive,
                 isRoutineActive = uiState.isRoutineActive,
                 routineGoalMillis = uiState.routineGoalMillis,
+                linkedTodoId = uiState.linkedTodoId,
+                linkedPetiteId = uiState.linkedPetiteId,
+                dailyCueId = uiState.dailyCueId,
                 isMainButtonReorderMode = uiState.isMainButtonReorderMode,
                 selectedMainButtonForSwapId = uiState.selectedMainButtonForSwapId,
                 onExitReorderMode = { viewModel.exitMainButtonReorderMode() },
@@ -861,6 +867,7 @@ private fun TodayFlowCard(
     onPinQuickCategory: (String) -> Unit,
     pinnedQuickCategory: String?,
     onStop: (String, String?, List<ExerciseSetRecord>) -> Unit,
+    onStopAndComplete: (String, String?, List<ExerciseSetRecord>) -> Unit = onStop,
     onApplyTitle: (String) -> Unit,
     onStart: (String) -> Unit,
     exerciseSets: List<ExerciseSetRecord> = emptyList(),
@@ -874,6 +881,9 @@ private fun TodayFlowCard(
     isFocusFireActive: Boolean = false,
     isRoutineActive: Boolean = false,
     routineGoalMillis: Long = 0L,
+    linkedTodoId: Long? = null,
+    linkedPetiteId: String? = null,
+    dailyCueId: Long? = null,
     isMainButtonReorderMode: Boolean = false,
     selectedMainButtonForSwapId: String? = null,
     onExitReorderMode: () -> Unit = {},
@@ -928,6 +938,7 @@ private fun TodayFlowCard(
                     initialAppliedTitle = appliedTitle,
                     titleSuggestions = titleSuggestions,
                     onStop = onStop,
+                    onStopAndComplete = onStopAndComplete,
                     onApplyTitle = onApplyTitle,
                     exerciseSets = exerciseSets,
                     exerciseMemo = exerciseMemo,
@@ -939,7 +950,10 @@ private fun TodayFlowCard(
                     onStopFocusMode = onStopFocusMode,
                     isFocusFireActive = isFocusFireActive,
                     isRoutineActive = isRoutineActive,
-                    routineGoalMillis = routineGoalMillis
+                    routineGoalMillis = routineGoalMillis,
+                    linkedTodoId = linkedTodoId,
+                    linkedPetiteId = linkedPetiteId,
+                    dailyCueId = dailyCueId
                 )
             } else if (showMainButtonSetup) {
                 MainButtonSetupPage(onComplete = onCompleteSetup)
@@ -972,6 +986,7 @@ private fun TimerPage(
     initialAppliedTitle: String,
     titleSuggestions: List<String>,
     onStop: (String, String?, List<ExerciseSetRecord>) -> Unit,
+    onStopAndComplete: (String, String?, List<ExerciseSetRecord>) -> Unit = onStop,
     onApplyTitle: (String) -> Unit,
     exerciseSets: List<ExerciseSetRecord> = emptyList(),
     exerciseMemo: String = "",
@@ -983,7 +998,10 @@ private fun TimerPage(
     onStopFocusMode: () -> Unit = {},
     isFocusFireActive: Boolean = false,
     isRoutineActive: Boolean = false,
-    routineGoalMillis: Long = 0L
+    routineGoalMillis: Long = 0L,
+    linkedTodoId: Long? = null,
+    linkedPetiteId: String? = null,
+    dailyCueId: Long? = null
 ) {
     val titleState = remember(currentCategory, startTime) { mutableStateOf("") }
     val appliedTitleState = remember(currentCategory, startTime) { mutableStateOf(initialAppliedTitle) }
@@ -1034,7 +1052,11 @@ private fun TimerPage(
             routineGoalMillis = routineGoalMillis,
             isRoutineActive = isRoutineActive,
             isFocusFireActive = isFocusFireActive,
-            appliedTitle = appliedTitleState.value
+            appliedTitle = appliedTitleState.value,
+            title = titleState.value,
+            onApplyTitle = onApplyTitle,
+            onStop = onStop,
+            onShowExerciseSummary = { showExerciseSummaryDialog.value = true }
         )
 
         Spacer(modifier = Modifier.height(22.dp))
@@ -1122,10 +1144,15 @@ private fun TimerPage(
         StopActionSection(
             currentCategory = currentCategory,
             isFocusFireActive = isFocusFireActive,
+            isRoutineActive = isRoutineActive,
+            linkedTodoId = linkedTodoId,
+            linkedPetiteId = linkedPetiteId,
+            dailyCueId = dailyCueId,
             title = titleState.value,
             appliedTitle = appliedTitleState.value,
             onApplyTitle = onApplyTitle,
             onStop = onStop,
+            onStopAndComplete = onStopAndComplete,
             onShowExerciseSummary = { showExerciseSummaryDialog.value = true }
         )
     }
@@ -1184,7 +1211,11 @@ private fun TimerRingSection(
     routineGoalMillis: Long,
     isRoutineActive: Boolean,
     isFocusFireActive: Boolean,
-    appliedTitle: String
+    appliedTitle: String,
+    title: String,
+    onApplyTitle: (String) -> Unit,
+    onStop: (String, String?, List<ExerciseSetRecord>) -> Unit,
+    onShowExerciseSummary: () -> Unit
 ) {
     val accentColor by animateColorAsState(
         targetValue = if (isFocusFireActive) FocusFire else FlowPurple,
@@ -1210,74 +1241,104 @@ private fun TimerRingSection(
         (elapsedTime.toFloat() / progressCycleMillis.toFloat()).coerceIn(0f, 1f)
     }
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "진행 중",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = accentColor
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(top = 14.dp)
-            ) {
-                Text(
-                    text = displayCategory(currentCategory),
-                    fontSize = 27.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = accentColor
-                )
-                Spacer(Modifier.width(10.dp))
-                CategoryGlyph(
-                    category = currentCategory,
-                    tint = accentColor,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-            val formattedTime = formatTime(elapsedTime)
-            val timeFontSize = when {
-                formattedTime.length <= 5 -> 34.sp   // MM:SS
-                formattedTime.length <= 7 -> 26.sp   // H:MM:SS (1–9시간)
-                else -> 22.sp                         // HH:MM:SS (10시간+)
-            }
+    val isComplete = !isFocusFireActive && progress >= 1f
+    val isFireComplete = isFocusFireActive && progress >= 0.98f
+    val barColor = when {
+        isFireComplete -> Color(0xFF00D97E)
+        isComplete -> Color(0xFFFFCC00)
+        isFocusFireActive -> Color(0xFFFF7A2F)
+        else -> accentColor
+    }
+    val displayTitle = appliedTitle.ifBlank { displayCategory(currentCategory) }
+    val formattedTime = formatTime(elapsedTime)
+    val timeFontSize = when {
+        formattedTime.length <= 5 -> 40.sp
+        formattedTime.length <= 7 -> 32.sp
+        else -> 26.sp
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        val iconColor = categoryColor(currentCategory)
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .padding(top = 30.dp)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.CenterStart
+                    .size(36.dp)
+                    .background(iconColor.copy(alpha = 0.13f), CircleShape),
+                contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = formattedTime,
-                    fontSize = timeFontSize,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontFamily = FontFamily.Monospace,
-                    color = FlowInk,
-                    maxLines = 1,
-                    overflow = TextOverflow.Clip
+                CategoryGlyph(
+                    category = currentCategory,
+                    tint = iconColor,
+                    modifier = Modifier.size(20.dp)
                 )
             }
-            if (appliedTitle.isNotBlank()) {
-                Text(
-                    text = appliedTitle,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = FlowMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 12.dp)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = displayTitle,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = FlowInk,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(modifier = Modifier.height(14.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = formattedTime,
+                fontSize = timeFontSize,
+                fontWeight = FontWeight.ExtraBold,
+                fontFamily = FontFamily.SansSerif,
+                color = FlowInk,
+                maxLines = 1,
+                overflow = TextOverflow.Clip,
+                modifier = Modifier.weight(1f)
+            )
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(CircleShape)
+                    .background(accentColor)
+                    .clickable {
+                        val finalTitle = appliedTitle.ifBlank { title }.trim()
+                        onApplyTitle(finalTitle)
+                        if (currentCategory == "EXERCISE") {
+                            onShowExerciseSummary()
+                        } else {
+                            onStop(finalTitle, null, emptyList())
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color.White)
                 )
             }
         }
-        FlowProgressRing(
-            progress = progress,
-            isOnFire = isFocusFireActive,
-            isRunning = true,
-            modifier = Modifier.size(150.dp)
-        )
+        if (progress > 0f) {
+            Spacer(modifier = Modifier.height(18.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(7.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xFFE9E9F1))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(barColor)
+                )
+            }
+        }
     }
 }
 
@@ -1497,12 +1558,20 @@ private fun FocusBannerSection(
 private fun StopActionSection(
     currentCategory: String,
     isFocusFireActive: Boolean,
+    isRoutineActive: Boolean,
+    linkedTodoId: Long?,
+    linkedPetiteId: String?,
+    dailyCueId: Long?,
     title: String,
     appliedTitle: String,
     onApplyTitle: (String) -> Unit,
     onStop: (String, String?, List<ExerciseSetRecord>) -> Unit,
+    onStopAndComplete: (String, String?, List<ExerciseSetRecord>) -> Unit,
     onShowExerciseSummary: () -> Unit
 ) {
+    val hasLinkedCompletion = linkedTodoId != null || linkedPetiteId != null || dailyCueId != null || isRoutineActive
+    if (!hasLinkedCompletion) return
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1516,7 +1585,7 @@ private fun StopActionSection(
             if (currentCategory == "EXERCISE") {
                 onShowExerciseSummary()
             } else {
-                onStop(finalTitle, null, emptyList())
+                onStopAndComplete(finalTitle, null, emptyList())
             }
         },
         modifier = Modifier
@@ -1530,7 +1599,11 @@ private fun StopActionSection(
         contentPadding = PaddingValues(vertical = 4.dp)
     ) {
         Text(
-            text = if (currentCategory == "EXERCISE") "운동 종료하기" else "종료하기",
+            text = when {
+                currentCategory == "EXERCISE" -> "운동 완료 표시하고 종료하기"
+                dailyCueId != null -> "루틴 완료 표시하고 종료하기"
+                else -> "완료 표시하고 종료하기"
+            },
             fontSize = 17.sp,
             fontWeight = FontWeight.ExtraBold
         )

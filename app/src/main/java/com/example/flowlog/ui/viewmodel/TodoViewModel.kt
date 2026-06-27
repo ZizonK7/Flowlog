@@ -1,6 +1,7 @@
 package com.example.flowlog.ui.viewmodel
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.flowlog.data.agent.OrganizedPetite
@@ -81,6 +82,11 @@ class TodoViewModel(
     private val firestoreSyncRepository = FirestoreSyncRepository()
     private val eventLogRepository = EventLogRepository(context.applicationContext)
     private val organizedPetiteRepository = OrganizedPetiteRepository(context.applicationContext)
+    private val cuePrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "date_key" || key == "items_json") {
+            _dailyCues.value = loadDailyCues()
+        }
+    }
 
     private val _todos = MutableStateFlow<List<TodoItem>>(emptyList())
     val todos: StateFlow<List<TodoItem>> = _todos.asStateFlow()
@@ -148,15 +154,10 @@ class TodoViewModel(
             backfillDailyCueDefinitions()
             syncDailyCueDefinitions(_dailyCues.value)
         }
+        cuePrefs.registerOnSharedPreferenceChangeListener(cuePrefsListener)
         viewModelScope.launch {
             repository.getAllTodos().collect { todos ->
                 _todos.value = todos
-                val todayIncomplete = todos.filter { it.category == TodoCategory.TODAY && !it.isCompleted }
-                // _todos가 업데이트된 시점에 모든 TODAY todo의 PETITE를 등록.
-                // addTodo()보다 늦게 실행되므로 새 todo도 이 시점엔 _todos.value에 포함됨.
-                if (todayIncomplete.isNotEmpty()) {
-                    registerAllTodayTodoPetitesIfAbsent()
-                }
                 _yesterdaySuggestion.value = buildYesterdaySuggestion(todos, latestActivities)
                 if (_focusIds.value.isEmpty() && todos.isNotEmpty() &&
                     lastRecommendationDateKey != startOfDay(System.currentTimeMillis())) {
@@ -178,8 +179,11 @@ class TodoViewModel(
         }
         viewModelScope.launch {
             organizedPetiteRepository.observeActivePetites().collect { saved ->
-                _organizedPetites.value = saved
+                _organizedPetites.value = saved.filterNot { it.sourceType == PetiteSourceType.PETITE }
             }
+        }
+        viewModelScope.launch {
+            organizedPetiteRepository.deleteLocalTodoPetites()
         }
     }
 
@@ -260,34 +264,12 @@ class TodoViewModel(
                     updatedAt = System.currentTimeMillis()
                 )
             )
-            // insertTodo 완료 후 _todos flow가 먼저 업데이트되어야 새 todo가 포함됨.
-            // todos flow 업데이트는 DB observer를 통해 async하게 오므로, 여기서 즉시 호출하면
-            // _todos.value에 새 todo가 없을 수 있다. 대신 _todos collect에서 처리한다.
-            if (category == TodoCategory.TODAY) {
-                registerAllTodayTodoPetitesIfAbsent()
-            }
         }
     }
 
-    // 새 TODAY todo 추가 시 기존 TODAY todos도 함께 등록 — hasNonCalendarOrganizedPetites 전환 시
-    // 화면에서 다른 TODAY todo가 사라지지 않도록 보장한다.
-    private fun registerAllTodayTodoPetitesIfAbsent() {
-        val todayTodos = _todos.value.filter { it.category == TodoCategory.TODAY && !it.isCompleted }
-        viewModelScope.launch {
-            todayTodos.forEach { todo ->
-                runCatching {
-                    organizedPetiteRepository.addLocalTodoPetiteIfAbsent(
-                        OrganizedPetite(
-                            id = "petite_${todo.id}",
-                            title = todo.title,
-                            sourceType = PetiteSourceType.PETITE,
-                            sourceId = todo.id.toString(),
-                            priorityScore = 100
-                        )
-                    )
-                }
-            }
-        }
+    override fun onCleared() {
+        cuePrefs.unregisterOnSharedPreferenceChangeListener(cuePrefsListener)
+        super.onCleared()
     }
 
     fun completeTodo(todo: TodoItem) {
@@ -364,11 +346,6 @@ class TodoViewModel(
     fun updateTodo(todo: TodoItem) {
         viewModelScope.launch {
             repository.updateTodo(todo.copy(updatedAt = System.currentTimeMillis()))
-            // _todos collect에서 registerAllTodayTodoPetitesIfAbsent()가 이미 트리거되지만,
-            // 즉시 반영을 위해 여기서도 호출.
-            if (todo.category == TodoCategory.TODAY && !todo.isCompleted) {
-                registerAllTodayTodoPetitesIfAbsent()
-            }
         }
     }
 
@@ -433,12 +410,6 @@ class TodoViewModel(
         _organizedPetites.value = _organizedPetites.value.filterNot { it.id == item.id }
         viewModelScope.launch {
             runCatching { organizedPetiteRepository.dismiss(item) }
-            if (item.sourceType == PetiteSourceType.PETITE) {
-                item.sourceId?.toLongOrNull()?.let { todoId ->
-                    val todo = _todos.value.firstOrNull { it.id == todoId }
-                    if (todo != null) deleteTodo(todo)
-                }
-            }
         }
     }
 
@@ -458,19 +429,17 @@ class TodoViewModel(
         if (newTitle.isBlank()) return
         viewModelScope.launch {
             when (item.sourceType) {
-                PetiteSourceType.PETITE, PetiteSourceType.TODO -> {
+                PetiteSourceType.TODO -> {
                     item.sourceId?.toLongOrNull()?.let { todoId ->
                         val todo = _todos.value.firstOrNull { it.id == todoId }
                         if (todo != null) {
                             repository.updateTodo(todo.copy(title = newTitle, updatedAt = System.currentTimeMillis()))
-                            if (todo.category == TodoCategory.TODAY && !todo.isCompleted) {
-                                registerAllTodayTodoPetitesIfAbsent()
-                            }
                         }
                     }
                     organizedPetiteRepository.updateTitle(item.id, newTitle)
                     syncAllPendingChanges()
                 }
+                PetiteSourceType.PETITE -> {}
                 else -> organizedPetiteRepository.updateTitle(item.id, newTitle)
             }
         }
@@ -485,7 +454,6 @@ class TodoViewModel(
 
     fun completeOrganizedPetite(item: OrganizedPetite) {
         val previousCompletedState = when (item.sourceType) {
-            PetiteSourceType.PETITE,
             PetiteSourceType.TODO -> item.sourceId
                 ?.toLongOrNull()
                 ?.let { id -> _todos.value.firstOrNull { it.id == id } }
@@ -498,13 +466,13 @@ class TodoViewModel(
         }
         val wasHidden = false
         when (item.sourceType) {
-            PetiteSourceType.PETITE,
             PetiteSourceType.TODO -> {
                 val todo = item.sourceId?.toLongOrNull()?.let { id -> _todos.value.firstOrNull { it.id == id } }
                 if (todo != null) {
-                    if (item.sourceType == PetiteSourceType.PETITE) completeTodo(todo) else completeFocusTodo(todo)
+                    completeFocusTodo(todo)
                 }
             }
+            PetiteSourceType.PETITE -> {}
             PetiteSourceType.ROUTINE -> {
                 item.sourceId?.toLongOrNull()?.let { completeDailyCue(it) }
             }
@@ -526,7 +494,6 @@ class TodoViewModel(
     fun undoOrganizedPetiteCompletion(event: OrganizedPetiteUndoEvent) {
         val item = event.item
         when (item.sourceType) {
-            PetiteSourceType.PETITE,
             PetiteSourceType.TODO -> {
                 if (!event.previousCompletedState) {
                     item.sourceId
@@ -535,6 +502,7 @@ class TodoViewModel(
                         ?.let { uncompleteTodo(it) }
                 }
             }
+            PetiteSourceType.PETITE -> {}
             PetiteSourceType.ROUTINE -> {
                 if (!event.previousCompletedState) {
                     item.sourceId?.toLongOrNull()?.let { toggleDailyCue(it) }

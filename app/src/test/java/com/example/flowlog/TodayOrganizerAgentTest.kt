@@ -221,12 +221,11 @@ class TodayOrganizerAgentTest {
                 PetiteSourceType.TODO,
                 PetiteSourceType.TODO,
                 PetiteSourceType.TODO,
-                PetiteSourceType.ROUTINE,
-                PetiteSourceType.PETITE
+                PetiteSourceType.ROUTINE
             ),
             cards.map { it.sourceType }
         )
-        assertEquals(listOf(10, 30, 80, 90, 100), cards.map { it.priorityScore })
+        assertEquals(listOf(10, 30, 80, 90), cards.map { it.priorityScore })
     }
 
     @Test

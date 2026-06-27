@@ -214,12 +214,19 @@ fun TodoScreen(
     var editingId          by remember { mutableStateOf<String?>(null) }
     var completingId       by remember { mutableStateOf<String?>(null) }
     var isActiveExpanded   by remember { mutableStateOf(false) }
-    val visibleNormalTodos = remember(normalTodos, petitesShowAll) { if (petitesShowAll) normalTodos else normalTodos.take(4) }
-    val adminOrganizedPetites = organizedPetites
+    val adminOrganizedPetites = remember(organizedPetites) {
+        organizedPetites.filterNot { it.sourceType == PetiteSourceType.PETITE }
+    }
     val visibleOrganizedPetites = remember(adminOrganizedPetites, petitesShowAll) {
         if (petitesShowAll) adminOrganizedPetites else adminOrganizedPetites.take(4)
     }
-    val hasNonCalendarOrganizedPetites = adminOrganizedPetites.isNotEmpty()
+    val visibleNormalTodos = remember(normalTodos, visibleOrganizedPetites, petitesShowAll) {
+        if (petitesShowAll) {
+            normalTodos
+        } else {
+            normalTodos.take((4 - visibleOrganizedPetites.size).coerceAtLeast(0))
+        }
+    }
     val scope = rememberCoroutineScope()
 
     val normalSnackbarHostState = remember { SnackbarHostState() }
@@ -362,12 +369,7 @@ fun TodoScreen(
         // ── 오늘의 목표 ───────────────────────────────────────────────────────
         if (normalTodos.isNotEmpty() || adminOrganizedPetites.isNotEmpty()) {
             item(key = "focus_header") {
-                // When both sections show (CALENDAR-only + normal todos), count both for "더보기" button.
-                val petiteCount = when {
-                    hasNonCalendarOrganizedPetites -> adminOrganizedPetites.size
-                    adminOrganizedPetites.isNotEmpty() -> adminOrganizedPetites.size + normalTodos.size
-                    else -> normalTodos.size
-                }
+                val petiteCount = adminOrganizedPetites.size + normalTodos.size
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -400,8 +402,8 @@ fun TodoScreen(
                         onReorder = { fromVis, toVis ->
                             val fromId = visibleOrganizedPetites.getOrNull(fromVis)?.id ?: return@DragDropSingleColumn
                             val toId   = visibleOrganizedPetites.getOrNull(toVis)?.id  ?: return@DragDropSingleColumn
-                            val from = organizedPetites.indexOfFirst { it.id == fromId }
-                            val to   = organizedPetites.indexOfFirst { it.id == toId }
+                            val from = adminOrganizedPetites.indexOfFirst { it.id == fromId }
+                            val to   = adminOrganizedPetites.indexOfFirst { it.id == toId }
                             if (from >= 0 && to >= 0) viewModel.reorderOrganizedPetites(from, to)
                         }
                     ) { item, _, dragMod ->
@@ -459,9 +461,7 @@ fun TodoScreen(
                     }
                 }
             }
-            // Show normal todos when there are no NON-CALENDAR organized petites.
-            // A CALENDAR-only organized list must not hide the TODAY-category todos.
-            if (!hasNonCalendarOrganizedPetites) {
+            if (visibleNormalTodos.isNotEmpty()) {
                 item(key = "normal_todo_drag_block") {
                     DragDropTodoColumn(
                         items = visibleNormalTodos,

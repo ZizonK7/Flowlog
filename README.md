@@ -154,14 +154,13 @@ Google account can view the data from the pfkfks website.
     `TodoCategory.TODAY` ("오늘 할 일") as the explicit petite category; plain
     `TodoCategory.NORMAL` items remain in the full todo flow unless organizer
     rules promote a due/urgent item.
-  - Incomplete TODAY todos are mirrored into `organized_petites` as
-    `sourceType = PETITE` rows (`id = petite_{todoId}`), so they share the same
-    compact Petites card, drag ordering, start, edit, complete, delete, and undo
-    behavior as organized petite recommendations.
-  - The `organized_petites` queue can also contain `TODO`, `ROUTINE`, `EXAM`,
-    `CALENDAR`, and `STUDY_PLAN` source types. When any active organized petite
-    rows exist, the Petites section renders those cards first; the direct TODAY
-    todo-card path remains as a fallback when there are no organized petite rows.
+  - Incomplete TODAY todos render directly from the Todo list in the Petites
+    section instead of being mirrored into `organized_petites` as local
+    `PETITE` rows.
+  - The `organized_petites` queue remains only for independent organized cards
+    such as `TODO`, `ROUTINE`, `EXAM`, `CALENDAR`, and `STUDY_PLAN`. Those cards
+    share the same top section with direct TODAY todos, but no longer hide them.
+  - Legacy local `sourceType = PETITE` rows are ignored and cleaned up on load.
   - Defaults to showing up to four items; a `더보기` button expands to the full
     list when there are more than four.
   - Completing a Petites item shows a blue Snackbar with a `되돌리기` action,
