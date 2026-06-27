@@ -150,18 +150,27 @@ Google account can view the data from the pfkfks website.
     forced-switch behavior for regular timers.
 
 - Redesigned the top Todo section as **Petites**:
-  - The former `Anchors` section is renamed `Petites` and now shows only
-    `TodoCategory.NORMAL` ("오늘 할 일") items, keeping category-specific todos
-    (복습, 과제, 대학 시험) out of the top area.
+  - The former `Anchors` section is renamed `Petites`. The top section now uses
+    `TodoCategory.TODAY` ("오늘 할 일") as the explicit petite category; plain
+    `TodoCategory.NORMAL` items remain in the full todo flow unless organizer
+    rules promote a due/urgent item.
+  - Incomplete TODAY todos are mirrored into `organized_petites` as
+    `sourceType = PETITE` rows (`id = petite_{todoId}`), so they share the same
+    compact Petites card, drag ordering, start, edit, complete, delete, and undo
+    behavior as organized petite recommendations.
+  - The `organized_petites` queue can also contain `TODO`, `ROUTINE`, `EXAM`,
+    `CALENDAR`, and `STUDY_PLAN` source types. When any active organized petite
+    rows exist, the Petites section renders those cards first; the direct TODAY
+    todo-card path remains as a fallback when there are no organized petite rows.
   - Defaults to showing up to four items; a `더보기` button expands to the full
     list when there are more than four.
   - Completing a Petites item shows a blue Snackbar with a `되돌리기` action,
     matching the behavior of Exam strategy card checks.
-  - The `전체 할 일` section below Daily Cues now shows only non-NORMAL category
-    todos so no item appears twice.
+  - The `전체 할 일` section below Daily Cues excludes `TodoCategory.TODAY` and
+    `TodoCategory.UNIVERSITY_EXAM`, so today petite items do not appear twice.
 
 - Added **"오늘 할 일"** TypeChip to the Todo input and edit cards:
-  - Placed to the left of the `복습` chip; maps to `TodoCategory.NORMAL`.
+  - Placed to the left of the `복습` chip; maps to `TodoCategory.TODAY`.
   - No chip is pre-selected by default when the input card opens.
   - Selecting `오늘 할 일` routes the todo into the Petites section at the top
     of the Todo tab.
