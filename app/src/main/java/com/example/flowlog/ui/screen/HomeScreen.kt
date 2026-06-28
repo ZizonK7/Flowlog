@@ -665,7 +665,14 @@ fun HomeScreen(
                 onUnskipToday = { if (!isDeveloperMode) viewModel.unskipAutoButtonToday(it) },
                 onEditSchedule = { if (!isDeveloperMode) localAutoButtonManagerOpen = true },
                 onManageSchedules = { if (!isDeveloperMode) localAutoButtonManagerOpen = true },
-                onStartRecommended = { if (!isDeveloperMode) viewModel.startRecommendedTodoActivity(it) },
+                onStartRecommended = {
+                    if (!isDeveloperMode) {
+                        viewModel.startRecommendedTodoActivity(it)
+                        coroutineScope.launch {
+                            homeListState.animateScrollToItem(index = 1)
+                        }
+                    }
+                },
                 onCompleteRecommended = { if (!isDeveloperMode) viewModel.completeRecommendedTodo(it) },
                 onSetRecommendedTime = { block, hour -> if (!isDeveloperMode) viewModel.setRecommendedTodoTime(block, hour) },
                 onReplaceRecommendedItem = { block, todo -> if (!isDeveloperMode) viewModel.replaceRecommendedTodoItem(block, todo) },

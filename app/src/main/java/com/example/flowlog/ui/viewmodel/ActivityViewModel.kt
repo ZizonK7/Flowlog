@@ -926,6 +926,7 @@ class ActivityViewModel(
 
     fun cancelSnackTimer() {
         reminderScheduler.cancelSnackReminder()
+        reminderScheduler.cancelMealReminder()
         reminderScheduler.cancelBrushEatTimer()
         clearSnackButtonTimerState(clearNotification = true)
         _uiState.update { it.copy(statusMessage = "간식 타이머를 껐어요.") }
