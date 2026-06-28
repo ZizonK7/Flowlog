@@ -2599,10 +2599,10 @@ class ActivityViewModel(
     }
 
     private fun defaultGoalMillisForCategory(category: String): Long {
-        return if (category in SEVENTY_FIVE_MINUTE_GOAL_CATEGORIES) {
-            SEVENTY_FIVE_MINUTE_GOAL_MILLIS
-        } else {
-            TimerStateStore.DEFAULT_GOAL_MILLIS
+        return when {
+            category in FOCUS_BANNER_CATEGORIES -> FocusModeStore.getFocusDurationMillis(appContext)
+            category in SEVENTY_FIVE_MINUTE_GOAL_CATEGORIES -> SEVENTY_FIVE_MINUTE_GOAL_MILLIS
+            else -> TimerStateStore.DEFAULT_GOAL_MILLIS
         }
     }
 
@@ -2620,7 +2620,7 @@ class ActivityViewModel(
             "WASH" -> "\uC53B\uAE30"
             "REST" -> "\uD734\uC2DD"
             "SCHOOL" -> "\uD559\uAD50"
-            "GAME" -> "\uAC8C\uC784"
+            "HOBBY" -> "\uCDE8\uBBF8"
             else -> "\uD65C\uB3D9"
         }
     }
@@ -2631,7 +2631,7 @@ class ActivityViewModel(
             FocusDndController.enableDnd(appContext)
         }
         val now = System.currentTimeMillis()
-        val endsAt = now + FocusModeStore.FOCUS_DURATION_MILLIS
+        val endsAt = now + FocusModeStore.getFocusDurationMillis(appContext)
         FocusModeStore.saveFocusModeActive(appContext, startedAt = now, endsAt = endsAt)
         focusModeScheduler.schedule(endsAt)
         _uiState.update { it.copy(isFocusModeActive = true, focusModeEndsAtMillis = endsAt) }
@@ -2786,5 +2786,6 @@ class ActivityViewModel(
         private val SEVENTY_FIVE_MINUTE_GOAL_MILLIS = TimeUnit.MINUTES.toMillis(75)
         private val IMMEDIATE_SYNC_ACTIVITY_DURATION_MILLIS = TimeUnit.MINUTES.toMillis(10)
         private val SEVENTY_FIVE_MINUTE_GOAL_CATEGORIES = setOf("STUDY", "TODO", "WORK", "DEVELOPMENT", "EXERCISE", "ETC")
+        private val FOCUS_BANNER_CATEGORIES = setOf("STUDY", "TODO", "WORK", "DEVELOPMENT", "ETC")
     }
 }

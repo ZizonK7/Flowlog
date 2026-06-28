@@ -104,7 +104,7 @@ class FlowRecommendationEngine {
         routineFor(remainingRoutines, DailyCueRecommendationTiming.FLOW_RESET)?.let { routine ->
             val interrupted = when (lastSession?.category) {
                 "REST" -> lastSession.durationMillis >= RESET_REST_MILLIS
-                "GAME" -> lastSession.durationMillis >= RESET_GAME_MILLIS
+                "HOBBY" -> lastSession.durationMillis >= RESET_HOBBY_MILLIS
                 else -> false
             }
             val justWokeUp = lastSession?.category == "SLEEP" &&
@@ -229,7 +229,7 @@ class FlowRecommendationEngine {
         val AFTER_WAKING_WINDOW_MILLIS = TimeUnit.MINUTES.toMillis(30)
         val SOFT_BUFFER_WINDOW_MILLIS = TimeUnit.MINUTES.toMillis(60)
         val RESET_REST_MILLIS = TimeUnit.MINUTES.toMillis(120)
-        val RESET_GAME_MILLIS = TimeUnit.MINUTES.toMillis(90)
+        val RESET_HOBBY_MILLIS = TimeUnit.MINUTES.toMillis(90)
         val REWARD_PRODUCTIVE_MILLIS = TimeUnit.MINUTES.toMillis(75)
         val SLEEP_HISTORY_MILLIS = TimeUnit.DAYS.toMillis(14)
         const val REWARD_COMPLETION_RATIO = 0.7

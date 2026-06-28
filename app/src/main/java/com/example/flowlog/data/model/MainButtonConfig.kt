@@ -26,7 +26,7 @@ data class MainButtonConfig(
 
         val ALL_SELECTABLE_CATEGORIES = listOf(
             "SLEEP", "REST", "WORK", "STUDY", "EXERCISE", "WASH",
-            "MEAL", "ETC", "DEVELOPMENT", "READING", "SCHOOL", "COMPANY", "MOVE", "GAME"
+            "MEAL", "ETC", "DEVELOPMENT", "READING", "SCHOOL", "COMPANY", "MOVE", "HOBBY"
         )
 
         val EMPTY = MainButtonConfig(

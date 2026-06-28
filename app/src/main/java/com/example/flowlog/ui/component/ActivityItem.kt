@@ -167,7 +167,7 @@ fun displayCategory(category: String): String {
         "SLEEP" -> "\uC218\uBA74"
         "REST" -> "\uD734\uC2DD"
         "ETC" -> "\uAE30\uD0C0"
-        "GAME" -> "\uAC8C\uC784"
+        "HOBBY" -> "\uCDE8\uBBF8"
         "TODO" -> "\uD560\uC77C"
         "EXPERIMENT_1" -> "1\uBC88 \uC2E4\uD5D8"
         "EXPERIMENT_2" -> "2\uBC88 \uC2E4\uD5D8"
@@ -192,7 +192,7 @@ fun categoryColor(category: String): Color {
         "SLEEP" -> Color(0xFF9C27B0)
         "REST" -> Color(0xFF00BCD4)
         "SCHOOL" -> Color(0xFFE91E63)
-        "GAME" -> Color(0xFF5C6BC0)
+        "HOBBY" -> Color(0xFF5C6BC0)
         "TODO" -> Color(0xFF5E6AD2)
         "EXPERIMENT_1" -> Color(0xFF00897B)
         "EXPERIMENT_2" -> Color(0xFF7E57C2)

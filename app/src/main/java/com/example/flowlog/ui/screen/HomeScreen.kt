@@ -1032,6 +1032,8 @@ private fun TimerPage(
     val enableDnd = remember { mutableStateOf(FocusModeStore.getEnableSystemDndForFocus(context)) }
     // 시작됩니다 다이얼로그에서 DND 활성 여부 표시용
     val focusModeStartedWithDnd = remember { mutableStateOf(false) }
+    var focusDurationLabel by remember { mutableStateOf(FocusModeStore.getFocusDurationLabel(context)) }
+    val showFocusDurationPicker = remember { mutableStateOf(false) }
 
     activeTimedExerciseSet.value?.let { timedState ->
         LaunchedEffect(timedState.token) {
@@ -1128,6 +1130,7 @@ private fun TimerPage(
                 isFocusModeActive = isFocusModeActive,
                 focusModeEndsAtMillis = focusModeEndsAtMillis,
                 isFocusFireActive = isFocusFireActive,
+                focusDurationLabel = focusDurationLabel,
                 onStart = {
                     if (FocusModeStore.isFocusConfirmAcknowledged(context)) {
                         val dndPref = FocusModeStore.getEnableSystemDndForFocus(context)
@@ -1142,6 +1145,7 @@ private fun TimerPage(
                         showFocusConfirmDialog.value = true
                     }
                 },
+                onLongPress = { showFocusDurationPicker.value = true },
                 onRequestStop = { showFocusStopConfirmDialog.value = true }
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -1206,6 +1210,17 @@ private fun TimerPage(
         doNotShowAgainState = doNotShowAgain,
         focusModeStartedWithDndState = focusModeStartedWithDnd
     )
+    if (showFocusDurationPicker.value) {
+        FocusDurationPickerSheet(
+            currentMillis = FocusModeStore.getFocusDurationMillis(context),
+            onSelect = { millis ->
+                FocusModeStore.setFocusDurationMillis(context, millis)
+                focusDurationLabel = FocusModeStore.getFocusDurationLabel(context)
+                showFocusDurationPicker.value = false
+            },
+            onDismiss = { showFocusDurationPicker.value = false }
+        )
+    }
 }
 
 // elapsedTime이 실제로 필요한 유일한 섹션 — 진행률 링과 시간 텍스트만 담당.
@@ -1486,7 +1501,9 @@ private fun FocusBannerSection(
     isFocusModeActive: Boolean,
     focusModeEndsAtMillis: Long,
     isFocusFireActive: Boolean,
+    focusDurationLabel: String,
     onStart: () -> Unit,
+    onLongPress: () -> Unit,
     onRequestStop: () -> Unit
 ) {
     val accentColor by animateColorAsState(
@@ -1534,28 +1551,93 @@ private fun FocusBannerSection(
             )
         }
     } else {
-        OutlinedButton(
-            onClick = onStart,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.outlinedButtonColors(
-                containerColor = Color.Transparent,
-                contentColor = accentColor
-            ),
-            border = BorderStroke(1.dp, accentColor.copy(alpha = 0.4f)),
-            contentPadding = PaddingValues(horizontal = 16.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .border(1.dp, accentColor.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+                .combinedClickable(
+                    onClick = onStart,
+                    onLongClick = onLongPress
+                )
+                .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Filled.Bedtime,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Bedtime,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = accentColor
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "집중하기 ($focusDurationLabel)",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = accentColor
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FocusDurationPickerSheet(
+    currentMillis: Long,
+    onSelect: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val options = listOf(15L to "15분", 25L to "25분", 50L to "50분", 75L to "75분")
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color.White
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 24.dp)
+        ) {
             Text(
-                text = "집중하기 (${FocusModeStore.FOCUS_DURATION_LABEL})",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold
+                text = "집중 시간",
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 18.sp,
+                color = FlowInk
             )
+            Spacer(modifier = Modifier.height(16.dp))
+            options.forEach { (mins, label) ->
+                val millis = mins * 60_000L
+                val isSelected = currentMillis == millis
+                OutlinedButton(
+                    onClick = { onSelect(millis) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .height(52.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = if (isSelected) FlowPurpleSoft else Color.Transparent,
+                        contentColor = if (isSelected) FlowPurple else FlowInk
+                    ),
+                    border = BorderStroke(1.dp, if (isSelected) FlowPurple else FlowDivider)
+                ) {
+                    Text(
+                        text = label,
+                        fontSize = 15.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.navigationBarsPadding())
         }
     }
 }
@@ -1704,7 +1786,7 @@ private fun TimerDialogsSection(
             containerColor = Color.White,
             title = {
                 Text(
-                    text = "${FocusModeStore.FOCUS_DURATION_LABEL} 집중할까요?",
+                    text = "${FocusModeStore.getFocusDurationLabel(context)} 집중할까요?",
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 18.sp,
                     color = FlowInk
@@ -1713,7 +1795,7 @@ private fun TimerDialogsSection(
             text = {
                 Column {
                     Text(
-                        text = "Flowlog의 알림 소리는 잠시 꺼지고,\n${FocusModeStore.FOCUS_DURATION_LABEL} 뒤에만 알림이 울려요.",
+                        text = "Flowlog의 알림 소리는 잠시 꺼지고,\n${FocusModeStore.getFocusDurationLabel(context)} 뒤에만 알림이 울려요.",
                         fontSize = 14.sp,
                         color = FlowMuted
                     )
@@ -1814,10 +1896,11 @@ private fun TimerDialogsSection(
                 }
             },
             text = {
+                val durationLabel = FocusModeStore.getFocusDurationLabel(context)
                 val startedText = if (focusModeStartedWithDndState.value) {
-                    "${FocusModeStore.FOCUS_DURATION_LABEL} 동안 알림음과 시스템 방해금지가 켜지고,\n${FocusModeStore.FOCUS_DURATION_LABEL} 뒤에 알람이 울립니다."
+                    "$durationLabel 동안 알림음과 시스템 방해금지가 켜지고,\n$durationLabel 뒤에 알람이 울립니다."
                 } else {
-                    "${FocusModeStore.FOCUS_DURATION_LABEL} 동안 알림음이 꺼지고,\n${FocusModeStore.FOCUS_DURATION_LABEL} 뒤에 알람이 울립니다."
+                    "$durationLabel 동안 알림음이 꺼지고,\n$durationLabel 뒤에 알람이 울립니다."
                 }
                 Text(
                     text = startedText,
@@ -5059,7 +5142,7 @@ private fun timetableCategoryColor(category: String): Color {
         "SLEEP" -> Color(0xFFA373C8)
         "REST" -> Color(0xFF62BBC5)
         "SCHOOL" -> Color(0xFFD37B9A)
-        "GAME" -> Color(0xFF7581C8)
+        "HOBBY" -> Color(0xFF7581C8)
         "TODO" -> TimetableTodoColor
         else -> Color(0xFF8C8F98)
     }

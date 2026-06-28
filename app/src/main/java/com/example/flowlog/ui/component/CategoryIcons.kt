@@ -35,7 +35,7 @@ fun categoryAppIcon(category: String): ImageVector? = when (category) {
     "SLEEP"       -> Icons.Filled.Bedtime
     "REST"        -> Icons.Filled.LocalCafe
     "ETC"         -> Icons.Filled.MoreHoriz
-    "GAME"        -> Icons.Filled.VideogameAsset
+    "HOBBY"       -> Icons.Filled.VideogameAsset
     "SNACK"       -> Icons.Filled.Cookie
     "TODO"        -> Icons.Filled.CheckBox
     "EXPERIMENT_1", "EXPERIMENT_2", "EXPERIMENT_3" -> Icons.Filled.Science

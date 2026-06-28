@@ -8,16 +8,26 @@ data class FocusModeState(
 )
 
 object FocusModeStore {
-    // TODO: 배포 전 2L * 60L * 60L * 1000L 로 되돌릴 것
-    const val FOCUS_DURATION_MILLIS = 75L * 60L * 1000L
-
-    val FOCUS_DURATION_LABEL: String = when {
-        FOCUS_DURATION_MILLIS < 60_000L -> "${FOCUS_DURATION_MILLIS / 1000}초"
-        FOCUS_DURATION_MILLIS % 3_600_000L == 0L -> "${FOCUS_DURATION_MILLIS / 3_600_000}시간"
-        else -> "${FOCUS_DURATION_MILLIS / 60_000}분"
-    }
+    const val DEFAULT_FOCUS_DURATION_MILLIS = 25L * 60L * 1000L
 
     private const val PREFS_NAME = "focus_mode_state"
+    private const val KEY_FOCUS_DURATION = "focus_duration_millis"
+
+    fun getFocusDurationMillis(context: Context): Long =
+        prefs(context).getLong(KEY_FOCUS_DURATION, DEFAULT_FOCUS_DURATION_MILLIS)
+
+    fun setFocusDurationMillis(context: Context, millis: Long) {
+        prefs(context).edit().putLong(KEY_FOCUS_DURATION, millis).apply()
+    }
+
+    fun getFocusDurationLabel(context: Context): String {
+        val millis = getFocusDurationMillis(context)
+        return when {
+            millis < 60_000L -> "${millis / 1000}초"
+            millis % 3_600_000L == 0L -> "${millis / 3_600_000}시간"
+            else -> "${millis / 60_000}분"
+        }
+    }
     private const val KEY_ENDS_AT = "ends_at"
     private const val KEY_STARTED_AT = "started_at"
     private const val KEY_SOUND_ENABLED = "notification_sound_enabled"
