@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Cookie
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.LocalCafe
+import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.School
@@ -36,6 +37,7 @@ fun categoryAppIcon(category: String): ImageVector? = when (category) {
     "ETC"         -> Icons.Filled.MoreHoriz
     "GAME"        -> Icons.Filled.VideogameAsset
     "SNACK"       -> Icons.Filled.Cookie
+    "TODO"        -> Icons.Filled.CheckBox
     "EXPERIMENT_1", "EXPERIMENT_2", "EXPERIMENT_3" -> Icons.Filled.Science
     else -> null
 }
