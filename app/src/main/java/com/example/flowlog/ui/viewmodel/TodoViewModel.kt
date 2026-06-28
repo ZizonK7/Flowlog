@@ -1,6 +1,7 @@
 package com.example.flowlog.ui.viewmodel
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.flowlog.data.agent.OrganizedPetite
@@ -81,6 +82,11 @@ class TodoViewModel(
     private val firestoreSyncRepository = FirestoreSyncRepository()
     private val eventLogRepository = EventLogRepository(context.applicationContext)
     private val organizedPetiteRepository = OrganizedPetiteRepository(context.applicationContext)
+    private val cuePrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "date_key" || key == "items_json") {
+            _dailyCues.value = loadDailyCues()
+        }
+    }
 
     private val _todos = MutableStateFlow<List<TodoItem>>(emptyList())
     val todos: StateFlow<List<TodoItem>> = _todos.asStateFlow()
@@ -100,7 +106,7 @@ class TodoViewModel(
     private val _organizedPetiteUndoEvents = MutableSharedFlow<OrganizedPetiteUndoEvent>(extraBufferCapacity = 4)
     val organizedPetiteUndoEvents: SharedFlow<OrganizedPetiteUndoEvent> = _organizedPetiteUndoEvents.asSharedFlow()
 
-    private val _focusIds = MutableStateFlow<List<Long>>(emptyList())
+    private val _focusIds = MutableStateFlow<List<String>>(emptyList())
     private val _dailyCues = MutableStateFlow<List<DailyCueItem>>(loadDailyCues())
     val dailyCues: StateFlow<List<DailyCueItem>> = _dailyCues.asStateFlow()
     private val _dailyCuesShowAll = MutableStateFlow(cuePrefs.getBoolean("show_all", false))
@@ -133,13 +139,13 @@ class TodoViewModel(
     val todayFocusItems: StateFlow<List<TodoItem>> = combine(
         _todos,
         dailyGoalRepository.observeTodayActiveTodoIds()
-    ) { todos, repoIds ->
-        val effectiveIds = repoIds.ifEmpty { _focusIds.value }
-        val idToIndex = effectiveIds.mapIndexed { i, id -> id to i }.toMap()
-        todos.filter { it.id in idToIndex }
+    ) { todos, repoKeys ->
+        val effectiveKeys = repoKeys.ifEmpty { _focusIds.value }
+        val keyToIndex = effectiveKeys.mapIndexed { i, key -> key to i }.toMap()
+        todos.filter { it.todoKey() in keyToIndex }
             .sortedWith(compareBy(
                 { if (it.isCompleted) 1 else 0 },
-                { idToIndex[it.id] ?: Int.MAX_VALUE }
+                { keyToIndex[it.todoKey()] ?: Int.MAX_VALUE }
             ))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -148,15 +154,10 @@ class TodoViewModel(
             backfillDailyCueDefinitions()
             syncDailyCueDefinitions(_dailyCues.value)
         }
+        cuePrefs.registerOnSharedPreferenceChangeListener(cuePrefsListener)
         viewModelScope.launch {
             repository.getAllTodos().collect { todos ->
                 _todos.value = todos
-                val todayIncomplete = todos.filter { it.category == TodoCategory.TODAY && !it.isCompleted }
-                // _todos가 업데이트된 시점에 모든 TODAY todo의 PETITE를 등록.
-                // addTodo()보다 늦게 실행되므로 새 todo도 이 시점엔 _todos.value에 포함됨.
-                if (todayIncomplete.isNotEmpty()) {
-                    registerAllTodayTodoPetitesIfAbsent()
-                }
                 _yesterdaySuggestion.value = buildYesterdaySuggestion(todos, latestActivities)
                 if (_focusIds.value.isEmpty() && todos.isNotEmpty() &&
                     lastRecommendationDateKey != startOfDay(System.currentTimeMillis())) {
@@ -178,8 +179,11 @@ class TodoViewModel(
         }
         viewModelScope.launch {
             organizedPetiteRepository.observeActivePetites().collect { saved ->
-                _organizedPetites.value = saved
+                _organizedPetites.value = saved.filterNot { it.sourceType == PetiteSourceType.PETITE }
             }
+        }
+        viewModelScope.launch {
+            organizedPetiteRepository.deleteLocalTodoPetites()
         }
     }
 
@@ -187,15 +191,23 @@ class TodoViewModel(
         val todayKey = startOfDay(System.currentTimeMillis())
         lastRecommendationDateKey = todayKey
         val storedKey = focusPrefs.getLong("date_key", 0L)
-        val storedOrdered = focusPrefs.getString("focus_ids_ordered", null)
-            ?.split(",")?.mapNotNull { it.toLongOrNull() }
+        val storedOrdered: List<String> = focusPrefs.getString("focus_ids_ordered", null)
+            ?.split(",")
+            ?.filter { it.isNotEmpty() }
+            ?.let { parts ->
+                if (parts.any { it.startsWith("legacy_todo_") || it.startsWith("calendar_petite_") }) {
+                    parts
+                } else {
+                    parts.mapNotNull { it.toLongOrNull()?.let { id -> "legacy_todo_$id" } }
+                }
+            }
             ?: focusPrefs.getStringSet("focus_ids", emptySet())
-                ?.mapNotNull { it.toLongOrNull() }
+                ?.mapNotNull { it.toLongOrNull()?.let { id -> "legacy_todo_$id" } }
             ?: emptyList()
 
         val hasUrgentMissed = storedKey == todayKey && storedOrdered.isNotEmpty() && run {
             allTodos.any { todo ->
-                !storedOrdered.contains(todo.id) &&
+                !storedOrdered.contains(todo.todoKey()) &&
                     !todo.isCompleted &&
                     todo.category == TodoCategory.ASSIGNMENT &&
                     todo.selectedDate != null &&
@@ -212,7 +224,7 @@ class TodoViewModel(
         val burdenAnalyses = TodoBurdenCalculator.analyze(allTodos, latestActivities)
         repository.updateBurdenCaches(burdenAnalyses.filter { it.todo.id >= 0L })
         val selectionResult = selectTodayFocus(allTodos, burdenAnalyses)
-        val newIds = selectionResult.mapNotNull { it.todo?.id }
+        val newIds = selectionResult.map { it.entityTodoId }
         _focusIds.value = newIds
 
         focusPrefs.edit()
@@ -260,34 +272,12 @@ class TodoViewModel(
                     updatedAt = System.currentTimeMillis()
                 )
             )
-            // insertTodo 완료 후 _todos flow가 먼저 업데이트되어야 새 todo가 포함됨.
-            // todos flow 업데이트는 DB observer를 통해 async하게 오므로, 여기서 즉시 호출하면
-            // _todos.value에 새 todo가 없을 수 있다. 대신 _todos collect에서 처리한다.
-            if (category == TodoCategory.TODAY) {
-                registerAllTodayTodoPetitesIfAbsent()
-            }
         }
     }
 
-    // 새 TODAY todo 추가 시 기존 TODAY todos도 함께 등록 — hasNonCalendarOrganizedPetites 전환 시
-    // 화면에서 다른 TODAY todo가 사라지지 않도록 보장한다.
-    private fun registerAllTodayTodoPetitesIfAbsent() {
-        val todayTodos = _todos.value.filter { it.category == TodoCategory.TODAY && !it.isCompleted }
-        viewModelScope.launch {
-            todayTodos.forEach { todo ->
-                runCatching {
-                    organizedPetiteRepository.addLocalTodoPetiteIfAbsent(
-                        OrganizedPetite(
-                            id = "petite_${todo.id}",
-                            title = todo.title,
-                            sourceType = PetiteSourceType.PETITE,
-                            sourceId = todo.id.toString(),
-                            priorityScore = 100
-                        )
-                    )
-                }
-            }
-        }
+    override fun onCleared() {
+        cuePrefs.unregisterOnSharedPreferenceChangeListener(cuePrefsListener)
+        super.onCleared()
     }
 
     fun completeTodo(todo: TodoItem) {
@@ -364,17 +354,17 @@ class TodoViewModel(
     fun updateTodo(todo: TodoItem) {
         viewModelScope.launch {
             repository.updateTodo(todo.copy(updatedAt = System.currentTimeMillis()))
-            // _todos collect에서 registerAllTodayTodoPetitesIfAbsent()가 이미 트리거되지만,
-            // 즉시 반영을 위해 여기서도 호출.
-            if (todo.category == TodoCategory.TODAY && !todo.isCompleted) {
-                registerAllTodayTodoPetitesIfAbsent()
-            }
         }
     }
 
     fun deleteTodo(todo: TodoItem) {
         viewModelScope.launch {
-            dailyGoalRepository.dismissItemsByTodoId(todo.id)
+            val calId = todo.calendarSourceId
+            if (calId != null) {
+                dailyGoalRepository.markCalendarPetiteCompleted(calId)
+            } else {
+                dailyGoalRepository.dismissItemsByTodoId(todo.id)
+            }
             repository.deleteTodo(todo)
         }
     }
@@ -386,7 +376,7 @@ class TodoViewModel(
 
         val burdenAnalyses = TodoBurdenCalculator.analyze(currentTodos, latestActivities)
         val selectionResult = selectTodayFocus(currentTodos, burdenAnalyses)
-        val newIds = selectionResult.mapNotNull { it.todo?.id }
+        val newIds = selectionResult.map { it.entityTodoId }
         val todayKey = startOfDay(System.currentTimeMillis())
         lastRecommendationDateKey = todayKey
         _focusIds.value = newIds
@@ -433,12 +423,6 @@ class TodoViewModel(
         _organizedPetites.value = _organizedPetites.value.filterNot { it.id == item.id }
         viewModelScope.launch {
             runCatching { organizedPetiteRepository.dismiss(item) }
-            if (item.sourceType == PetiteSourceType.PETITE) {
-                item.sourceId?.toLongOrNull()?.let { todoId ->
-                    val todo = _todos.value.firstOrNull { it.id == todoId }
-                    if (todo != null) deleteTodo(todo)
-                }
-            }
         }
     }
 
@@ -458,19 +442,17 @@ class TodoViewModel(
         if (newTitle.isBlank()) return
         viewModelScope.launch {
             when (item.sourceType) {
-                PetiteSourceType.PETITE, PetiteSourceType.TODO -> {
+                PetiteSourceType.TODO -> {
                     item.sourceId?.toLongOrNull()?.let { todoId ->
                         val todo = _todos.value.firstOrNull { it.id == todoId }
                         if (todo != null) {
                             repository.updateTodo(todo.copy(title = newTitle, updatedAt = System.currentTimeMillis()))
-                            if (todo.category == TodoCategory.TODAY && !todo.isCompleted) {
-                                registerAllTodayTodoPetitesIfAbsent()
-                            }
                         }
                     }
                     organizedPetiteRepository.updateTitle(item.id, newTitle)
                     syncAllPendingChanges()
                 }
+                PetiteSourceType.PETITE -> {}
                 else -> organizedPetiteRepository.updateTitle(item.id, newTitle)
             }
         }
@@ -485,7 +467,6 @@ class TodoViewModel(
 
     fun completeOrganizedPetite(item: OrganizedPetite) {
         val previousCompletedState = when (item.sourceType) {
-            PetiteSourceType.PETITE,
             PetiteSourceType.TODO -> item.sourceId
                 ?.toLongOrNull()
                 ?.let { id -> _todos.value.firstOrNull { it.id == id } }
@@ -498,13 +479,13 @@ class TodoViewModel(
         }
         val wasHidden = false
         when (item.sourceType) {
-            PetiteSourceType.PETITE,
             PetiteSourceType.TODO -> {
                 val todo = item.sourceId?.toLongOrNull()?.let { id -> _todos.value.firstOrNull { it.id == id } }
                 if (todo != null) {
-                    if (item.sourceType == PetiteSourceType.PETITE) completeTodo(todo) else completeFocusTodo(todo)
+                    completeFocusTodo(todo)
                 }
             }
+            PetiteSourceType.PETITE -> {}
             PetiteSourceType.ROUTINE -> {
                 item.sourceId?.toLongOrNull()?.let { completeDailyCue(it) }
             }
@@ -526,7 +507,6 @@ class TodoViewModel(
     fun undoOrganizedPetiteCompletion(event: OrganizedPetiteUndoEvent) {
         val item = event.item
         when (item.sourceType) {
-            PetiteSourceType.PETITE,
             PetiteSourceType.TODO -> {
                 if (!event.previousCompletedState) {
                     item.sourceId
@@ -535,6 +515,7 @@ class TodoViewModel(
                         ?.let { uncompleteTodo(it) }
                 }
             }
+            PetiteSourceType.PETITE -> {}
             PetiteSourceType.ROUTINE -> {
                 if (!event.previousCompletedState) {
                     item.sourceId?.toLongOrNull()?.let { toggleDailyCue(it) }
@@ -932,6 +913,7 @@ class TodoViewModel(
             val reason: String
         ) : TodayFocusCandidateLike {
             val analysis: TodoBurdenAnalysis? get() = analysisById[todo.id]
+            val uniqueKey: String get() = todo.todoKey()
             override val burdenLevel: String get() = analysis?.burdenLevel ?: todo.burdenLevel ?: "MEDIUM"
             override val burdenScore: Int get() = analysis?.burdenScore ?: todo.burdenScore
             override val createdAt: Long get() = todo.createdAt
@@ -955,15 +937,15 @@ class TodoViewModel(
         fun makeCandidate(todo: TodoItem, priority: Int, reason: String) = Candidate(todo, priority, reason)
 
         val selected = mutableListOf<TodayFocusCandidateLike>()
-        val selectedIds = mutableSetOf<Long>()
+        val selectedKeys = mutableSetOf<String>()
 
         fun addOne(c: TodayFocusCandidateLike) {
-            val id = (c as? Candidate)?.todo?.id ?: return
-            if (id !in selectedIds) { selected.add(c); selectedIds.add(id) }
+            val key = (c as? Candidate)?.uniqueKey ?: return
+            if (key !in selectedKeys) { selected.add(c); selectedKeys.add(key) }
         }
 
         fun applyBurdenRules(candidates: List<TodayFocusCandidateLike>) {
-            val available = candidates.filter { (it as? Candidate)?.todo?.id !in selectedIds }
+            val available = candidates.filter { (it as? Candidate)?.uniqueKey !in selectedKeys }
             if (selected.size >= 2 || available.isEmpty()) return
             val toAdd = if (selected.size == 1) {
                 listOfNotNull(pickCompatiblePartner(selected.first(), available))
@@ -1208,6 +1190,9 @@ class TodoViewModel(
             .groupBy({ it.first }, { it.second })
             .mapValues { (_, durations) -> durations.sum() }
     }
+
+    private fun TodoItem.todoKey(): String =
+        calendarSourceId?.let { "calendar_petite_$it" } ?: "legacy_todo_$id"
 
     private fun daysDiff(fromMs: Long, toMs: Long): Long =
         (toMs - fromMs) / (24L * 60 * 60 * 1000)

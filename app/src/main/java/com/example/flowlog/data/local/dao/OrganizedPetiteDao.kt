@@ -120,6 +120,17 @@ interface OrganizedPetiteDao {
         if (items.isNotEmpty()) insertAll(items)
     }
 
+    @Query("UPDATE organized_petites SET rank = :rank, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateRank(id: String, rank: Int, updatedAt: Long)
+
+    @Transaction
+    suspend fun upsertAndUpdateRanks(items: List<OrganizedPetiteEntity>) {
+        if (items.isNotEmpty()) insertAll(items)
+        items.forEachIndexed { index, item ->
+            updateRank(item.id, index, item.updatedAt)
+        }
+    }
+
     @Transaction
     suspend fun replaceAllForUserBySource(
         userId: String,
@@ -214,19 +225,6 @@ interface OrganizedPetiteDao {
         WHERE id = :id
     """)
     suspend fun reopenById(id: String, updatedAt: Long)
-
-    /**
-     * sourceType/sourceId 조합이 없을 때만 삽입.
-     * 기존 row가 있으면 (dismissed/completed 포함) 아무것도 하지 않는다 — 사용자 상태 보존.
-     */
-    @Transaction
-    suspend fun insertPetiteIfAbsent(entity: OrganizedPetiteEntity) {
-        val existing = getBySource(entity.userId, entity.sourceType, entity.sourceId)
-        if (existing == null) {
-            insertAll(listOf(entity))
-        }
-        // existing row (dismissed/completed 포함)가 있으면 아무것도 하지 않음 — 사용자 상태 보존
-    }
 
     /**
      * CALENDAR sourceType 전용 upsert.

@@ -50,6 +50,7 @@ data class GoalItem(
     // DailyGoalItemEntity.todoId에 저장되는 키
     val entityTodoId: String get() = when {
         petite != null -> "calendar_petite_${petite.id}"
+        todo?.calendarSourceId != null -> "calendar_petite_${todo.calendarSourceId}"
         todo != null -> "legacy_todo_${todo.id}"
         else -> error("GoalItem: todo와 petite 모두 null")
     }
@@ -126,9 +127,9 @@ class DailyGoalRepository(context: Context) {
 
     fun todayDateKey(): String = dateFormat.format(Date())
 
-    fun observeTodayActiveTodoIds(dateKey: String = todayDateKey()): Flow<List<Long>> =
+    fun observeTodayActiveTodoIds(dateKey: String = todayDateKey()): Flow<List<String>> =
         dao.observeActiveItemsForDate(userId, dateKey)
-            .map { items -> items.mapNotNull { it.todoId.removePrefix("legacy_todo_").toLongOrNull() } }
+            .map { items -> items.map { it.todoId } }
 
     fun observeTodayRecommendedBlocks(dateKey: String = todayDateKey()): Flow<List<RecommendedTodoBlock>> {
         return combine(
@@ -550,7 +551,7 @@ class DailyGoalRepository(context: Context) {
         activities: List<ActivitySession> = emptyList(),
         beforeDateKey: String = todayDateKey()
     ) {
-        val currentByLegacyId = currentTodos.associateBy { "legacy_todo_${it.id}" }
+        val currentByLegacyId = currentTodos.associateBy { it.dailyGoalTodoKey() }
         val now = System.currentTimeMillis()
         dao.getRecommendationsBeforeDate(userId, beforeDateKey).forEach { recommendation ->
             val dayStart = dateFormat.parse(recommendation.dateKey)?.time ?: return@forEach

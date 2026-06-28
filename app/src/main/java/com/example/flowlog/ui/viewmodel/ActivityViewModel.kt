@@ -984,7 +984,8 @@ class ActivityViewModel(
     fun stopActivityAndSave(
         titleOverride: String? = null,
         noteOverride: String? = null,
-        exerciseSets: List<ExerciseSetRecord> = emptyList()
+        exerciseSets: List<ExerciseSetRecord> = emptyList(),
+        markLinkedAsComplete: Boolean = false
     ) {
         val state = _uiState.value
         if (!state.isRunning || state.currentCategory.isEmpty() || state.startTime == 0L) return
@@ -1042,10 +1043,46 @@ class ActivityViewModel(
         viewModelScope.launch {
             val newId = repository.insertActivity(activity)
             val savedActivity = activity.copy(id = newId)
-            state.linkedTodoId?.let { todoId ->
-                todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
-                state.sourceId?.let { itemId ->
-                    dailyGoalRepository.revertStartedItem(itemId)
+            if (markLinkedAsComplete) {
+                if (state.linkedPetiteId != null) {
+                    runCatching { organizedPetiteRepository.completeById(state.linkedPetiteId) }
+                    state.sourceId?.let { sourceId ->
+                        runCatching { dailyGoalRepository.markPlannedItemCompleted(sourceId, 0L, newId) }
+                    }
+                }
+                state.linkedTodoId?.let { todoId ->
+                    todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
+                    runCatching { organizedPetiteRepository.dismissTodoPetitesBySourceId(todoId.toString()) }
+                    if (state.linkedPetiteId == null) {
+                        val todo = state.incompleteTodos.firstOrNull { it.id == todoId }
+                        if (todo?.category == TodoCategory.REVIEW && todo.reviewStage < 2) {
+                            todoRepository.completeReviewTodo(todo)
+                        } else if (todo != null) {
+                            todoRepository.updateCompleted(todo, true, System.currentTimeMillis())
+                        } else {
+                            todoRepository.updateCompleted(todoId, true, System.currentTimeMillis())
+                        }
+                        val sourceId = state.sourceId
+                        if (sourceId != null) {
+                            runCatching { dailyGoalRepository.markPlannedItemCompleted(sourceId, todoId, newId) }
+                        } else {
+                            runCatching { dailyGoalRepository.markItemCompleted(dailyGoalRepository.todayDateKey(), todoId) }
+                        }
+                    }
+                }
+                state.dailyCueId?.let { cueId ->
+                    DailyCueCompletionStore.markCompletedToday(appContext, cueId)
+                    val cueRecord = state.flowRecommendations
+                        .firstOrNull { it.routine?.id == cueId }
+                        ?.routine
+                    if (cueRecord != null) recordDailyCueCheck(cueRecord)
+                }
+            } else {
+                state.linkedTodoId?.let { todoId ->
+                    todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
+                    state.sourceId?.let { itemId ->
+                        dailyGoalRepository.revertStartedItem(itemId)
+                    }
                 }
             }
             dailyGoalRepository.ensureTodayTimePlan(

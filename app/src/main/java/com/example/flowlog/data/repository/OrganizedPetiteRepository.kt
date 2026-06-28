@@ -44,13 +44,7 @@ class OrganizedPetiteRepository(context: Context) {
 
     suspend fun replaceWith(items: List<OrganizedPetite>) {
         val now = System.currentTimeMillis()
-        // replaceNonCalendarForUser: CALENDAR sourceType은 삭제하지 않음.
-        // calendar pull이 독립적으로 upsert/dismiss를 담당한다.
-        dao.replaceNonCalendarForUser(
-            userId = userId,
-            preservedSourceType = PetiteSourceType.STUDY_PLAN.name,
-            items = items.mapIndexed { index, item -> item.toEntity(userId, index, now) }
-        )
+        dao.upsertAndUpdateRanks(items.mapIndexed { index, item -> item.toEntity(userId, index, now) })
     }
 
     suspend fun replaceStudyPlans(items: List<OrganizedPetite>) {
@@ -92,9 +86,8 @@ class OrganizedPetiteRepository(context: Context) {
         dao.markCompletedById(item.id, System.currentTimeMillis())
     }
 
-    suspend fun addLocalTodoPetiteIfAbsent(item: OrganizedPetite) {
-        val now = System.currentTimeMillis()
-        dao.insertPetiteIfAbsent(item.toEntity(userId, rank = 0, now = now))
+    suspend fun deleteLocalTodoPetites() {
+        dao.deleteAllForUserBySource(userId, PetiteSourceType.PETITE.name)
     }
 
     suspend fun loadDismissedSourceKeys(): Set<String> {

@@ -285,7 +285,6 @@ class TodayExamOrganizer(
         return buildList {
             addAll(todos.mapNotNull { it.toTodoPetite(todayStart, recoveryMode) })
             addAll(routines.mapNotNull { it.toRoutinePetite(recoveryMode) })
-            addAll(todos.mapNotNull { it.toExistingPetite(recoveryMode) })
         }
     }
 
@@ -376,20 +375,6 @@ class TodayExamOrganizer(
             priorityScore = if (recoveryMode) 90 else 90,
             routineTimerDurationMillis = timerDurationMillis,
             routineTimerCategory = timerCategory
-        )
-    }
-
-    private fun TodoItem.toExistingPetite(recoveryMode: Boolean): OrganizedPetite? {
-        if (category != TodoCategory.TODAY) return null
-        return OrganizedPetite(
-            id = "petite_$id",
-            title = title,
-            sourceType = PetiteSourceType.PETITE,
-            sourceId = id.toString(),
-            category = category,
-            dateMillis = selectedDate,
-            isCompleted = isCompleted,
-            priorityScore = if (recoveryMode) 100 else 100
         )
     }
 
