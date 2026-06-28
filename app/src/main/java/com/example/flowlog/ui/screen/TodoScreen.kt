@@ -175,7 +175,7 @@ fun TodoScreen(
     val petiteTodayMillis by viewModel.petiteTodayMillis.collectAsState()
     val dailyCuesShowAll by viewModel.dailyCuesShowAll.collectAsState()
     val petitesShowAll by viewModel.petitesShowAll.collectAsState()
-    val focusIds      = remember(focusTodos) { focusTodos.map { it.id }.toSet() }
+    val focusIds      = remember(focusTodos) { focusTodos.map { it.calendarSourceId?.let { c -> "calendar_petite_$c" } ?: "legacy_todo_${it.id}" }.toSet() }
     val todayStart = startOfDay(System.currentTimeMillis())
     // TODAY(오늘 할 일)만 Petites 섹션에 표시. NORMAL(미분류)은 전체 할 일로.
     val normalTodos = normalTodosOrdered
@@ -192,7 +192,7 @@ fun TodoScreen(
         todos.filter {
             val completedAt = it.completedAt
             it.isCompleted &&
-                it.id !in focusIds &&
+                (it.calendarSourceId?.let { c -> "calendar_petite_$c" } ?: "legacy_todo_${it.id}") !in focusIds &&
                 it.category != TodoCategory.TODAY &&
                 completedAt != null &&
                 completedAt in todayStart until tomorrowStart
