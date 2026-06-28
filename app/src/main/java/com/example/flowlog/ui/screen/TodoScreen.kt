@@ -1,6 +1,7 @@
 package com.example.flowlog.ui.screen
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -11,6 +12,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -137,7 +140,7 @@ import kotlinx.coroutines.launch
 
 // ── 탭 정의 ───────────────────────────────────────────────────────────────────
 private enum class TodoTab(val label: String) {
-    ALL("전체"), TODAY("오늘"), ASSIGNMENT("과제"), REVIEW("복습"), NORMAL("일반")
+    ALL("전체"), TODAY("오늘"), ASSIGNMENT("마감이 있는 일"), REVIEW("복습"), NORMAL("일반")
 }
 
 private fun TodoTab.toCategory(): TodoCategory? = when (this) {
@@ -244,11 +247,10 @@ fun TodoScreen(
     val tabActive = remember(todos, selectedTab, todayStart, tomorrowStart) {
         if (selectedTab == TodoTab.ALL) emptyList()
         else todos.filter { todo ->
-            !todo.isCompleted &&
             todo.category == selectedTab.toCategory() &&
             when (selectedTab) {
-                TodoTab.REVIEW -> todo.selectedDate == null || todo.selectedDate < tomorrowStart
-                else -> true
+                TodoTab.REVIEW -> !todo.isCompleted || todo.reviewStage == 1
+                else -> !todo.isCompleted
             }
         }
     }
@@ -260,15 +262,6 @@ fun TodoScreen(
             todo.completedAt != null &&
             todo.completedAt in todayStart until tomorrowStart
         }.sortedByDescending { it.completedAt }
-    }
-    val reviewUpcoming = remember(todos, selectedTab, tomorrowStart) {
-        if (selectedTab != TodoTab.REVIEW) emptyList()
-        else todos.filter { todo ->
-            !todo.isCompleted &&
-            todo.category == TodoCategory.REVIEW &&
-            todo.selectedDate != null &&
-            todo.selectedDate >= tomorrowStart
-        }.sortedBy { it.selectedDate }
     }
     val scope = rememberCoroutineScope()
 
@@ -361,7 +354,7 @@ fun TodoScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "오늘 할 일",
+                    "Todo",
                     fontSize = 26.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = TextPrimary,
@@ -611,7 +604,7 @@ fun TodoScreen(
         }
         } else {
             // ── 탭 필터 콘텐츠 ────────────────────────────────────────────────
-            if (tabActive.isEmpty() && tabCompleted.isEmpty() && reviewUpcoming.isEmpty()) {
+            if (tabActive.isEmpty() && tabCompleted.isEmpty()) {
                 item(key = "tab_empty") {
                     Box(
                         Modifier.fillMaxWidth().height(120.dp),
@@ -624,36 +617,34 @@ fun TodoScreen(
             items(tabActive, key = { "tab_active_${it.id}" }) { todo ->
                 val itemKey = "${todo.id}_${todo.createdAt}"
                 val isEditing = editingId == itemKey
-                if (isEditing) {
-                    TodoCard(
-                        todo         = todo,
-                        isEditing    = true,
-                        isCompleting = completingId == itemKey,
-                        isFocus      = false,
-                        onStartTodo  = { onStartTodo(todo) },
-                        onComplete   = { onCompleteNormal(todo) },
-                        onUncomplete = { viewModel.uncompleteTodo(todo) },
-                        onEditToggle = { editingId = if (editingId == itemKey) null else itemKey },
-                        onSave       = { t, c, d -> viewModel.updateTodo(todo.copy(title = t, category = c, selectedDate = d)); editingId = null },
-                        onDelete     = { viewModel.deleteTodo(todo); editingId = null }
-                    )
-                } else {
-                    TodoTabListItem(
-                        todo         = todo,
-                        todayStart   = todayStart,
-                        isCompleting = completingId == itemKey,
-                        onComplete   = { onCompleteNormal(todo) },
-                        onUncomplete = { viewModel.uncompleteTodo(todo) },
-                        onEditToggle = { editingId = itemKey }
-                    )
-                }
-            }
-            if (selectedTab == TodoTab.REVIEW && reviewUpcoming.isNotEmpty()) {
-                item(key = "review_upcoming_header") {
-                    SectionHeader(title = "복습 예정")
-                }
-                items(reviewUpcoming, key = { "tab_upcoming_${it.id}" }) { todo ->
-                    ReviewUpcomingItem(todo = todo, todayStart = todayStart)
+                Crossfade(
+                    targetState = isEditing,
+                    animationSpec = tween(200),
+                    label = "edit_$itemKey"
+                ) { editing ->
+                    if (editing) {
+                        TodoCard(
+                            todo         = todo,
+                            isEditing    = true,
+                            isCompleting = completingId == itemKey,
+                            isFocus      = false,
+                            onStartTodo  = { onStartTodo(todo) },
+                            onComplete   = { onCompleteNormal(todo) },
+                            onUncomplete = { viewModel.uncompleteTodo(todo) },
+                            onEditToggle = { editingId = if (editingId == itemKey) null else itemKey },
+                            onSave       = { t, c, d -> viewModel.updateTodo(todo.copy(title = t, category = c, selectedDate = d)); editingId = null },
+                            onDelete     = { viewModel.deleteTodo(todo); editingId = null }
+                        )
+                    } else {
+                        TodoTabListItem(
+                            todo         = todo,
+                            todayStart   = todayStart,
+                            isCompleting = completingId == itemKey,
+                            onComplete   = { onCompleteNormal(todo) },
+                            onUncomplete = { viewModel.uncompleteTodo(todo) },
+                            onEditToggle = { editingId = itemKey }
+                        )
+                    }
                 }
             }
             if (tabCompleted.isNotEmpty()) {
@@ -2273,7 +2264,7 @@ private fun TodoCard(
                             .combinedClickable(onClick = onEditToggle)
                             .padding(end = 8.dp)
                     ) {
-                        if (todo.category != TodoCategory.NORMAL && todo.category != TodoCategory.TODAY) {
+                        if (todo.category != TodoCategory.NORMAL && todo.category != TodoCategory.TODAY && todo.category != TodoCategory.REVIEW) {
                             CategoryTag(todo.category)
                             Spacer(Modifier.height(if (isFocus) 3.dp else 5.dp))
                         }
@@ -2661,6 +2652,30 @@ private fun fmtTime(millis: Long): String =
     SimpleDateFormat("a h:mm", Locale.KOREAN).format(Date(millis))
 
 private fun todoTabSubtitle(todo: TodoItem, todayStart: Long): String? {
+    if (todo.category == TodoCategory.REVIEW) {
+        return when (todo.reviewStage) {
+            0 -> todo.selectedDate?.let { date ->
+                val days = (date - todayStart) / DAY_MILLIS
+                when {
+                    days < 0  -> "D+1 복습 · 기한 지남"
+                    days == 0L -> "D+1 복습 · 오늘"
+                    days == 1L -> "D+1 복습 · 내일"
+                    else      -> "D+1 복습 · ${days}일 후"
+                }
+            }
+            1 -> todo.reviewStage1CompletedAt?.let { completedAt ->
+                val d7 = startOfDay(completedAt) + 7 * DAY_MILLIS
+                val days = (d7 - todayStart) / DAY_MILLIS
+                when {
+                    days < 0  -> "D+7 복습 · 기한 지남"
+                    days == 0L -> "D+7 복습 · 오늘"
+                    days == 1L -> "D+7 복습 · 내일"
+                    else      -> "D+7 복습 · ${days}일 후"
+                }
+            }
+            else -> null
+        }
+    }
     if (todo.isCompleted) return todo.completedAt?.let { "완료 시간: ${fmtTime(it)}" }
     return todo.selectedDate?.let { date ->
         val daysUntil = (date - todayStart) / DAY_MILLIS
@@ -2682,6 +2697,7 @@ private fun TodoTabRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
             .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -2728,6 +2744,7 @@ private fun TodoTabListItem(
     onUncomplete: () -> Unit,
     onEditToggle: () -> Unit
 ) {
+    val isReviewWaiting = todo.category == TodoCategory.REVIEW && todo.reviewStage == 1
     val cardBg by animateColorAsState(
         targetValue = if (isCompleting) GreenSoft else Color.White,
         animationSpec = tween(250),
@@ -2746,19 +2763,25 @@ private fun TodoTabListItem(
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val checkBg = when {
+                isReviewWaiting  -> Purple.copy(alpha = 0.35f)
+                todo.isCompleted -> Purple
+                else             -> Color.Transparent
+            }
+            val checkBorder = if (todo.isCompleted || isReviewWaiting) Purple else BorderLight
             Box(
                 modifier = Modifier
                     .size(22.dp)
                     .clip(CircleShape)
-                    .background(if (todo.isCompleted) Purple else Color.Transparent)
-                    .border(BorderStroke(2.dp, if (todo.isCompleted) Purple else BorderLight), CircleShape)
+                    .background(checkBg)
+                    .border(BorderStroke(2.dp, checkBorder), CircleShape)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
                     ) { if (todo.isCompleted) onUncomplete() else onComplete() },
                 contentAlignment = Alignment.Center
             ) {
-                if (todo.isCompleted) {
+                if (todo.isCompleted || isReviewWaiting) {
                     Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(13.dp))
                 }
             }
@@ -2768,8 +2791,8 @@ private fun TodoTabListItem(
                     text = todo.title,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (todo.isCompleted) TextMuted else TextPrimary,
-                    textDecoration = if (todo.isCompleted) TextDecoration.LineThrough else TextDecoration.None,
+                    color = if (todo.isCompleted && !isReviewWaiting) TextMuted else TextPrimary,
+                    textDecoration = if (todo.isCompleted && !isReviewWaiting) TextDecoration.LineThrough else TextDecoration.None,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -2778,9 +2801,15 @@ private fun TodoTabListItem(
                     Spacer(Modifier.height(3.dp))
                     Text(subtitle, fontSize = 12.sp, color = TextMuted)
                 }
+                if (todo.category == TodoCategory.REVIEW) {
+                    Spacer(Modifier.height(5.dp))
+                    ReviewProgressRow(reviewStage = todo.reviewStage)
+                }
             }
-            Spacer(Modifier.width(8.dp))
-            TodoCategoryBadge(todo.category)
+            if (todo.category != TodoCategory.REVIEW) {
+                Spacer(Modifier.width(8.dp))
+                TodoCategoryBadge(todo.category)
+            }
         }
     }
 }
@@ -2837,48 +2866,6 @@ private fun TabCompletedItem(
             ) {
                 Text("되돌리기", fontSize = 12.sp)
             }
-        }
-    }
-}
-
-// ── 복습 예정 아이템 ───────────────────────────────────────────────────────────
-@Composable
-private fun ReviewUpcomingItem(todo: TodoItem, todayStart: Long) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(0.dp),
-        border = BorderStroke(1.dp, Color(0xFFF0EFF5)),
-        shape = RoundedCornerShape(14.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                todo.title,
-                modifier = Modifier.weight(1f),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = TextPrimary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            val date = todo.selectedDate ?: return@Row
-            val daysUntil = (date - todayStart) / DAY_MILLIS
-            val dateLabel = when (daysUntil) {
-                1L   -> "내일"
-                2L   -> "모레"
-                else -> fmtDate(date)
-            }
-            Text(
-                "D+$daysUntil · $dateLabel",
-                fontSize = 12.sp,
-                color = TextMuted,
-                fontWeight = FontWeight.Medium
-            )
         }
     }
 }
