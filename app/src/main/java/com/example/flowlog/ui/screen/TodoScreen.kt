@@ -135,6 +135,19 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+// ── 탭 정의 ───────────────────────────────────────────────────────────────────
+private enum class TodoTab(val label: String) {
+    ALL("전체"), TODAY("오늘"), ASSIGNMENT("과제"), REVIEW("복습"), NORMAL("일반")
+}
+
+private fun TodoTab.toCategory(): TodoCategory? = when (this) {
+    TodoTab.ALL        -> null
+    TodoTab.TODAY      -> TodoCategory.TODAY
+    TodoTab.ASSIGNMENT -> TodoCategory.ASSIGNMENT
+    TodoTab.REVIEW     -> TodoCategory.REVIEW
+    TodoTab.NORMAL     -> TodoCategory.NORMAL
+}
+
 // ── 컬러 팔레트 ───────────────────────────────────────────────────────────────
 private val BgPage       = Color(0xFFFAFAFC)
 private val TextPrimary  = Color(0xFF11182F)
@@ -214,6 +227,7 @@ fun TodoScreen(
     var editingId          by remember { mutableStateOf<String?>(null) }
     var completingId       by remember { mutableStateOf<String?>(null) }
     var isActiveExpanded   by remember { mutableStateOf(false) }
+    var selectedTab        by remember { mutableStateOf(TodoTab.ALL) }
     val adminOrganizedPetites = remember(organizedPetites) {
         organizedPetites.filterNot { it.sourceType == PetiteSourceType.PETITE }
     }
@@ -226,6 +240,35 @@ fun TodoScreen(
         } else {
             normalTodos.take((4 - visibleOrganizedPetites.size).coerceAtLeast(0))
         }
+    }
+    val tabActive = remember(todos, selectedTab, todayStart, tomorrowStart) {
+        if (selectedTab == TodoTab.ALL) emptyList()
+        else todos.filter { todo ->
+            !todo.isCompleted &&
+            todo.category == selectedTab.toCategory() &&
+            when (selectedTab) {
+                TodoTab.REVIEW -> todo.selectedDate == null || todo.selectedDate < tomorrowStart
+                else -> true
+            }
+        }
+    }
+    val tabCompleted = remember(todos, selectedTab, todayStart, tomorrowStart) {
+        if (selectedTab == TodoTab.ALL) emptyList()
+        else todos.filter { todo ->
+            todo.isCompleted &&
+            todo.category == selectedTab.toCategory() &&
+            todo.completedAt != null &&
+            todo.completedAt in todayStart until tomorrowStart
+        }.sortedByDescending { it.completedAt }
+    }
+    val reviewUpcoming = remember(todos, selectedTab, tomorrowStart) {
+        if (selectedTab != TodoTab.REVIEW) emptyList()
+        else todos.filter { todo ->
+            !todo.isCompleted &&
+            todo.category == TodoCategory.REVIEW &&
+            todo.selectedDate != null &&
+            todo.selectedDate >= tomorrowStart
+        }.sortedBy { it.selectedDate }
     }
     val scope = rememberCoroutineScope()
 
@@ -314,58 +357,77 @@ fun TodoScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 4.dp, bottom = 0.dp),
+                    .padding(start = 4.dp, top = 8.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "Todo",
+                    "오늘 할 일",
                     fontSize = 26.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = TextPrimary,
                     modifier = Modifier.weight(1f)
                 )
-                if (isDeveloperMode) {
-                    IconButton(onClick = { viewModel.refreshSort() }) {
-                        Icon(
-                            imageVector = Icons.Filled.Refresh,
-                            contentDescription = "정렬 새로고침",
-                            tint = TextMuted
-                        )
-                    }
+                OutlinedButton(
+                    onClick = {
+                        inputCategory = selectedTab.toCategory()
+                        isInputExpanded = true
+                    },
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, BorderLight),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("추가", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
 
-        // ── 입력 카드 ─────────────────────────────────────────────────────────
-        item(key = "input") {
-            NewTodoCard(
-                title        = newTitle,
-                onTitleChange = { newTitle = it },
-                isExpanded   = isInputExpanded,
-                category     = inputCategory,
-                onCategoryChange = { inputCategory = it },
-                date         = inputDate,
-                onDateClick  = { showInputDatePick = true },
-                interactionSource = titleSrc,
-                onAdd = {
-                    val effectiveCategory = inputCategory ?: TodoCategory.NORMAL
-                    val effectiveDate = if (effectiveCategory == TodoCategory.REVIEW && inputDate == null) todayStart else inputDate
-                    viewModel.addTodo(newTitle, effectiveCategory, effectiveDate)
-                    newTitle = ""; isInputExpanded = false; inputCategory = null; inputDate = null
-                    focusManager.clearFocus()
-                },
-                onAddToCalendar = {
-                    val titleToSave = newTitle.trim()
-                    val effectiveCategory = inputCategory ?: TodoCategory.NORMAL
-                    val dateToSave = if (effectiveCategory == TodoCategory.REVIEW && inputDate == null) todayStart else inputDate
-                    viewModel.addTodo(titleToSave, effectiveCategory, dateToSave)
-                    CalendarIntentHelper.openInsertEvent(context, titleToSave, dateToSave)
-                    newTitle = ""; isInputExpanded = false; inputCategory = null; inputDate = null
-                    focusManager.clearFocus()
+        // ── 탭 바 ─────────────────────────────────────────────────────────────
+        item(key = "tabs") {
+            TodoTabRow(
+                selectedTab = selectedTab,
+                onTabSelect = { tab ->
+                    selectedTab = tab
+                    editingId = null
                 }
             )
         }
 
+        // ── 입력 카드 ─────────────────────────────────────────────────────────
+        if (isInputExpanded) {
+            item(key = "input") {
+                NewTodoCard(
+                    title        = newTitle,
+                    onTitleChange = { newTitle = it },
+                    isExpanded   = isInputExpanded,
+                    category     = inputCategory,
+                    onCategoryChange = { inputCategory = it },
+                    date         = inputDate,
+                    onDateClick  = { showInputDatePick = true },
+                    interactionSource = titleSrc,
+                    onAdd = {
+                        val effectiveCategory = inputCategory ?: TodoCategory.NORMAL
+                        val effectiveDate = if (effectiveCategory == TodoCategory.REVIEW && inputDate == null) todayStart else inputDate
+                        viewModel.addTodo(newTitle, effectiveCategory, effectiveDate)
+                        newTitle = ""; isInputExpanded = false; inputCategory = null; inputDate = null
+                        focusManager.clearFocus()
+                    },
+                    onAddToCalendar = {
+                        val titleToSave = newTitle.trim()
+                        val effectiveCategory = inputCategory ?: TodoCategory.NORMAL
+                        val dateToSave = if (effectiveCategory == TodoCategory.REVIEW && inputDate == null) todayStart else inputDate
+                        viewModel.addTodo(titleToSave, effectiveCategory, dateToSave)
+                        CalendarIntentHelper.openInsertEvent(context, titleToSave, dateToSave)
+                        newTitle = ""; isInputExpanded = false; inputCategory = null; inputDate = null
+                        focusManager.clearFocus()
+                    }
+                )
+            }
+        }
+
+        if (selectedTab == TodoTab.ALL) {
         // ── 오늘의 목표 ───────────────────────────────────────────────────────
         if (normalTodos.isNotEmpty() || adminOrganizedPetites.isNotEmpty()) {
             item(key = "focus_header") {
@@ -545,6 +607,68 @@ fun TodoScreen(
                     onUndo   = { viewModel.uncompleteTodo(todo) },
                     onDelete = { viewModel.deleteTodo(todo) }
                 )
+            }
+        }
+        } else {
+            // ── 탭 필터 콘텐츠 ────────────────────────────────────────────────
+            if (tabActive.isEmpty() && tabCompleted.isEmpty() && reviewUpcoming.isEmpty()) {
+                item(key = "tab_empty") {
+                    Box(
+                        Modifier.fillMaxWidth().height(120.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("아직 할 일이 없습니다.", color = TextMuted, fontSize = 15.sp)
+                    }
+                }
+            }
+            items(tabActive, key = { "tab_active_${it.id}" }) { todo ->
+                val itemKey = "${todo.id}_${todo.createdAt}"
+                val isEditing = editingId == itemKey
+                if (isEditing) {
+                    TodoCard(
+                        todo         = todo,
+                        isEditing    = true,
+                        isCompleting = completingId == itemKey,
+                        isFocus      = false,
+                        onStartTodo  = { onStartTodo(todo) },
+                        onComplete   = { onCompleteNormal(todo) },
+                        onUncomplete = { viewModel.uncompleteTodo(todo) },
+                        onEditToggle = { editingId = if (editingId == itemKey) null else itemKey },
+                        onSave       = { t, c, d -> viewModel.updateTodo(todo.copy(title = t, category = c, selectedDate = d)); editingId = null },
+                        onDelete     = { viewModel.deleteTodo(todo); editingId = null }
+                    )
+                } else {
+                    TodoTabListItem(
+                        todo         = todo,
+                        todayStart   = todayStart,
+                        isCompleting = completingId == itemKey,
+                        onComplete   = { onCompleteNormal(todo) },
+                        onUncomplete = { viewModel.uncompleteTodo(todo) },
+                        onEditToggle = { editingId = itemKey }
+                    )
+                }
+            }
+            if (selectedTab == TodoTab.REVIEW && reviewUpcoming.isNotEmpty()) {
+                item(key = "review_upcoming_header") {
+                    SectionHeader(title = "복습 예정")
+                }
+                items(reviewUpcoming, key = { "tab_upcoming_${it.id}" }) { todo ->
+                    ReviewUpcomingItem(todo = todo, todayStart = todayStart)
+                }
+            }
+            if (tabCompleted.isNotEmpty()) {
+                item(key = "tab_completed_divider") {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                        color = BorderLight.copy(alpha = 0.5f)
+                    )
+                }
+                items(tabCompleted, key = { "tab_completed_${it.id}" }) { todo ->
+                    TabCompletedItem(
+                        todo         = todo,
+                        onUncomplete = { viewModel.uncompleteTodo(todo) }
+                    )
+                }
             }
         }
     }
@@ -2532,3 +2656,242 @@ private fun startOfDay(millis: Long): Long {
 }
 
 private const val DAY_MILLIS = 24L * 60L * 60L * 1000L
+
+private fun fmtTime(millis: Long): String =
+    SimpleDateFormat("a h:mm", Locale.KOREAN).format(Date(millis))
+
+private fun todoTabSubtitle(todo: TodoItem, todayStart: Long): String? {
+    if (todo.isCompleted) return todo.completedAt?.let { "완료 시간: ${fmtTime(it)}" }
+    return todo.selectedDate?.let { date ->
+        val daysUntil = (date - todayStart) / DAY_MILLIS
+        val dateStr = when {
+            daysUntil < 0  -> "기한 지남"
+            daysUntil == 0L -> "오늘"
+            else           -> fmtDate(date)
+        }
+        "마감: $dateStr"
+    }
+}
+
+// ── 탭 바 ─────────────────────────────────────────────────────────────────────
+@Composable
+private fun TodoTabRow(
+    selectedTab: TodoTab,
+    onTabSelect: (TodoTab) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        TodoTab.entries.filter { it != TodoTab.NORMAL }.forEach { tab ->
+            val isSelected = tab == selectedTab
+            val bg by animateColorAsState(
+                targetValue = if (isSelected) Purple else Color.Transparent,
+                animationSpec = tween(150),
+                label = "tabBg"
+            )
+            val fg by animateColorAsState(
+                targetValue = if (isSelected) Color.White else TextMuted,
+                animationSpec = tween(150),
+                label = "tabFg"
+            )
+            Box(
+                modifier = Modifier
+                    .background(bg, RoundedCornerShape(20.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onTabSelect(tab) }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    tab.label,
+                    fontSize = 14.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    color = fg
+                )
+            }
+        }
+    }
+}
+
+// ── 탭 리스트 아이템 ───────────────────────────────────────────────────────────
+@Composable
+private fun TodoTabListItem(
+    todo: TodoItem,
+    todayStart: Long,
+    isCompleting: Boolean,
+    onComplete: () -> Unit,
+    onUncomplete: () -> Unit,
+    onEditToggle: () -> Unit
+) {
+    val cardBg by animateColorAsState(
+        targetValue = if (isCompleting) GreenSoft else Color.White,
+        animationSpec = tween(250),
+        label = "tabItemBg"
+    )
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable { onEditToggle() },
+        colors = CardDefaults.cardColors(containerColor = cardBg),
+        elevation = CardDefaults.cardElevation(0.dp),
+        border = BorderStroke(1.dp, Color(0xFFF0EFF5)),
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(if (todo.isCompleted) Purple else Color.Transparent)
+                    .border(BorderStroke(2.dp, if (todo.isCompleted) Purple else BorderLight), CircleShape)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { if (todo.isCompleted) onUncomplete() else onComplete() },
+                contentAlignment = Alignment.Center
+            ) {
+                if (todo.isCompleted) {
+                    Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(13.dp))
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = todo.title,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (todo.isCompleted) TextMuted else TextPrimary,
+                    textDecoration = if (todo.isCompleted) TextDecoration.LineThrough else TextDecoration.None,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val subtitle = todoTabSubtitle(todo, todayStart)
+                if (subtitle != null) {
+                    Spacer(Modifier.height(3.dp))
+                    Text(subtitle, fontSize = 12.sp, color = TextMuted)
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            TodoCategoryBadge(todo.category)
+        }
+    }
+}
+
+// ── 탭 완료 아이템 ─────────────────────────────────────────────────────────────
+@Composable
+private fun TabCompletedItem(
+    todo: TodoItem,
+    onUncomplete: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8FC)),
+        elevation = CardDefaults.cardElevation(0.dp),
+        border = BorderStroke(1.dp, Color(0xFFF0EFF5)),
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(Purple.copy(alpha = 0.5f))
+                    .border(BorderStroke(2.dp, Purple.copy(alpha = 0.5f)), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(13.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = todo.title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = TextMuted,
+                    textDecoration = TextDecoration.LineThrough,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                todo.completedAt?.let {
+                    Spacer(Modifier.height(2.dp))
+                    Text("완료 시간: ${fmtTime(it)}", fontSize = 12.sp, color = TextMuted.copy(alpha = 0.7f))
+                }
+            }
+            TextButton(
+                onClick = onUncomplete,
+                colors = ButtonDefaults.textButtonColors(contentColor = Purple),
+                contentPadding = PaddingValues(horizontal = 8.dp)
+            ) {
+                Text("되돌리기", fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+// ── 복습 예정 아이템 ───────────────────────────────────────────────────────────
+@Composable
+private fun ReviewUpcomingItem(todo: TodoItem, todayStart: Long) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(0.dp),
+        border = BorderStroke(1.dp, Color(0xFFF0EFF5)),
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                todo.title,
+                modifier = Modifier.weight(1f),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            val date = todo.selectedDate ?: return@Row
+            val daysUntil = (date - todayStart) / DAY_MILLIS
+            val dateLabel = when (daysUntil) {
+                1L   -> "내일"
+                2L   -> "모레"
+                else -> fmtDate(date)
+            }
+            Text(
+                "D+$daysUntil · $dateLabel",
+                fontSize = 12.sp,
+                color = TextMuted,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+// ── 카테고리 배지 ──────────────────────────────────────────────────────────────
+@Composable
+private fun TodoCategoryBadge(category: TodoCategory) {
+    val (label, color) = when (category) {
+        TodoCategory.TODAY           -> "오늘"  to Color(0xFFE8760A)
+        TodoCategory.ASSIGNMENT      -> "과제"  to Color(0xFFE35B5B)
+        TodoCategory.REVIEW          -> "복습"  to Purple
+        TodoCategory.NORMAL          -> "일반"  to TextMuted
+        TodoCategory.UNIVERSITY_EXAM -> "시험"  to Color(0xFF1565C0)
+    }
+    Text(text = label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = color)
+}
