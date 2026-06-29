@@ -142,6 +142,10 @@ class DailyGoalRepository(context: Context) {
                 .filter { it.isCompleted }
                 .map { it.todoId }
                 .toSet()
+            val plannedItemCountsByTodoId = items
+                .filter { !it.wasSkipped && !it.wasDeleted }
+                .groupingBy { it.todoId }
+                .eachCount()
             val calendarPetitesById = calendarPetites.associateBy { "calendar_petite_${it.id}" }
             val calendarTodosById = todos
                 .filter { it.calendarSourceId != null }
@@ -154,12 +158,7 @@ class DailyGoalRepository(context: Context) {
                     item.toRecommendedBlock()
                 }
                 if (block == null) return@mapNotNull null
-                if (block.userActionStatus !in VISIBLE_RECOMMENDED_BLOCK_STATUSES ||
-                    item.wasCompleted ||
-                    item.wasSkipped ||
-                    item.wasDeleted ||
-                    item.todoId in completedTodoIds
-                ) {
+                if (!shouldShowRecommendedBlock(item, completedTodoIds, plannedItemCountsByTodoId)) {
                     return@mapNotNull null
                 }
                 val expired = block.plannedStartMillis + HOUR_MILLIS <= now
@@ -1070,8 +1069,6 @@ class DailyGoalRepository(context: Context) {
         private val HEAVY_DENOMINATOR_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK", "COMPANY", "REST", "SLEEP", "SCHOOL")
         private val LIGHT_DENOMINATOR_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK", "COMPANY", "REST", "SCHOOL")
         private val REPLANNABLE_ACTION_STATUSES = setOf("PLANNED", "RESCHEDULED")
-        private val VISIBLE_RECOMMENDED_BLOCK_STATUSES = setOf("PLANNED", "RESCHEDULED", "STARTED")
-
         private val logFmt = SimpleDateFormat("HH:mm", Locale.getDefault())
         private fun fmtTime(ms: Long?): String = ms?.let { logFmt.format(Date(it)) } ?: "null"
 
@@ -1084,4 +1081,18 @@ class DailyGoalRepository(context: Context) {
         }
 
     }
+}
+
+private val visibleRecommendedBlockStatuses = setOf("PLANNED", "RESCHEDULED", "STARTED")
+
+internal fun shouldShowRecommendedBlock(
+    item: DailyGoalItemEntity,
+    completedTodoIds: Set<String>,
+    plannedItemCountsByTodoId: Map<String, Int>
+): Boolean {
+    if (item.userActionStatus !in visibleRecommendedBlockStatuses) return false
+    if (item.wasCompleted || item.wasSkipped || item.wasDeleted) return false
+
+    val hasMultiplePlannedBlocksForTodo = (plannedItemCountsByTodoId[item.todoId] ?: 0) > 1
+    return item.todoId !in completedTodoIds || hasMultiplePlannedBlocksForTodo
 }
