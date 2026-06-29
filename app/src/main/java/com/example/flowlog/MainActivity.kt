@@ -368,31 +368,18 @@ class MainActivity : ComponentActivity() {
 
                 val pagerState = rememberPagerState(
                     initialPage = when {
-                        isDeveloperMode && currentScreen == "stats" -> 1
-                        currentScreen == "todo" -> if (isDeveloperMode) 2 else 1
+                        currentScreen == "todo" -> 1
                         else -> 0
                     },
-                    pageCount = { if (isDeveloperMode) 3 else 2 }
+                    pageCount = { 2 }
                 )
 
-                LaunchedEffect(pagerState.currentPage, isDeveloperMode) {
-                    currentScreen = if (isDeveloperMode) {
-                        when (pagerState.currentPage) { 1 -> "stats"; 2 -> "todo"; else -> "home" }
-                    } else {
-                        if (pagerState.currentPage == 0) "home" else "todo"
-                    }
+                LaunchedEffect(pagerState.currentPage) {
+                    currentScreen = if (pagerState.currentPage == 0) "home" else "todo"
                 }
 
-                LaunchedEffect(currentScreen, isDeveloperMode) {
-                    if (!isDeveloperMode && currentScreen == "stats") {
-                        currentScreen = "home"
-                        return@LaunchedEffect
-                    }
-                    val targetPage = if (isDeveloperMode) {
-                        when (currentScreen) { "stats" -> 1; "todo" -> 2; else -> 0 }
-                    } else {
-                        if (currentScreen == "todo") 1 else 0
-                    }
+                LaunchedEffect(currentScreen) {
+                    val targetPage = if (currentScreen == "todo") 1 else 0
                     if (pagerState.currentPage != targetPage) {
                         pagerState.animateScrollToPage(targetPage)
                     }
@@ -418,9 +405,8 @@ class MainActivity : ComponentActivity() {
                             state = pagerState,
                             modifier = Modifier.weight(1f)
                         ) { page ->
-                            val todoPage = if (isDeveloperMode) 2 else 1
                             when {
-                                page == todoPage -> TodoScreen(
+                                page == 1 -> TodoScreen(
                                     viewModel = todoViewModel,
                                     isDeveloperMode = isDeveloperMode,
                                     onStartTodo = { todo ->
@@ -440,9 +426,6 @@ class MainActivity : ComponentActivity() {
                                         showHomeMainTimer()
                                     },
                                     routineTimerCategories = routineTimerCategories,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                                isDeveloperMode && page == 1 -> DevTimetableScreen(
                                     modifier = Modifier.fillMaxSize()
                                 )
                                 else -> HomeScreen(
@@ -492,9 +475,7 @@ class MainActivity : ComponentActivity() {
                         FlowlogBottomBar(
                             currentScreen = currentScreen,
                             isFocusFireActive = isFocusFireActive && currentScreen == "home",
-                            isDeveloperMode = isDeveloperMode,
                             onHomeClick = { currentScreen = "home" },
-                            onStatsClick = { currentScreen = "stats" },
                             onTodoClick = { currentScreen = "todo" }
                         )
                     }
@@ -504,8 +485,6 @@ class MainActivity : ComponentActivity() {
                         onAccept = { id -> activityViewModel.acceptMainButtonRecommendation(id) },
                         onDismiss = { id -> activityViewModel.dismissMainButtonRecommendation(id) },
                         onClose = { activityViewModel.closeAiMessenger() },
-                        isDeveloperMode = isDeveloperMode,
-                        onDebugInject = { activityViewModel.debugInjectMainButtonRecommendation() },
                     )
                 }
                 }
@@ -1124,8 +1103,6 @@ private fun AiMessengerSheet(
     onAccept: (messageId: String) -> Unit,
     onDismiss: (messageId: String) -> Unit,
     onClose: () -> Unit,
-    isDeveloperMode: Boolean = false,
-    onDebugInject: () -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val pendingRecommendations = uiState.messages
@@ -1193,11 +1170,6 @@ private fun AiMessengerSheet(
                             color = Color(0xFF697386),
                             textAlign = TextAlign.Center
                         )
-                        if (isDeveloperMode) {
-                            TextButton(onClick = onDebugInject) {
-                                Text("[DEBUG] 테스트 추천 삽입", fontSize = 12.sp, color = Color(0xFFAAAAAA))
-                            }
-                        }
                     }
                 }
             } else {
@@ -1264,9 +1236,7 @@ private fun AiSuggestionCard(
 private fun FlowlogBottomBar(
     currentScreen: String,
     isFocusFireActive: Boolean = false,
-    isDeveloperMode: Boolean = false,
     onHomeClick: () -> Unit,
-    onStatsClick: () -> Unit = {},
     onTodoClick: () -> Unit
 ) {
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -1295,24 +1265,6 @@ private fun FlowlogBottomBar(
             },
             label = { Text("홈") }
         )
-        if (isDeveloperMode) {
-            NavigationBarItem(
-                selected = currentScreen == "stats",
-                onClick = onStatsClick,
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = Color(0xFF5140D8),
-                    selectedTextColor = Color(0xFF5140D8),
-                    indicatorColor = Color(0xFFEDE9FF)
-                ),
-                icon = {
-                    Icon(
-                        imageVector = Icons.Filled.BarChart,
-                        contentDescription = "통계"
-                    )
-                },
-                label = { Text("통계") }
-            )
-        }
         NavigationBarItem(
             selected = currentScreen == "todo",
             onClick = onTodoClick,
