@@ -180,6 +180,22 @@ interface TodoDao {
 
     @Query("""
         UPDATE todos
+        SET accumulatedWorkMillis = accumulatedWorkMillis + :deltaMillis,
+            updatedAt = :updatedAt,
+            syncStatus = '${SyncStatus.PENDING}'
+        WHERE userId = :userId
+          AND calendarSourceId = :calendarSourceId
+          AND isDeleted = 0
+    """)
+    suspend fun addToAccumulatedWorkMillisByCalendarSourceId(
+        userId: String,
+        calendarSourceId: String,
+        deltaMillis: Long,
+        updatedAt: Long
+    )
+
+    @Query("""
+        UPDATE todos
         SET burdenLevel = :burdenLevel,
             burdenGroupKey = :burdenGroupKey,
             burdenScore = :burdenScore,

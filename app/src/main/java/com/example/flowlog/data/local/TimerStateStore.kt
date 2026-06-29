@@ -11,6 +11,7 @@ data class ActiveTimerState(
     val status: TimerStatus = TimerStatus.RUNNING,
     val pausedElapsedMillis: Long = 0L,
     val linkedTodoId: Long? = null,
+    val linkedTodoCalendarSourceId: String? = null,
     val linkedPetiteId: String? = null,
     val linkedTodoTitle: String? = null,
     val pendingNote: String? = null,
@@ -44,6 +45,7 @@ object TimerStateStore {
     private const val KEY_ACTIVE_STATUS = "active_status"
     private const val KEY_PAUSED_ELAPSED_MILLIS = "paused_elapsed_millis"
     private const val KEY_ACTIVE_TODO_ID = "active_todo_id"
+    private const val KEY_ACTIVE_TODO_CALENDAR_SOURCE_ID = "active_todo_calendar_source_id"
     private const val KEY_ACTIVE_TODO_TITLE = "active_todo_title"
     private const val KEY_ACTIVE_PENDING_NOTE = "active_pending_note"
     private const val KEY_ACTIVE_PENDING_TITLE = "active_pending_title"
@@ -78,6 +80,7 @@ object TimerStateStore {
         val pausedElapsedMillis = preferences.getLong(KEY_PAUSED_ELAPSED_MILLIS, 0L)
         val linkedTodoId = preferences.getLong(KEY_ACTIVE_TODO_ID, NO_TODO_ID)
             .takeUnless { it == NO_TODO_ID }
+        val linkedTodoCalendarSourceId = preferences.getString(KEY_ACTIVE_TODO_CALENDAR_SOURCE_ID, null)
         val linkedTodoTitle = preferences.getString(KEY_ACTIVE_TODO_TITLE, null)
         val pendingNote = preferences.getString(KEY_ACTIVE_PENDING_NOTE, null)
         val pendingTitle = preferences.getString(KEY_ACTIVE_PENDING_TITLE, null)
@@ -97,6 +100,7 @@ object TimerStateStore {
             status = status,
             pausedElapsedMillis = pausedElapsedMillis,
             linkedTodoId = linkedTodoId,
+            linkedTodoCalendarSourceId = linkedTodoCalendarSourceId,
             linkedPetiteId = linkedPetiteId,
             linkedTodoTitle = linkedTodoTitle,
             pendingNote = pendingNote,
@@ -114,6 +118,7 @@ object TimerStateStore {
         startTime: Long,
         goalMillis: Long = DEFAULT_GOAL_MILLIS,
         linkedTodoId: Long? = null,
+        linkedTodoCalendarSourceId: String? = null,
         linkedPetiteId: String? = null,
         linkedTodoTitle: String? = null,
         pendingNote: String? = null,
@@ -131,6 +136,7 @@ object TimerStateStore {
             .putString(KEY_ACTIVE_STATUS, TimerStatus.RUNNING.name)
             .remove(KEY_PAUSED_ELAPSED_MILLIS)
             .putLong(KEY_ACTIVE_TODO_ID, linkedTodoId ?: NO_TODO_ID)
+            .putString(KEY_ACTIVE_TODO_CALENDAR_SOURCE_ID, linkedTodoCalendarSourceId)
             .putString(KEY_ACTIVE_PETITE_ID, linkedPetiteId)
             .putString(KEY_ACTIVE_TODO_TITLE, linkedTodoTitle)
             .putString(KEY_ACTIVE_PENDING_NOTE, pendingNote)
@@ -201,6 +207,7 @@ object TimerStateStore {
             .remove(KEY_ACTIVE_STATUS)
             .remove(KEY_PAUSED_ELAPSED_MILLIS)
             .remove(KEY_ACTIVE_TODO_ID)
+            .remove(KEY_ACTIVE_TODO_CALENDAR_SOURCE_ID)
             .remove(KEY_ACTIVE_TODO_TITLE)
             .remove(KEY_ACTIVE_PENDING_NOTE)
             .remove(KEY_ACTIVE_PENDING_TITLE)

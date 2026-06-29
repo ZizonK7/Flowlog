@@ -14,6 +14,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,6 +33,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -104,6 +106,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.zIndex
@@ -219,13 +223,10 @@ fun TodoScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     var newTitle          by remember { mutableStateOf("") }
-    var isInputExpanded   by remember { mutableStateOf(false) }
+    var showAddSheet      by remember { mutableStateOf(false) }
     var inputCategory     by remember { mutableStateOf<TodoCategory?>(null) }
     var inputDate         by remember { mutableStateOf<Long?>(null) }
     var showInputDatePick by remember { mutableStateOf(false) }
-    val titleSrc = remember { MutableInteractionSource() }
-    val isTitleFocused by titleSrc.collectIsFocusedAsState()
-    LaunchedEffect(isTitleFocused) { if (isTitleFocused) isInputExpanded = true }
     // 카드 인터랙션 상태
     var editingId          by remember { mutableStateOf<String?>(null) }
     var completingId       by remember { mutableStateOf<String?>(null) }
@@ -322,23 +323,6 @@ fun TodoScreen(
             if (editingId == (todo.calendarSourceId ?: "${todo.id}_${todo.createdAt}")) editingId = null
         }
     }
-
-    // 입력 날짜 선택 다이얼로그
-    if (showInputDatePick) {
-        val state = rememberDatePickerState(initialSelectedDateMillis = inputDate)
-        DatePickerDialog(
-            onDismissRequest = { showInputDatePick = false },
-            confirmButton = {
-                TextButton(onClick = { inputDate = state.selectedDateMillis; showInputDatePick = false }) {
-                    Text("확인", color = Purple, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showInputDatePick = false }) { Text("취소", color = TextMuted) }
-            }
-        ) { DatePicker(state = state) }
-    }
-
     Box(modifier = modifier.fillMaxSize()) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(BgPage),
@@ -363,7 +347,7 @@ fun TodoScreen(
                 OutlinedButton(
                     onClick = {
                         inputCategory = selectedTab.toCategory()
-                        isInputExpanded = true
+                        showAddSheet = true
                     },
                     shape = RoundedCornerShape(20.dp),
                     border = BorderStroke(1.dp, BorderLight),
@@ -386,38 +370,6 @@ fun TodoScreen(
                     editingId = null
                 }
             )
-        }
-
-        // ── 입력 카드 ─────────────────────────────────────────────────────────
-        if (isInputExpanded) {
-            item(key = "input") {
-                NewTodoCard(
-                    title        = newTitle,
-                    onTitleChange = { newTitle = it },
-                    isExpanded   = isInputExpanded,
-                    category     = inputCategory,
-                    onCategoryChange = { inputCategory = it },
-                    date         = inputDate,
-                    onDateClick  = { showInputDatePick = true },
-                    interactionSource = titleSrc,
-                    onAdd = {
-                        val effectiveCategory = inputCategory ?: TodoCategory.NORMAL
-                        val effectiveDate = if (effectiveCategory == TodoCategory.REVIEW && inputDate == null) todayStart else inputDate
-                        viewModel.addTodo(newTitle, effectiveCategory, effectiveDate)
-                        newTitle = ""; isInputExpanded = false; inputCategory = null; inputDate = null
-                        focusManager.clearFocus()
-                    },
-                    onAddToCalendar = {
-                        val titleToSave = newTitle.trim()
-                        val effectiveCategory = inputCategory ?: TodoCategory.NORMAL
-                        val dateToSave = if (effectiveCategory == TodoCategory.REVIEW && inputDate == null) todayStart else inputDate
-                        viewModel.addTodo(titleToSave, effectiveCategory, dateToSave)
-                        CalendarIntentHelper.openInsertEvent(context, titleToSave, dateToSave)
-                        newTitle = ""; isInputExpanded = false; inputCategory = null; inputDate = null
-                        focusManager.clearFocus()
-                    }
-                )
-            }
         }
 
         if (selectedTab == TodoTab.ALL) {
@@ -664,7 +616,68 @@ fun TodoScreen(
         }
     }
 
+    val dismissAddSheet = {
+        showAddSheet = false
+        showInputDatePick = false
+        newTitle = ""; inputCategory = null; inputDate = null
+        focusManager.clearFocus()
+    }
+
+    if (showAddSheet) {
+        val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = dismissAddSheet,
+            sheetState = addSheetState,
+            containerColor = Color.White,
+            shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+            dragHandle = null
+        ) {
+            NewTodoSheetContent(
+                title = newTitle,
+                onTitleChange = { newTitle = it },
+                category = inputCategory,
+                onCategoryChange = { inputCategory = it },
+                date = inputDate,
+                onDateClick = {
+                    focusManager.clearFocus()
+                    showInputDatePick = true
+                },
+                onDismiss = dismissAddSheet,
+                onAdd = {
+                    val titleToSave = newTitle.trim()
+                    val effectiveCategory = inputCategory ?: TodoCategory.NORMAL
+                    val effectiveDate = if (effectiveCategory == TodoCategory.REVIEW && inputDate == null) todayStart else inputDate
+                    viewModel.addTodo(titleToSave, effectiveCategory, effectiveDate)
+                    dismissAddSheet()
+                },
+                onAddToCalendar = {
+                    val titleToSave = newTitle.trim()
+                    val effectiveCategory = inputCategory ?: TodoCategory.NORMAL
+                    val dateToSave = if (effectiveCategory == TodoCategory.REVIEW && inputDate == null) todayStart else inputDate
+                    viewModel.addTodo(titleToSave, effectiveCategory, dateToSave)
+                    CalendarIntentHelper.openInsertEvent(context, titleToSave, dateToSave)
+                    dismissAddSheet()
+                }
+            )
+        }
+    }
+
     // 오늘 할 일 완료 되돌리기 Snackbar
+    if (showInputDatePick) {
+        val state = rememberDatePickerState(initialSelectedDateMillis = inputDate)
+        DatePickerDialog(
+            onDismissRequest = { showInputDatePick = false },
+            confirmButton = {
+                TextButton(onClick = { inputDate = state.selectedDateMillis; showInputDatePick = false }) {
+                    Text("확인", color = Purple, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showInputDatePick = false }) { Text("취소", color = TextMuted) }
+            }
+        ) { DatePicker(state = state) }
+    }
+
     SnackbarHost(
         hostState = normalSnackbarHostState,
         modifier = Modifier
@@ -2029,128 +2042,214 @@ private fun formatCueDuration(durationMillis: Long): String {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NewTodoCard(
+private fun NewTodoSheetContent(
     title: String,
     onTitleChange: (String) -> Unit,
-    isExpanded: Boolean,
     category: TodoCategory?,
     onCategoryChange: (TodoCategory?) -> Unit,
     date: Long?,
     onDateClick: () -> Unit,
-    interactionSource: MutableInteractionSource,
+    onDismiss: () -> Unit,
     onAdd: () -> Unit,
     onAddToCalendar: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = CardShape
-    ) {
-        Column(Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = onTitleChange,
-                    modifier = Modifier.weight(1f).height(56.dp),
-                    interactionSource = interactionSource,
-                    singleLine = true,
-                    placeholder = { Text("새 할 일") },
-                    textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Purple,
-                        unfocusedBorderColor = BorderLight,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedPlaceholderColor = TextMuted,
-                        unfocusedPlaceholderColor = TextMuted,
-                        cursorColor = Purple
-                    )
-                )
-                Button(
-                    onClick = onAdd,
-                    enabled = title.isNotBlank(),
-                    shape = RoundedCornerShape(22.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = PurpleSoft, contentColor = Purple,
-                        disabledContainerColor = Color(0xFFF4F2FA), disabledContentColor = Color(0xFFB8B2C9)
-                    ),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    Icon(Icons.Filled.Add, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("추가", fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                }
-            }
+    val focusRequester = remember { FocusRequester() }
+    val trimmedTitle = title.trim()
+    LaunchedEffect(Unit) { delay(100); focusRequester.requestFocus() }
 
-            AnimatedVisibility(
-                visible = isExpanded,
-                enter = expandVertically(tween(260)) + fadeIn(tween(200)),
-                exit  = shrinkVertically(tween(200)) + fadeOut(tween(150))
-            ) {
-                Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 14.dp)
-                ) {
-                    HorizontalDivider(color = BorderLight.copy(alpha = 0.45f))
-                    Spacer(Modifier.height(12.dp))
-                    // 1행: 타입 칩
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        TypeChip("오늘 할 일", category == TodoCategory.TODAY) {
-                            onCategoryChange(if (category == TodoCategory.TODAY) null else TodoCategory.TODAY)
-                        }
-                        TypeChip("복습", category == TodoCategory.REVIEW) {
-                            onCategoryChange(if (category == TodoCategory.REVIEW) null else TodoCategory.REVIEW)
-                        }
-                        TypeChip("마감 있는 일", category == TodoCategory.ASSIGNMENT) {
-                            onCategoryChange(if (category == TodoCategory.ASSIGNMENT) null else TodoCategory.ASSIGNMENT)
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    // 2행: 날짜 선택 + 캘린더 추가
-                    val datePlaceholder = when (category) {
-                        TodoCategory.ASSIGNMENT -> "마감일 선택"
-                        else -> "날짜 선택"
-                    }
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        DateChipButton(date, datePlaceholder, onDateClick)
-                        OutlinedButton(
-                            onClick = onAddToCalendar,
-                            enabled = title.isNotBlank(),
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(
-                                1.dp,
-                                if (title.isNotBlank()) BorderLight else BorderLight.copy(alpha = 0.4f)
-                            ),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = TextMuted,
-                                disabledContentColor = TextMuted.copy(alpha = 0.4f)
-                            ),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                        ) {
-                            Icon(Icons.Outlined.CalendarMonth, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("캘린더에 추가", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        }
-                    }
-                }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .imePadding()
+            .padding(horizontal = 20.dp)
+            .padding(top = 16.dp, bottom = 24.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .width(38.dp)
+                .height(4.dp)
+                .background(BorderLight.copy(alpha = 0.7f), RoundedCornerShape(99.dp))
+                .align(Alignment.CenterHorizontally)
+        )
+        Spacer(Modifier.height(18.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("새 할 일", fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    "분류와 날짜는 필요할 때만 골라두면 돼요.",
+                    fontSize = 12.sp,
+                    color = TextMuted
+                )
+            }
+            IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Filled.Close, "닫기", tint = TextMuted, modifier = Modifier.size(20.dp))
             }
         }
+        Spacer(Modifier.height(18.dp))
+        OutlinedTextField(
+            value = title,
+            onValueChange = onTitleChange,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+                .focusRequester(focusRequester),
+            singleLine = true,
+            placeholder = { Text("무엇을 해볼까요?") },
+            leadingIcon = {
+                Icon(Icons.Outlined.CheckCircle, null, tint = Purple, modifier = Modifier.size(20.dp))
+            },
+            textStyle = TextStyle(color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
+            shape = RoundedCornerShape(14.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Purple,
+                unfocusedBorderColor = BorderLight,
+                focusedContainerColor = PurpleSoft.copy(alpha = 0.16f),
+                unfocusedContainerColor = Color(0xFFFCFBFF),
+                focusedTextColor = TextPrimary,
+                unfocusedTextColor = TextPrimary,
+                focusedPlaceholderColor = TextMuted,
+                unfocusedPlaceholderColor = TextMuted,
+                cursorColor = Purple
+            )
+        )
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = onAdd,
+            enabled = trimmedTitle.isNotBlank(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Purple,
+                contentColor = Color.White,
+                disabledContainerColor = Color(0xFFF0EEF7),
+                disabledContentColor = Color(0xFFB8B2C9)
+            )
+        ) {
+            Icon(Icons.Filled.Add, null, modifier = Modifier.size(19.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("할 일 추가", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(16.dp))
+        Text("종류", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            NewTodoTypeChip("오늘 할 일", Icons.Outlined.WbSunny, category == TodoCategory.TODAY) {
+                onCategoryChange(if (category == TodoCategory.TODAY) null else TodoCategory.TODAY)
+            }
+            NewTodoTypeChip("복습", Icons.Outlined.Loop, category == TodoCategory.REVIEW) {
+                onCategoryChange(if (category == TodoCategory.REVIEW) null else TodoCategory.REVIEW)
+            }
+            NewTodoTypeChip("마감 있는 일", Icons.Outlined.CalendarMonth, category == TodoCategory.ASSIGNMENT) {
+                onCategoryChange(if (category == TodoCategory.ASSIGNMENT) null else TodoCategory.ASSIGNMENT)
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        val datePlaceholder = when (category) {
+            TodoCategory.ASSIGNMENT -> "마감일 선택"
+            else -> "날짜 선택"
+        }
+        Text("일정", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            NewTodoDateButton(
+                date = date,
+                placeholder = datePlaceholder,
+                modifier = Modifier.weight(1f),
+                onClick = onDateClick
+            )
+            OutlinedButton(
+                onClick = onAddToCalendar,
+                enabled = trimmedTitle.isNotBlank(),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(44.dp),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(
+                    1.dp,
+                    if (trimmedTitle.isNotBlank()) BorderLight else BorderLight.copy(alpha = 0.45f)
+                ),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = if (trimmedTitle.isNotBlank()) TextPrimary else TextMuted.copy(alpha = 0.45f),
+                    disabledContentColor = TextMuted.copy(alpha = 0.45f)
+                ),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+            ) {
+                Icon(Icons.Outlined.CalendarMonth, null, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("캘린더", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        Spacer(Modifier.height(2.dp))
+    }
+}
+
+@Composable
+private fun NewTodoTypeChip(
+    label: String,
+    icon: ImageVector,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val bg by animateColorAsState(if (isSelected) Purple else Color.White, tween(180), label = "newTodoChipBg")
+    val fg by animateColorAsState(if (isSelected) Color.White else TextMuted, tween(180), label = "newTodoChipFg")
+    val bdr by animateColorAsState(
+        if (isSelected) Purple else BorderLight.copy(alpha = 0.85f),
+        tween(180),
+        label = "newTodoChipBorder"
+    )
+    OutlinedButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, bdr),
+        colors = ButtonDefaults.outlinedButtonColors(containerColor = bg, contentColor = fg),
+        contentPadding = PaddingValues(horizontal = 11.dp, vertical = 0.dp),
+        modifier = Modifier.height(40.dp)
+    ) {
+        Icon(icon, null, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(5.dp))
+        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun NewTodoDateButton(
+    date: Long?,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val hasDate = date != null
+    OutlinedButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, if (hasDate) Purple else BorderLight),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = if (hasDate) PurpleSoft.copy(alpha = 0.36f) else Color.White,
+            contentColor = if (hasDate) Purple else TextMuted
+        ),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+        modifier = modifier.height(44.dp)
+    ) {
+        Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(15.dp))
+        Spacer(Modifier.width(5.dp))
+        Text(date?.let { fmtDate(it) } ?: placeholder, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 

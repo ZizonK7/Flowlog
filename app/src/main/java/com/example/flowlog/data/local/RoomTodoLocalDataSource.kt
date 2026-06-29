@@ -115,6 +115,19 @@ class RoomTodoLocalDataSource(context: Context) {
         )
     }
 
+    suspend fun addToAccumulatedWorkMillisByCalendarSourceId(
+        userId: String,
+        calendarSourceId: String,
+        deltaMillis: Long
+    ) {
+        dao.addToAccumulatedWorkMillisByCalendarSourceId(
+            userId = userId,
+            calendarSourceId = calendarSourceId,
+            deltaMillis = deltaMillis,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
     suspend fun updateBurdenCacheByLegacyId(
         legacyId: Long,
         burdenLevel: String,
