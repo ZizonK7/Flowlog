@@ -141,6 +141,7 @@ data class ActivityUiState(
     val analytics: AnalyticsState = AnalyticsState(),
     val startTime: Long = 0L,
     val linkedTodoId: Long? = null,
+    val linkedTodoCalendarSourceId: String? = null,
     val linkedPetiteId: String? = null,
     val sourceType: String = ActivitySourceType.MANUAL,
     val sourceId: String? = null,
@@ -545,6 +546,7 @@ class ActivityViewModel(
                 currentCategory = category,
                 startTime = startTime,
                 linkedTodoId = null,
+                linkedTodoCalendarSourceId = null,
                 linkedPetiteId = null,
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = null,
@@ -647,6 +649,7 @@ class ActivityViewModel(
             startTime = state.startTime,
             goalMillis = _timerDisplayState.value.timerGoalMillis,
             linkedTodoId = state.linkedTodoId,
+            linkedTodoCalendarSourceId = state.linkedTodoCalendarSourceId,
             linkedPetiteId = state.linkedPetiteId,
             pendingNote = state.pendingNote,
             pendingTitle = cleanTitle,
@@ -671,7 +674,8 @@ class ActivityViewModel(
                 currentCategory = "TODO",
                 startTime = startTime,
                 linkedTodoId = todoId,
-                linkedPetiteId = calendarSourceId,
+                linkedTodoCalendarSourceId = calendarSourceId,
+                linkedPetiteId = null,
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = null,
                 pendingTitle = title,
@@ -685,7 +689,7 @@ class ActivityViewModel(
             startTime = startTime,
             goalMillis = goalMillis,
             linkedTodoId = todoId,
-            linkedPetiteId = calendarSourceId,
+            linkedTodoCalendarSourceId = calendarSourceId,
             linkedTodoTitle = title
         )
         activityTimerNotifier.showRunningTimer("TODO", startTime)
@@ -713,6 +717,7 @@ class ActivityViewModel(
                 routineGoalMillis = routineGoalMillis,
                 startTime = startTime,
                 linkedTodoId = null,
+                linkedTodoCalendarSourceId = null,
                 linkedPetiteId = null,
                 sourceType = ActivitySourceType.DAILY_CUE_ROUTINE,
                 sourceId = cueId.toString(),
@@ -767,6 +772,7 @@ class ActivityViewModel(
                 currentCategory = category,
                 startTime = startTime,
                 linkedTodoId = null,
+                linkedTodoCalendarSourceId = null,
                 linkedPetiteId = item.id,
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = item.id,
@@ -845,12 +851,14 @@ class ActivityViewModel(
             timerGoalMillis = goalMillis
         )
         val linkedTodoId = if (block.petiteId != null) null else block.todoId
+        val linkedTodoCalendarSourceId = if (block.petiteId == null) block.calendarSourceId else null
         _uiState.update {
             it.copy(
                 isRunning = true,
                 currentCategory = "TODO",
                 startTime = startTime,
                 linkedTodoId = linkedTodoId,
+                linkedTodoCalendarSourceId = linkedTodoCalendarSourceId,
                 linkedPetiteId = block.petiteId,
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = block.itemId,
@@ -865,6 +873,7 @@ class ActivityViewModel(
             startTime = startTime,
             goalMillis = goalMillis,
             linkedTodoId = linkedTodoId,
+            linkedTodoCalendarSourceId = linkedTodoCalendarSourceId,
             linkedPetiteId = block.petiteId,
             linkedTodoTitle = block.title,
             sourceType = ActivitySourceType.MANUAL,
@@ -1008,7 +1017,7 @@ class ActivityViewModel(
             durationMillis = durationMillis,
             tags = emptyList(),
             linkedTodoId = state.linkedTodoId,
-            linkedPetiteId = state.linkedPetiteId,
+            linkedPetiteId = state.linkedPetiteId ?: state.linkedTodoCalendarSourceId,
             sourceType = state.sourceType,
             sourceId = state.sourceId,
             note = noteOverride?.takeIf { it.isNotBlank() }
@@ -1027,6 +1036,7 @@ class ActivityViewModel(
                 currentCategory = "",
                 startTime = 0L,
                 linkedTodoId = null,
+                linkedTodoCalendarSourceId = null,
                 linkedPetiteId = null,
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = null,
@@ -1052,21 +1062,35 @@ class ActivityViewModel(
                     }
                 }
                 state.linkedTodoId?.let { todoId ->
-                    todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
+                    val todo = linkedTodoForState(state, todoId)
+                    if (todo != null) {
+                        todoRepository.addAccumulatedSeconds(todo, durationMillis / 1000L)
+                    } else if (state.linkedTodoCalendarSourceId != null) {
+                        todoRepository.addAccumulatedSecondsByCalendarSourceId(
+                            state.linkedTodoCalendarSourceId,
+                            durationMillis / 1000L
+                        )
+                    } else {
+                        todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
+                    }
                     runCatching { organizedPetiteRepository.dismissTodoPetitesBySourceId(todoId.toString()) }
                     if (state.linkedPetiteId == null) {
-                        val todo = state.incompleteTodos.firstOrNull { it.id == todoId }
                         if (todo?.category == TodoCategory.REVIEW && todo.reviewStage < 2) {
                             todoRepository.completeReviewTodo(todo)
                         } else if (todo != null) {
                             todoRepository.updateCompleted(todo, true, System.currentTimeMillis())
+                        } else if (state.linkedTodoCalendarSourceId != null) {
+                            todoRepository.updateCompletedByCalendarSourceId(
+                                state.linkedTodoCalendarSourceId,
+                                true
+                            )
                         } else {
                             todoRepository.updateCompleted(todoId, true, System.currentTimeMillis())
                         }
                         val sourceId = state.sourceId
                         if (sourceId != null) {
                             runCatching { dailyGoalRepository.markPlannedItemCompleted(sourceId, todoId, newId) }
-                        } else {
+                        } else if (todoId != 0L) {
                             runCatching { dailyGoalRepository.markItemCompleted(dailyGoalRepository.todayDateKey(), todoId) }
                         }
                     }
@@ -1080,7 +1104,17 @@ class ActivityViewModel(
                 }
             } else {
                 state.linkedTodoId?.let { todoId ->
-                    todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
+                    val todo = linkedTodoForState(state, todoId)
+                    if (todo != null) {
+                        todoRepository.addAccumulatedSeconds(todo, durationMillis / 1000L)
+                    } else if (state.linkedTodoCalendarSourceId != null) {
+                        todoRepository.addAccumulatedSecondsByCalendarSourceId(
+                            state.linkedTodoCalendarSourceId,
+                            durationMillis / 1000L
+                        )
+                    } else {
+                        todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
+                    }
                     state.sourceId?.let { itemId ->
                         dailyGoalRepository.revertStartedItem(itemId)
                     }
@@ -1127,7 +1161,7 @@ class ActivityViewModel(
             note = note?.takeIf { it.isNotBlank() } ?: state.pendingNote?.takeIf { it.isNotBlank() },
             tags = emptyList(),
             linkedTodoId = state.linkedTodoId,
-            linkedPetiteId = state.linkedPetiteId,
+            linkedPetiteId = state.linkedPetiteId ?: state.linkedTodoCalendarSourceId,
             sourceType = state.sourceType,
             sourceId = state.sourceId
         )
@@ -1141,10 +1175,20 @@ class ActivityViewModel(
                 }
             } else {
                 state.linkedTodoId?.let { todoId ->
-                    todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
+                    val todo = linkedTodoForState(state, todoId)
+                    if (todo != null) {
+                        todoRepository.addAccumulatedSeconds(todo, durationMillis / 1000L)
+                    } else if (state.linkedTodoCalendarSourceId != null) {
+                        todoRepository.addAccumulatedSecondsByCalendarSourceId(
+                            state.linkedTodoCalendarSourceId,
+                            durationMillis / 1000L
+                        )
+                    } else {
+                        todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
+                    }
                     if (state.sourceId != null) {
                         dailyGoalRepository.markPlannedItemCompleted(state.sourceId, todoId, newId)
-                    } else {
+                    } else if (todoId != 0L) {
                         dailyGoalRepository.markOpenPlannedItemCompleted(todoId, newId)
                     }
                 }
@@ -1200,9 +1244,7 @@ class ActivityViewModel(
     fun deleteActivity(activity: ActivitySession) {
         viewModelScope.launch {
             repository.deleteActivity(activity)
-            activity.linkedTodoId?.let { todoId ->
-                todoRepository.addAccumulatedSeconds(todoId, -activity.durationMillis / 1000L)
-            }
+            addAccumulatedSecondsForActivityTodo(activity, -activity.durationMillis / 1000L)
             rememberLastAddedActivity(activity)
         }
     }
@@ -1216,9 +1258,7 @@ class ActivityViewModel(
                 val existingActivity = repository.getActivityById(lastAddedActivity.id)
                 if (existingActivity != null) {
                     repository.deleteActivity(existingActivity)
-                    existingActivity.linkedTodoId?.let { todoId ->
-                        todoRepository.addAccumulatedSeconds(todoId, -existingActivity.durationMillis / 1000L)
-                    }
+                    addAccumulatedSecondsForActivityTodo(existingActivity, -existingActivity.durationMillis / 1000L)
                     _uiState.update {
                         it.copy(
                             pendingSavedActivity = null,
@@ -1232,9 +1272,7 @@ class ActivityViewModel(
                     )
                     val restoredId = repository.insertActivity(restoreDraft)
                     val restoredActivity = restoreDraft.copy(id = restoredId)
-                    restoredActivity.linkedTodoId?.let { todoId ->
-                        todoRepository.addAccumulatedSeconds(todoId, restoredActivity.durationMillis / 1000L)
-                    }
+                    addAccumulatedSecondsForActivityTodo(restoredActivity, restoredActivity.durationMillis / 1000L)
                     rememberLastAddedActivity(restoredActivity)
                     _uiState.update {
                         it.copy(statusMessage = "삭제된 최근 활동을 다시 불러왔습니다.")
@@ -1382,6 +1420,7 @@ class ActivityViewModel(
                 routineGoalMillis = routineGoalMillis,
                 startTime = startTime,
                 linkedTodoId = activeTimer.linkedTodoId,
+                linkedTodoCalendarSourceId = activeTimer.linkedTodoCalendarSourceId,
                 linkedPetiteId = activeTimer.linkedPetiteId,
                 sourceType = activeTimer.sourceType,
                 sourceId = activeTimer.sourceId,
@@ -1435,6 +1474,7 @@ class ActivityViewModel(
                         currentCategory = "",
                         startTime = 0L,
                         linkedTodoId = null,
+                        linkedTodoCalendarSourceId = null,
                         linkedPetiteId = null,
                         sourceType = ActivitySourceType.MANUAL,
                         sourceId = null,
@@ -1471,6 +1511,7 @@ class ActivityViewModel(
             state.currentCategory != activeTimer.category ||
             state.startTime != activeTimer.startTime ||
             state.linkedTodoId != activeTimer.linkedTodoId ||
+            state.linkedTodoCalendarSourceId != activeTimer.linkedTodoCalendarSourceId ||
             state.linkedPetiteId != activeTimer.linkedPetiteId ||
             state.sourceType != activeTimer.sourceType ||
             state.sourceId != activeTimer.sourceId
@@ -1486,6 +1527,7 @@ class ActivityViewModel(
                     currentCategory = activeTimer.category,
                     startTime = activeTimer.startTime,
                     linkedTodoId = activeTimer.linkedTodoId,
+                    linkedTodoCalendarSourceId = activeTimer.linkedTodoCalendarSourceId,
                     linkedPetiteId = activeTimer.linkedPetiteId,
                     sourceType = activeTimer.sourceType,
                     sourceId = activeTimer.sourceId,
@@ -2393,6 +2435,23 @@ class ActivityViewModel(
         return (System.currentTimeMillis() - state.startTime).coerceAtLeast(0L)
     }
 
+    private fun linkedTodoForState(state: ActivityUiState, todoId: Long): TodoItem? {
+        state.linkedTodoCalendarSourceId?.let { calendarSourceId ->
+            return state.incompleteTodos.firstOrNull { it.calendarSourceId == calendarSourceId }
+        }
+        return state.incompleteTodos.firstOrNull { it.id == todoId }
+    }
+
+    private suspend fun addAccumulatedSecondsForActivityTodo(activity: ActivitySession, seconds: Long) {
+        val todoId = activity.linkedTodoId ?: return
+        val calendarSourceId = activity.linkedPetiteId.takeIf { todoId == 0L }
+        if (calendarSourceId != null) {
+            todoRepository.addAccumulatedSecondsByCalendarSourceId(calendarSourceId, seconds)
+        } else {
+            todoRepository.addAccumulatedSeconds(todoId, seconds)
+        }
+    }
+
     private fun resetTimerDisplayState() {
         _timerDisplayState.value = TimerDisplayState()
     }
@@ -2410,6 +2469,7 @@ class ActivityViewModel(
                 currentCategory = "",
                 startTime = 0L,
                 linkedTodoId = null,
+                linkedTodoCalendarSourceId = null,
                 linkedPetiteId = null,
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = null,
@@ -2445,6 +2505,7 @@ class ActivityViewModel(
         startTime: Long,
         goalMillis: Long,
         linkedTodoId: Long? = null,
+        linkedTodoCalendarSourceId: String? = null,
         linkedPetiteId: String? = null,
         linkedTodoTitle: String? = null,
         pendingNote: String? = null,
@@ -2460,6 +2521,7 @@ class ActivityViewModel(
             startTime = startTime,
             goalMillis = goalMillis,
             linkedTodoId = linkedTodoId,
+            linkedTodoCalendarSourceId = linkedTodoCalendarSourceId,
             linkedPetiteId = linkedPetiteId,
             linkedTodoTitle = linkedTodoTitle,
             pendingNote = pendingNote,

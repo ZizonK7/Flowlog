@@ -101,6 +101,16 @@ class TodoRepository(context: Context) {
         }
     }
 
+    suspend fun updateCompletedByCalendarSourceId(calendarSourceId: String, isCompleted: Boolean) {
+        if (isCompleted) {
+            runCatching { roomDataSource.completeByCalendarSourceId(userId, calendarSourceId) }
+            runCatching { eventLogRepository.log(EventType.TODO_COMPLETED, EntityType.TODO, calendarSourceId) }
+        } else {
+            runCatching { roomDataSource.uncompleteByCalendarSourceId(userId, calendarSourceId) }
+            runCatching { eventLogRepository.log(EventType.TODO_UNCOMPLETED, EntityType.TODO, calendarSourceId) }
+        }
+    }
+
     suspend fun updateTodo(todo: TodoItem) {
         runCatching { roomDataSource.update(todo, userId) }
         runCatching {
@@ -137,6 +147,33 @@ class TodoRepository(context: Context) {
                 eventType = EventType.TODO_WORK_ADDED,
                 entityType = EntityType.TODO,
                 entityId = id.toString()
+            )
+        }
+    }
+
+    suspend fun addAccumulatedSeconds(todo: TodoItem, seconds: Long) {
+        if (todo.calendarSourceId != null) {
+            addAccumulatedSecondsByCalendarSourceId(todo.calendarSourceId, seconds)
+        } else {
+            addAccumulatedSeconds(todo.id, seconds)
+        }
+    }
+
+    suspend fun addAccumulatedSecondsByCalendarSourceId(calendarSourceId: String, seconds: Long) {
+        if (seconds != 0L) {
+            runCatching {
+                roomDataSource.addToAccumulatedWorkMillisByCalendarSourceId(
+                    userId = userId,
+                    calendarSourceId = calendarSourceId,
+                    deltaMillis = seconds * 1000L
+                )
+            }
+        }
+        runCatching {
+            eventLogRepository.log(
+                eventType = EventType.TODO_WORK_ADDED,
+                entityType = EntityType.TODO,
+                entityId = calendarSourceId
             )
         }
     }
