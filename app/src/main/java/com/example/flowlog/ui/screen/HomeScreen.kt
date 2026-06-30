@@ -7642,7 +7642,7 @@ private fun TimePickerSheet(
                         color = Color(0xFF27324D)
                     )
                     WheelPickerColumn(
-                        values = (0..55 step 5).toList(),
+                        values = (0..59).toList(),
                         selectedValue = minute,
                         formatter = { "%02d".format(it) },
                         onSelect = { minute = it },
