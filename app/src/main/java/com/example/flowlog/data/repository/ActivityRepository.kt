@@ -137,8 +137,11 @@ class ActivityRepository(context: Context) {
         ) > 0
     }
 
-    suspend fun deleteActivitiesBySourceToday(sourceType: String, sourceId: String) {
-        val (startOfDay, endOfDay) = dayRange(System.currentTimeMillis())
+    suspend fun deleteActivitiesBySourceToday(sourceType: String, sourceId: String) =
+        deleteActivitiesBySourceForDate(sourceType, sourceId, System.currentTimeMillis())
+
+    suspend fun deleteActivitiesBySourceForDate(sourceType: String, sourceId: String, referenceTimestamp: Long) {
+        val (startOfDay, endOfDay) = dayRange(referenceTimestamp)
         runCatching {
             roomDataSource.softDeleteBySourceForDate(
                 userId = userId,

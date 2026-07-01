@@ -783,16 +783,54 @@ class TodoViewModel(
         return runCatching { sortDailyCues(parseDailyCueItemsJson(storedJson)) }.getOrDefault(emptyList())
     }
 
-    // 어제 스냅샷에서 바로 완료 처리 (타이머 없이). ActivitySession은 어제 날짜(23:59:59.999)로 명시적으로 귀속시킨다.
-    fun completeYesterdayCue(cueId: Long) {
+    // 어제 스냅샷에서 완료/취소 토글 (타이머 없이). ActivitySession은 어제 날짜(23:59:59.999)로 명시적으로 귀속시킨다.
+    fun toggleYesterdayCue(cueId: Long) {
         val cue = _yesterdayCues.value.firstOrNull { it.id == cueId } ?: return
-        if (cue.isCompleted) return
-        val updated = _yesterdayCues.value.map { if (it.id == cueId) it.copy(isCompleted = true) else it }
+        val willComplete = !cue.isCompleted
+        val updated = _yesterdayCues.value.map { if (it.id == cueId) it.copy(isCompleted = willComplete) else it }
         _yesterdayCues.value = updated
         saveYesterdayCues(updated)
+        syncYesterdayCueCompletion(cueId, willComplete)
         if (cue.label == "Routine") {
+            val targetTimestamp = endOfDayMillis(yesterdayDateKey())
             viewModelScope.launch {
-                recordDailyCueCheck(cue, targetTimestamp = endOfDayMillis(yesterdayDateKey()))
+                if (willComplete) {
+                    recordDailyCueCheck(cue, targetTimestamp = targetTimestamp)
+                } else {
+                    activityRepository.deleteActivitiesBySourceForDate(
+                        sourceType = ActivitySourceType.DAILY_CUE_CHECK,
+                        sourceId = cue.id.toString(),
+                        referenceTimestamp = targetTimestamp
+                    )
+                }
+            }
+        }
+    }
+
+    // 어제 완료 상태를 Firestore에 반영한다. 정의(title/label 등)는 어제 스냅샷이 아니라
+    // 현재 살아있는 cue 정의를 써서, 오늘 수정된 정의를 어제 값으로 덮어쓰지 않도록 한다.
+    // 오늘 삭제된 cue라면(라이브 정의 없음) archive 동기화와 충돌하지 않도록 아무 것도 하지 않는다.
+    private fun syncYesterdayCueCompletion(cueId: Long, isCompleted: Boolean) {
+        val liveCue = _dailyCues.value.firstOrNull { it.id == cueId } ?: return
+        val fallbackCreatedAt = cuePrefs.getLong("date_key", 0L).takeIf { it > 0L } ?: System.currentTimeMillis()
+        val record = liveCue.toDailyCueRecord(fallbackCreatedAt)
+        viewModelScope.launch {
+            runCatching {
+                firestoreSyncRepository.syncDailyCue(
+                    cueId = record.id,
+                    label = record.label,
+                    title = record.title,
+                    timerDurationMillis = record.timerDurationMillis,
+                    timerCategory = record.timerCategory,
+                    recommendationTiming = record.recommendationTiming,
+                    note = record.note,
+                    sortOrder = record.order,
+                    createdAt = record.createdAt,
+                    updatedAt = System.currentTimeMillis(),
+                    archivedAt = record.archivedAt,
+                    isCompletedToday = isCompleted,
+                    completionDateKey = yesterdayDateKey()
+                )
             }
         }
     }

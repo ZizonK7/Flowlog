@@ -689,7 +689,7 @@ fun TodoScreen(
                 showYesterdaySheet = false
                 onStartYesterdayRoutine(cueId, title, goalMillis, category)
             },
-            onCompleteNow = { cueId -> viewModel.completeYesterdayCue(cueId) },
+            onCompleteNow = { cueId -> viewModel.toggleYesterdayCue(cueId) },
             onDismiss = { showYesterdaySheet = false }
         )
     }
