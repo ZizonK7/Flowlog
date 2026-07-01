@@ -803,6 +803,7 @@ class TodoViewModel(
                         referenceTimestamp = targetTimestamp
                     )
                 }
+                syncAllPendingChanges()
             }
         }
     }
