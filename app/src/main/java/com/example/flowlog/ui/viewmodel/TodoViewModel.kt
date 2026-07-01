@@ -590,6 +590,7 @@ class TodoViewModel(
                         sourceId = cue.id.toString()
                     )
                 }
+                syncAllPendingChanges()
             }
         }
     }
