@@ -7,6 +7,7 @@ import com.example.flowlog.data.constants.ActivitySourceType
 import com.example.flowlog.data.local.DailyCueCompletionStore
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
+import java.util.Calendar
 
 class RoutineGoalAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -23,11 +24,26 @@ class RoutineGoalAlarmReceiver : BroadcastReceiver() {
             activeTimer.routineGoalMillis > 0L
         if (!isSameRoutine) return
 
-        DailyCueCompletionStore.markCompletedToday(context, cueId)
+        val targetDay = activeTimer.dailyCueTargetDateKey ?: startOfDay(activeTimer.startTime)
+        if (targetDay == startOfDay(System.currentTimeMillis())) {
+            DailyCueCompletionStore.markCompletedToday(context, cueId)
+        } else {
+            DailyCueCompletionStore.markCompletedForDate(context, cueId, targetDay)
+        }
         ActivityTimerNotifier(context).showRoutineGoalAlert(
             title = title.ifBlank { activeTimer.pendingTitle.orEmpty() },
             category = category.ifBlank { activeTimer.category }
         )
+    }
+
+    private fun startOfDay(millis: Long): Long {
+        return Calendar.getInstance().apply {
+            timeInMillis = millis
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
     }
 
     companion object {

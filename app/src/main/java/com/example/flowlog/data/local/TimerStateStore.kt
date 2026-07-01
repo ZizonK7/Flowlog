@@ -17,6 +17,7 @@ data class ActiveTimerState(
     val pendingNote: String? = null,
     val pendingTitle: String? = null,
     val dailyCueId: Long? = null,
+    val dailyCueTargetDateKey: Long? = null,
     val sourceType: String = ActivitySourceType.MANUAL,
     val sourceId: String? = null,
     val routineGoalMillis: Long = 0L
@@ -50,6 +51,8 @@ object TimerStateStore {
     private const val KEY_ACTIVE_PENDING_NOTE = "active_pending_note"
     private const val KEY_ACTIVE_PENDING_TITLE = "active_pending_title"
     private const val KEY_ACTIVE_DAILY_CUE_ID = "active_daily_cue_id"
+    private const val KEY_ACTIVE_DAILY_CUE_TARGET_DATE_KEY = "active_daily_cue_target_date_key"
+    private const val NO_DATE_KEY = -1L
     private const val KEY_ACTIVE_SOURCE_TYPE = "active_source_type"
     private const val KEY_ACTIVE_SOURCE_ID = "active_source_id"
     private const val KEY_ACTIVE_PETITE_ID = "active_petite_id"
@@ -86,6 +89,8 @@ object TimerStateStore {
         val pendingTitle = preferences.getString(KEY_ACTIVE_PENDING_TITLE, null)
         val dailyCueId = preferences.getLong(KEY_ACTIVE_DAILY_CUE_ID, NO_TODO_ID)
             .takeUnless { it == NO_TODO_ID }
+        val dailyCueTargetDateKey = preferences.getLong(KEY_ACTIVE_DAILY_CUE_TARGET_DATE_KEY, NO_DATE_KEY)
+            .takeUnless { it == NO_DATE_KEY }
         val sourceType = preferences.getString(KEY_ACTIVE_SOURCE_TYPE, ActivitySourceType.MANUAL)
             ?: ActivitySourceType.MANUAL
         val sourceId = preferences.getString(KEY_ACTIVE_SOURCE_ID, null)
@@ -106,6 +111,7 @@ object TimerStateStore {
             pendingNote = pendingNote,
             pendingTitle = pendingTitle,
             dailyCueId = dailyCueId,
+            dailyCueTargetDateKey = dailyCueTargetDateKey,
             sourceType = sourceType,
             sourceId = sourceId,
             routineGoalMillis = routineGoalMillis
@@ -124,6 +130,7 @@ object TimerStateStore {
         pendingNote: String? = null,
         pendingTitle: String? = null,
         dailyCueId: Long? = null,
+        dailyCueTargetDateKey: Long? = null,
         sourceType: String = ActivitySourceType.MANUAL,
         sourceId: String? = null,
         routineGoalMillis: Long = 0L
@@ -142,6 +149,7 @@ object TimerStateStore {
             .putString(KEY_ACTIVE_PENDING_NOTE, pendingNote)
             .putString(KEY_ACTIVE_PENDING_TITLE, pendingTitle)
             .putLong(KEY_ACTIVE_DAILY_CUE_ID, dailyCueId ?: NO_TODO_ID)
+            .putLong(KEY_ACTIVE_DAILY_CUE_TARGET_DATE_KEY, dailyCueTargetDateKey ?: NO_DATE_KEY)
             .putString(KEY_ACTIVE_SOURCE_TYPE, sourceType)
             .putString(KEY_ACTIVE_SOURCE_ID, sourceId)
             .putLong(KEY_ACTIVE_ROUTINE_GOAL_MILLIS, routineGoalMillis.coerceAtLeast(0L))
@@ -212,6 +220,7 @@ object TimerStateStore {
             .remove(KEY_ACTIVE_PENDING_NOTE)
             .remove(KEY_ACTIVE_PENDING_TITLE)
             .remove(KEY_ACTIVE_DAILY_CUE_ID)
+            .remove(KEY_ACTIVE_DAILY_CUE_TARGET_DATE_KEY)
             .remove(KEY_ACTIVE_SOURCE_TYPE)
             .remove(KEY_ACTIVE_SOURCE_ID)
             .remove(KEY_ACTIVE_PETITE_ID)

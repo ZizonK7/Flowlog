@@ -508,13 +508,20 @@ class ActivityViewModel(
     private suspend fun recordDailyCueCheck(
         routine: DailyCueRecord,
         targetTimestamp: Long = System.currentTimeMillis()
+    ) = recordDailyCueCheck(routine.id, routine.title, routine.timerCategory, targetTimestamp)
+
+    private suspend fun recordDailyCueCheck(
+        cueId: Long,
+        title: String,
+        category: String,
+        targetTimestamp: Long = System.currentTimeMillis()
     ) {
-        val sourceId = routine.id.toString()
+        val sourceId = cueId.toString()
         if (repository.hasActivityBySourceForDate(ActivitySourceType.DAILY_CUE_CHECK, sourceId, targetTimestamp)) return
         repository.insertActivity(
             ActivitySession(
-                category = routine.timerCategory.ifBlank { "TODO" },
-                title = routine.title,
+                category = category.ifBlank { "TODO" },
+                title = title,
                 startTime = targetTimestamp,
                 endTime = targetTimestamp,
                 durationMillis = 0L,
@@ -556,6 +563,7 @@ class ActivityViewModel(
                 pendingTitle = null,
                 pendingNote = null,
                 dailyCueId = null,
+                dailyCueTargetDateKey = null,
                 statusMessage = null,
                 exerciseSets = emptyList(),
                 exerciseMemo = ""
@@ -684,6 +692,7 @@ class ActivityViewModel(
                 pendingTitle = title,
                 pendingNote = null,
                 dailyCueId = null,
+                dailyCueTargetDateKey = null,
                 statusMessage = null
             )
         }
@@ -744,6 +753,7 @@ class ActivityViewModel(
             goalMillis = mainGoalMillis,
             linkedTodoTitle = cleanTitle,
             dailyCueId = cueId,
+            dailyCueTargetDateKey = targetDateKey,
             sourceType = ActivitySourceType.DAILY_CUE_ROUTINE,
             sourceId = cueId.toString(),
             routineGoalMillis = routineGoalMillis
@@ -789,6 +799,7 @@ class ActivityViewModel(
                 pendingTitle = item.title,
                 pendingNote = null,
                 dailyCueId = null,
+                dailyCueTargetDateKey = null,
                 statusMessage = null
             )
         }
@@ -875,6 +886,7 @@ class ActivityViewModel(
                 pendingTitle = block.title,
                 pendingNote = null,
                 dailyCueId = null,
+                dailyCueTargetDateKey = null,
                 statusMessage = null
             )
         }
@@ -1107,22 +1119,21 @@ class ActivityViewModel(
                     }
                 }
                 state.dailyCueId?.let { cueId ->
-                    val todayKey = startOfDayMillis(System.currentTimeMillis())
                     val targetDay = state.dailyCueTargetDateKey ?: startOfDayMillis(state.startTime)
-                    val targetTimestamp = if (targetDay == todayKey) {
-                        System.currentTimeMillis()
-                    } else {
-                        targetDay + DAY_MILLIS - 1L
-                    }
-                    if (targetDay == todayKey) {
+                    val targetTimestamp: Long
+                    if (targetDay == startOfDayMillis(System.currentTimeMillis())) {
+                        targetTimestamp = System.currentTimeMillis()
                         DailyCueCompletionStore.markCompletedToday(appContext, cueId)
                     } else {
+                        targetTimestamp = endOfDayMillis(targetDay)
                         DailyCueCompletionStore.markCompletedForDate(appContext, cueId, targetDay)
                     }
-                    val cueRecord = state.flowRecommendations
-                        .firstOrNull { it.routine?.id == cueId }
-                        ?.routine
-                    if (cueRecord != null) recordDailyCueCheck(cueRecord, targetTimestamp)
+                    recordDailyCueCheck(
+                        cueId = cueId,
+                        title = state.pendingTitle ?: defaultTitle(state.currentCategory),
+                        category = state.currentCategory,
+                        targetTimestamp = targetTimestamp
+                    )
                 }
             } else {
                 state.linkedTodoId?.let { todoId ->
@@ -1449,6 +1460,7 @@ class ActivityViewModel(
                 pendingTitle = activeTimer.pendingTitle ?: activeTimer.linkedTodoTitle,
                 pendingNote = activeTimer.pendingNote,
                 dailyCueId = activeTimer.dailyCueId,
+                dailyCueTargetDateKey = activeTimer.dailyCueTargetDateKey,
                 statusMessage = null,
                 exerciseSets = restoredExerciseSets
             )
@@ -1502,7 +1514,8 @@ class ActivityViewModel(
                         sourceId = null,
                         pendingTitle = null,
                         pendingNote = null,
-                        dailyCueId = null
+                        dailyCueId = null,
+                        dailyCueTargetDateKey = null
                     )
                 }
             }
@@ -1556,6 +1569,7 @@ class ActivityViewModel(
                     pendingTitle = activeTimer.pendingTitle ?: activeTimer.linkedTodoTitle,
                     pendingNote = activeTimer.pendingNote,
                     dailyCueId = activeTimer.dailyCueId,
+                    dailyCueTargetDateKey = activeTimer.dailyCueTargetDateKey,
                     isRoutineActive = activeTimer.routineGoalMillis > 0L &&
                         activeTimer.elapsedMillis < activeTimer.routineGoalMillis,
                     routineGoalMillis = activeTimer.routineGoalMillis,
@@ -1797,6 +1811,16 @@ class ActivityViewModel(
         return startOfDay(Calendar.getInstance().apply { timeInMillis = millis }).timeInMillis
     }
 
+    // dayStartMillis가 속한 날짜의 23:59:59.999를 Calendar 기준으로 계산한다.
+    // dayStartMillis + DAY_MILLIS - 1L은 DST 전환일(23시간/25시간)에 잘못된 날짜로 넘어갈 수 있어 사용하지 않는다.
+    private fun endOfDayMillis(dayStartMillis: Long): Long {
+        return Calendar.getInstance().apply {
+            timeInMillis = dayStartMillis
+            add(Calendar.DAY_OF_YEAR, 1)
+            add(Calendar.MILLISECOND, -1)
+        }.timeInMillis
+    }
+
     private fun daysDiff(fromMs: Long, toMs: Long): Long = (toMs - fromMs) / DAY_MILLIS
 
     fun startExamStudyActivity(todoId: Long, subjectTitle: String, dValue: Int) {
@@ -1820,6 +1844,7 @@ class ActivityViewModel(
                 pendingTitle = title,
                 pendingNote = null,
                 dailyCueId = null,
+                dailyCueTargetDateKey = null,
                 statusMessage = null
             )
         }
@@ -2534,6 +2559,7 @@ class ActivityViewModel(
         pendingNote: String? = null,
         pendingTitle: String? = null,
         dailyCueId: Long? = null,
+        dailyCueTargetDateKey: Long? = null,
         sourceType: String = ActivitySourceType.MANUAL,
         sourceId: String? = null,
         routineGoalMillis: Long = 0L
@@ -2550,6 +2576,7 @@ class ActivityViewModel(
             pendingNote = pendingNote,
             pendingTitle = pendingTitle,
             dailyCueId = dailyCueId,
+            dailyCueTargetDateKey = dailyCueTargetDateKey,
             sourceType = sourceType,
             sourceId = sourceId,
             routineGoalMillis = routineGoalMillis

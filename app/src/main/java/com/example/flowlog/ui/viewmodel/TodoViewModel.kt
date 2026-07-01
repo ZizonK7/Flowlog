@@ -82,7 +82,11 @@ class TodoViewModel(
     private val firestoreSyncRepository = FirestoreSyncRepository()
     private val eventLogRepository = EventLogRepository(context.applicationContext)
     private val organizedPetiteRepository = OrganizedPetiteRepository(context.applicationContext)
+    // loadDailyCues()가 롤오버 시 스스로 date_key/items_json/prev_date_key/prev_items_json에 쓰는 동안
+    // 그 쓰기가 이 리스너를 재귀적으로 다시 트리거해 방금 계산한 값을 또 파싱하는 것을 막는 가드.
+    private var isWritingCuePrefs = false
     private val cuePrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (isWritingCuePrefs) return@OnSharedPreferenceChangeListener
         if (key == "date_key" || key == "items_json") {
             _dailyCues.value = loadDailyCues()
         }
@@ -690,92 +694,27 @@ class TodoViewModel(
         }
     }
 
-    private fun loadDailyCues(): List<DailyCueItem> {
-        val todayKey = startOfDay(System.currentTimeMillis())
-        val storedDay = cuePrefs.getLong("date_key", 0L)
-        val storedJson = cuePrefs.getString("items_json", null)
-        val parsed = runCatching {
-            val array = JSONArray(storedJson ?: return@runCatching defaultDailyCues())
-            List(array.length()) { index ->
-                val item = array.getJSONObject(index)
-                DailyCueItem(
-                    id = item.optLong("id", index.toLong()),
-                    label = item.optString("label", "Routine"),
-                    title = item.optString("title", ""),
-                    isCompleted = item.optBoolean("isCompleted", false),
-                    timerDurationMillis = item.optLong("timerDurationMillis", 0L).takeIf { it > 0L },
-                    timerCategory = item.optString("timerCategory", "TODO").ifBlank { "TODO" },
-                    recommendationTiming = DailyCueRecommendationTiming.fromStorage(
-                        item.optString("recommendationTiming", "")
-                    ),
-                    note = item.optString("note", ""),
-                    order = item.optInt("order", index)
-                )
-            }.filter { it.title.isNotBlank() }
-        }.getOrElse { defaultDailyCues() }
-
-        val cues = sortDailyCues(parsed.ifEmpty { defaultDailyCues() })
-        val normalized = if (storedDay == todayKey) {
-            cues
-        } else {
-            if (storedDay > 0L && storedJson != null) {
-                cuePrefs.edit()
-                    .putLong("prev_date_key", storedDay)
-                    .putString("prev_items_json", storedJson)
-                    .apply()
-            }
-            sortDailyCues(cues.map { it.copy(isCompleted = false) })
-        }
-        if (storedDay != todayKey || storedJson == null) {
-            saveDailyCues(normalized, todayKey)
-        }
-        return normalized
-    }
-
-    fun yesterdayDateKey(): Long = startOfDay(System.currentTimeMillis()) - DAY_MILLIS
-
-    private fun loadYesterdayCues(): List<DailyCueItem> {
-        val expectedDay = yesterdayDateKey()
-        if (cuePrefs.getLong("prev_date_key", 0L) != expectedDay) return emptyList()
-        val storedJson = cuePrefs.getString("prev_items_json", null) ?: return emptyList()
-        return runCatching {
-            val array = JSONArray(storedJson)
-            sortDailyCues(
-                List(array.length()) { index ->
-                    val item = array.getJSONObject(index)
-                    DailyCueItem(
-                        id = item.optLong("id", index.toLong()),
-                        label = item.optString("label", "Routine"),
-                        title = item.optString("title", ""),
-                        isCompleted = item.optBoolean("isCompleted", false),
-                        timerDurationMillis = item.optLong("timerDurationMillis", 0L).takeIf { it > 0L },
-                        timerCategory = item.optString("timerCategory", "TODO").ifBlank { "TODO" },
-                        recommendationTiming = DailyCueRecommendationTiming.fromStorage(
-                            item.optString("recommendationTiming", "")
-                        ),
-                        note = item.optString("note", ""),
-                        order = item.optInt("order", index)
-                    )
-                }.filter { it.title.isNotBlank() }
+    private fun parseDailyCueItemsJson(json: String): List<DailyCueItem> {
+        val array = JSONArray(json)
+        return List(array.length()) { index ->
+            val item = array.getJSONObject(index)
+            DailyCueItem(
+                id = item.optLong("id", index.toLong()),
+                label = item.optString("label", "Routine"),
+                title = item.optString("title", ""),
+                isCompleted = item.optBoolean("isCompleted", false),
+                timerDurationMillis = item.optLong("timerDurationMillis", 0L).takeIf { it > 0L },
+                timerCategory = item.optString("timerCategory", "TODO").ifBlank { "TODO" },
+                recommendationTiming = DailyCueRecommendationTiming.fromStorage(
+                    item.optString("recommendationTiming", "")
+                ),
+                note = item.optString("note", ""),
+                order = item.optInt("order", index)
             )
-        }.getOrDefault(emptyList())
+        }.filter { it.title.isNotBlank() }
     }
 
-    // 어제 스냅샷에서 바로 완료 처리 (타이머 없이). ActivitySession은 어제 날짜(23:59:59.999)로 명시적으로 귀속시킨다.
-    fun completeYesterdayCue(cueId: Long) {
-        val cue = _yesterdayCues.value.firstOrNull { it.id == cueId } ?: return
-        if (cue.isCompleted) return
-        val updated = _yesterdayCues.value.map { if (it.id == cueId) it.copy(isCompleted = true) else it }
-        _yesterdayCues.value = updated
-        saveYesterdayCues(updated)
-        if (cue.label == "Routine") {
-            viewModelScope.launch {
-                recordDailyCueCheck(cue, targetTimestamp = yesterdayDateKey() + DAY_MILLIS - 1L)
-            }
-        }
-    }
-
-    private fun saveYesterdayCues(cues: List<DailyCueItem>) {
+    private fun dailyCueItemsToJson(cues: List<DailyCueItem>): String {
         val array = JSONArray()
         cues.forEach { cue ->
             array.put(JSONObject().apply {
@@ -790,27 +729,82 @@ class TodoViewModel(
                 put("order", cue.order)
             })
         }
-        cuePrefs.edit().putString("prev_items_json", array.toString()).apply()
+        return array.toString()
+    }
+
+    private fun loadDailyCues(): List<DailyCueItem> {
+        val todayKey = startOfDay(System.currentTimeMillis())
+        val storedDay = cuePrefs.getLong("date_key", 0L)
+        val storedJson = cuePrefs.getString("items_json", null)
+        val parsed = runCatching {
+            parseDailyCueItemsJson(storedJson ?: return@runCatching defaultDailyCues())
+        }.getOrElse { defaultDailyCues() }
+
+        val cues = sortDailyCues(parsed.ifEmpty { defaultDailyCues() })
+        val normalized = if (storedDay == todayKey) {
+            cues
+        } else {
+            sortDailyCues(cues.map { it.copy(isCompleted = false) })
+        }
+        if (storedDay != todayKey) {
+            isWritingCuePrefs = true
+            try {
+                if (storedDay > 0L && storedJson != null) {
+                    cuePrefs.edit()
+                        .putLong("prev_date_key", storedDay)
+                        .putString("prev_items_json", storedJson)
+                        .apply()
+                }
+                saveDailyCues(normalized, todayKey)
+            } finally {
+                isWritingCuePrefs = false
+            }
+        } else if (storedJson == null) {
+            saveDailyCues(normalized, todayKey)
+        }
+        return normalized
+    }
+
+    fun yesterdayDateKey(): Long = startOfDay(System.currentTimeMillis()) - DAY_MILLIS
+
+    // dayStart가 속한 날짜의 23:59:59.999. DST 전환일에도 정확하도록 Calendar로 계산한다.
+    private fun endOfDayMillis(dayStart: Long): Long {
+        return java.util.Calendar.getInstance().apply {
+            timeInMillis = dayStart
+            add(java.util.Calendar.DAY_OF_YEAR, 1)
+            add(java.util.Calendar.MILLISECOND, -1)
+        }.timeInMillis
+    }
+
+    private fun loadYesterdayCues(): List<DailyCueItem> {
+        val expectedDay = yesterdayDateKey()
+        if (cuePrefs.getLong("prev_date_key", 0L) != expectedDay) return emptyList()
+        val storedJson = cuePrefs.getString("prev_items_json", null) ?: return emptyList()
+        return runCatching { sortDailyCues(parseDailyCueItemsJson(storedJson)) }.getOrDefault(emptyList())
+    }
+
+    // 어제 스냅샷에서 바로 완료 처리 (타이머 없이). ActivitySession은 어제 날짜(23:59:59.999)로 명시적으로 귀속시킨다.
+    fun completeYesterdayCue(cueId: Long) {
+        val cue = _yesterdayCues.value.firstOrNull { it.id == cueId } ?: return
+        if (cue.isCompleted) return
+        val updated = _yesterdayCues.value.map { if (it.id == cueId) it.copy(isCompleted = true) else it }
+        _yesterdayCues.value = updated
+        saveYesterdayCues(updated)
+        if (cue.label == "Routine") {
+            viewModelScope.launch {
+                recordDailyCueCheck(cue, targetTimestamp = endOfDayMillis(yesterdayDateKey()))
+            }
+        }
+    }
+
+    private fun saveYesterdayCues(cues: List<DailyCueItem>) {
+        cuePrefs.edit().putString("prev_items_json", dailyCueItemsToJson(cues)).apply()
     }
 
     private fun saveDailyCues(cues: List<DailyCueItem>, dateKey: Long = startOfDay(System.currentTimeMillis())) {
-        val array = JSONArray()
-        sortDailyCues(cues).forEach { cue ->
-            array.put(JSONObject().apply {
-                put("id", cue.id)
-                put("label", cue.label)
-                put("title", cue.title)
-                put("isCompleted", cue.isCompleted)
-                cue.timerDurationMillis?.let { put("timerDurationMillis", it) }
-                put("timerCategory", cue.timerCategory)
-                put("recommendationTiming", cue.recommendationTiming.name)
-                put("note", cue.note)
-                put("order", cue.order)
-            })
-        }
         cuePrefs.edit()
             .putLong("date_key", dateKey)
-            .putString("items_json", array.toString())
+            .putString("items_json", dailyCueItemsToJson(sortDailyCues(cues)))
             .apply()
     }
 
