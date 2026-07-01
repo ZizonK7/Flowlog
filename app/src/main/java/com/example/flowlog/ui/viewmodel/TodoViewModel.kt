@@ -86,6 +86,9 @@ class TodoViewModel(
         if (key == "date_key" || key == "items_json") {
             _dailyCues.value = loadDailyCues()
         }
+        if (key == "prev_date_key" || key == "prev_items_json") {
+            _yesterdayCues.value = loadYesterdayCues()
+        }
     }
 
     private val _todos = MutableStateFlow<List<TodoItem>>(emptyList())
@@ -109,6 +112,8 @@ class TodoViewModel(
     private val _focusIds = MutableStateFlow<List<String>>(emptyList())
     private val _dailyCues = MutableStateFlow<List<DailyCueItem>>(loadDailyCues())
     val dailyCues: StateFlow<List<DailyCueItem>> = _dailyCues.asStateFlow()
+    private val _yesterdayCues = MutableStateFlow<List<DailyCueItem>>(loadYesterdayCues())
+    val yesterdayCues: StateFlow<List<DailyCueItem>> = _yesterdayCues.asStateFlow()
     private val _dailyCuesShowAll = MutableStateFlow(cuePrefs.getBoolean("show_all", false))
     val dailyCuesShowAll: StateFlow<Boolean> = _dailyCuesShowAll.asStateFlow()
 
@@ -599,16 +604,18 @@ class TodoViewModel(
         }
     }
 
-    private suspend fun recordDailyCueCheck(cue: DailyCueItem) {
+    private suspend fun recordDailyCueCheck(
+        cue: DailyCueItem,
+        targetTimestamp: Long = System.currentTimeMillis()
+    ) {
         val sourceId = cue.id.toString()
-        if (activityRepository.hasActivityBySourceToday(ActivitySourceType.DAILY_CUE_CHECK, sourceId)) return
-        val now = System.currentTimeMillis()
+        if (activityRepository.hasActivityBySourceForDate(ActivitySourceType.DAILY_CUE_CHECK, sourceId, targetTimestamp)) return
         activityRepository.insertActivity(
             ActivitySession(
                 category = cue.timerCategory.ifBlank { "TODO" },
                 title = cue.title,
-                startTime = now,
-                endTime = now,
+                startTime = targetTimestamp,
+                endTime = targetTimestamp,
                 durationMillis = 0L,
                 sourceType = ActivitySourceType.DAILY_CUE_CHECK,
                 sourceId = sourceId
@@ -711,12 +718,79 @@ class TodoViewModel(
         val normalized = if (storedDay == todayKey) {
             cues
         } else {
+            if (storedDay > 0L && storedJson != null) {
+                cuePrefs.edit()
+                    .putLong("prev_date_key", storedDay)
+                    .putString("prev_items_json", storedJson)
+                    .apply()
+            }
             sortDailyCues(cues.map { it.copy(isCompleted = false) })
         }
         if (storedDay != todayKey || storedJson == null) {
             saveDailyCues(normalized, todayKey)
         }
         return normalized
+    }
+
+    fun yesterdayDateKey(): Long = startOfDay(System.currentTimeMillis()) - DAY_MILLIS
+
+    private fun loadYesterdayCues(): List<DailyCueItem> {
+        val expectedDay = yesterdayDateKey()
+        if (cuePrefs.getLong("prev_date_key", 0L) != expectedDay) return emptyList()
+        val storedJson = cuePrefs.getString("prev_items_json", null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(storedJson)
+            sortDailyCues(
+                List(array.length()) { index ->
+                    val item = array.getJSONObject(index)
+                    DailyCueItem(
+                        id = item.optLong("id", index.toLong()),
+                        label = item.optString("label", "Routine"),
+                        title = item.optString("title", ""),
+                        isCompleted = item.optBoolean("isCompleted", false),
+                        timerDurationMillis = item.optLong("timerDurationMillis", 0L).takeIf { it > 0L },
+                        timerCategory = item.optString("timerCategory", "TODO").ifBlank { "TODO" },
+                        recommendationTiming = DailyCueRecommendationTiming.fromStorage(
+                            item.optString("recommendationTiming", "")
+                        ),
+                        note = item.optString("note", ""),
+                        order = item.optInt("order", index)
+                    )
+                }.filter { it.title.isNotBlank() }
+            )
+        }.getOrDefault(emptyList())
+    }
+
+    // 어제 스냅샷에서 바로 완료 처리 (타이머 없이). ActivitySession은 어제 날짜(23:59:59.999)로 명시적으로 귀속시킨다.
+    fun completeYesterdayCue(cueId: Long) {
+        val cue = _yesterdayCues.value.firstOrNull { it.id == cueId } ?: return
+        if (cue.isCompleted) return
+        val updated = _yesterdayCues.value.map { if (it.id == cueId) it.copy(isCompleted = true) else it }
+        _yesterdayCues.value = updated
+        saveYesterdayCues(updated)
+        if (cue.label == "Routine") {
+            viewModelScope.launch {
+                recordDailyCueCheck(cue, targetTimestamp = yesterdayDateKey() + DAY_MILLIS - 1L)
+            }
+        }
+    }
+
+    private fun saveYesterdayCues(cues: List<DailyCueItem>) {
+        val array = JSONArray()
+        cues.forEach { cue ->
+            array.put(JSONObject().apply {
+                put("id", cue.id)
+                put("label", cue.label)
+                put("title", cue.title)
+                put("isCompleted", cue.isCompleted)
+                cue.timerDurationMillis?.let { put("timerDurationMillis", it) }
+                put("timerCategory", cue.timerCategory)
+                put("recommendationTiming", cue.recommendationTiming.name)
+                put("note", cue.note)
+                put("order", cue.order)
+            })
+        }
+        cuePrefs.edit().putString("prev_items_json", array.toString()).apply()
     }
 
     private fun saveDailyCues(cues: List<DailyCueItem>, dateKey: Long = startOfDay(System.currentTimeMillis())) {

@@ -13,11 +13,33 @@ object DailyCueCompletionStore {
     private const val PREFS_DAILY_CUES = "daily_cues"
     private const val KEY_DATE = "date_key"
     private const val KEY_ITEMS = "items_json"
+    private const val KEY_PREV_DATE = "prev_date_key"
+    private const val KEY_PREV_ITEMS = "prev_items_json"
 
-    fun markCompletedToday(context: Context, cueId: Long): Boolean {
+    fun markCompletedToday(context: Context, cueId: Long): Boolean =
+        markCompletedIn(context, cueId, KEY_DATE, KEY_ITEMS, startOfDay(System.currentTimeMillis()))
+
+    // targetDateKey가 오늘(date_key) 또는 어제(prev_date_key) 스냅샷 중 어디에 해당하는지 찾아 완료 처리한다.
+    // 둘 다 아니면(2일 이상 앱을 열지 않은 경우 등) no-op.
+    fun markCompletedForDate(context: Context, cueId: Long, targetDateKey: Long): Boolean {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_DAILY_CUES, Context.MODE_PRIVATE)
-        if (prefs.getLong(KEY_DATE, 0L) != startOfDay(System.currentTimeMillis())) return false
-        val rawItems = prefs.getString(KEY_ITEMS, null) ?: return false
+        return when (targetDateKey) {
+            prefs.getLong(KEY_DATE, 0L) -> markCompletedIn(context, cueId, KEY_DATE, KEY_ITEMS, targetDateKey)
+            prefs.getLong(KEY_PREV_DATE, 0L) -> markCompletedIn(context, cueId, KEY_PREV_DATE, KEY_PREV_ITEMS, targetDateKey)
+            else -> false
+        }
+    }
+
+    private fun markCompletedIn(
+        context: Context,
+        cueId: Long,
+        dateKeyPref: String,
+        itemsKeyPref: String,
+        expectedDateKey: Long
+    ): Boolean {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS_DAILY_CUES, Context.MODE_PRIVATE)
+        if (prefs.getLong(dateKeyPref, 0L) != expectedDateKey) return false
+        val rawItems = prefs.getString(itemsKeyPref, null) ?: return false
 
         return runCatching {
             val items = JSONArray(rawItems)
@@ -30,7 +52,7 @@ object DailyCueCompletionStore {
                 }
             }
             if (changed) {
-                prefs.edit().putString(KEY_ITEMS, items.toString()).apply()
+                prefs.edit().putString(itemsKeyPref, items.toString()).apply()
             }
             changed
         }.getOrDefault(false)

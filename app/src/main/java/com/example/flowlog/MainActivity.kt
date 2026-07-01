@@ -417,6 +417,13 @@ class MainActivity : ComponentActivity() {
                                         activityViewModel.startDailyCueRoutineActivity(cueId, title, goalMillis, category)
                                         showHomeMainTimer()
                                     },
+                                    onStartYesterdayRoutine = { cueId, title, goalMillis, category ->
+                                        activityViewModel.startDailyCueRoutineActivity(
+                                            cueId, title, goalMillis, category,
+                                            targetDateKey = todoViewModel.yesterdayDateKey()
+                                        )
+                                        showHomeMainTimer()
+                                    },
                                     onStartExamStudy = { todoId, subjectTitle, dValue ->
                                         activityViewModel.startExamStudyActivity(todoId, subjectTitle, dValue)
                                         showHomeMainTimer()

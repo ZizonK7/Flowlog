@@ -148,6 +148,7 @@ data class ActivityUiState(
     val pendingTitle: String? = null,
     val pendingNote: String? = null,
     val dailyCueId: Long? = null,
+    val dailyCueTargetDateKey: Long? = null,
     val completedDailyCueGoalIds: Set<Long> = emptySet(),
     val pendingSavedActivity: ActivitySession? = null,
     val lastAddedActivity: ActivitySession? = null,
@@ -504,16 +505,18 @@ class ActivityViewModel(
         }
     }
 
-    private suspend fun recordDailyCueCheck(routine: DailyCueRecord) {
+    private suspend fun recordDailyCueCheck(
+        routine: DailyCueRecord,
+        targetTimestamp: Long = System.currentTimeMillis()
+    ) {
         val sourceId = routine.id.toString()
-        if (repository.hasActivityBySourceToday(ActivitySourceType.DAILY_CUE_CHECK, sourceId)) return
-        val now = System.currentTimeMillis()
+        if (repository.hasActivityBySourceForDate(ActivitySourceType.DAILY_CUE_CHECK, sourceId, targetTimestamp)) return
         repository.insertActivity(
             ActivitySession(
                 category = routine.timerCategory.ifBlank { "TODO" },
                 title = routine.title,
-                startTime = now,
-                endTime = now,
+                startTime = targetTimestamp,
+                endTime = targetTimestamp,
                 durationMillis = 0L,
                 sourceType = ActivitySourceType.DAILY_CUE_CHECK,
                 sourceId = sourceId
@@ -696,7 +699,13 @@ class ActivityViewModel(
         startTimer()
     }
 
-    fun startDailyCueRoutineActivity(cueId: Long, title: String, goalMillis: Long, category: String) {
+    fun startDailyCueRoutineActivity(
+        cueId: Long,
+        title: String,
+        goalMillis: Long,
+        category: String,
+        targetDateKey: Long? = null
+    ) {
         if (_uiState.value.isRunning) return
         val cleanTitle = title.trim()
         if (cleanTitle.isEmpty()) return
@@ -724,6 +733,7 @@ class ActivityViewModel(
                 pendingTitle = cleanTitle,
                 pendingNote = null,
                 dailyCueId = cueId,
+                dailyCueTargetDateKey = targetDateKey,
                 completedDailyCueGoalIds = it.completedDailyCueGoalIds - cueId,
                 statusMessage = null
             )
@@ -1043,6 +1053,7 @@ class ActivityViewModel(
                 pendingTitle = null,
                 pendingNote = null,
                 dailyCueId = null,
+                dailyCueTargetDateKey = null,
                 isFocusModeActive = false,
                 focusModeEndsAtMillis = 0L,
                 exerciseSets = emptyList(),
@@ -1096,11 +1107,22 @@ class ActivityViewModel(
                     }
                 }
                 state.dailyCueId?.let { cueId ->
-                    DailyCueCompletionStore.markCompletedToday(appContext, cueId)
+                    val todayKey = startOfDayMillis(System.currentTimeMillis())
+                    val targetDay = state.dailyCueTargetDateKey ?: startOfDayMillis(state.startTime)
+                    val targetTimestamp = if (targetDay == todayKey) {
+                        System.currentTimeMillis()
+                    } else {
+                        targetDay + DAY_MILLIS - 1L
+                    }
+                    if (targetDay == todayKey) {
+                        DailyCueCompletionStore.markCompletedToday(appContext, cueId)
+                    } else {
+                        DailyCueCompletionStore.markCompletedForDate(appContext, cueId, targetDay)
+                    }
                     val cueRecord = state.flowRecommendations
                         .firstOrNull { it.routine?.id == cueId }
                         ?.routine
-                    if (cueRecord != null) recordDailyCueCheck(cueRecord)
+                    if (cueRecord != null) recordDailyCueCheck(cueRecord, targetTimestamp)
                 }
             } else {
                 state.linkedTodoId?.let { todoId ->
@@ -2476,6 +2498,7 @@ class ActivityViewModel(
                 pendingTitle = null,
                 pendingNote = null,
                 dailyCueId = null,
+                dailyCueTargetDateKey = null,
                 isFocusModeActive = false,
                 focusModeEndsAtMillis = 0L,
                 statusMessage = null

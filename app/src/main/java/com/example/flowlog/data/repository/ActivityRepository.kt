@@ -123,8 +123,11 @@ class ActivityRepository(context: Context) {
         }
     }
 
-    suspend fun hasActivityBySourceToday(sourceType: String, sourceId: String): Boolean {
-        val (startOfDay, endOfDay) = dayRange(System.currentTimeMillis())
+    suspend fun hasActivityBySourceToday(sourceType: String, sourceId: String): Boolean =
+        hasActivityBySourceForDate(sourceType, sourceId, System.currentTimeMillis())
+
+    suspend fun hasActivityBySourceForDate(sourceType: String, sourceId: String, referenceTimestamp: Long): Boolean {
+        val (startOfDay, endOfDay) = dayRange(referenceTimestamp)
         return roomDataSource.countBySourceForDate(
             userId = userId,
             sourceType = sourceType,

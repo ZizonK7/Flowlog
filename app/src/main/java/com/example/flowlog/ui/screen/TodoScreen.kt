@@ -180,6 +180,7 @@ fun TodoScreen(
     viewModel: TodoViewModel,
     onStartTodo: (TodoItem) -> Unit,
     onStartDailyCueRoutine: (Long, String, Long, String) -> Unit,
+    onStartYesterdayRoutine: (Long, String, Long, String) -> Unit = { _, _, _, _ -> },
     onStartExamStudy: (todoId: Long, subjectTitle: String, dValue: Int) -> Unit = { _, _, _ -> },
     onStartCalendarPetite: (OrganizedPetite) -> Unit = {},
     routineTimerCategories: List<String> = DefaultDailyCueTimerCategories,
@@ -190,6 +191,7 @@ fun TodoScreen(
     val normalTodosOrdered by viewModel.normalTodosOrdered.collectAsState()
     val focusTodos    by viewModel.todayFocusItems.collectAsState()
     val dailyCues     by viewModel.dailyCues.collectAsState()
+    val yesterdayCues by viewModel.yesterdayCues.collectAsState()
     val organizedPetites by viewModel.organizedPetites.collectAsState()
     val dailyCueTodayMillis by viewModel.dailyCueTodayMillis.collectAsState()
     val petiteTodayMillis by viewModel.petiteTodayMillis.collectAsState()
@@ -224,6 +226,7 @@ fun TodoScreen(
     val focusManager = LocalFocusManager.current
     var newTitle          by remember { mutableStateOf("") }
     var showAddSheet      by remember { mutableStateOf(false) }
+    var showYesterdaySheet by remember { mutableStateOf(false) }
     var inputCategory     by remember { mutableStateOf<TodoCategory?>(null) }
     var inputDate         by remember { mutableStateOf<Long?>(null) }
     var showInputDatePick by remember { mutableStateOf(false) }
@@ -504,6 +507,7 @@ fun TodoScreen(
                 onDeleteCue = viewModel::deleteDailyCue,
                 onStartRoutine = onStartDailyCueRoutine,
                 onReorderCue = viewModel::reorderDailyCues,
+                onShowYesterday = { showYesterdaySheet = true },
                 timerCategories = routineTimerCategories
             )
         }
@@ -676,6 +680,18 @@ fun TodoScreen(
                 TextButton(onClick = { showInputDatePick = false }) { Text("취소", color = TextMuted) }
             }
         ) { DatePicker(state = state) }
+    }
+
+    if (showYesterdaySheet) {
+        YesterdayCuesSheet(
+            cues = yesterdayCues,
+            onStartRoutine = { cueId, title, goalMillis, category ->
+                showYesterdaySheet = false
+                onStartYesterdayRoutine(cueId, title, goalMillis, category)
+            },
+            onCompleteNow = { cueId -> viewModel.completeYesterdayCue(cueId) },
+            onDismiss = { showYesterdaySheet = false }
+        )
     }
 
     SnackbarHost(
@@ -1238,6 +1254,7 @@ private fun DailyCuesSection(
     onDeleteCue: (Long) -> Unit,
     onStartRoutine: (Long, String, Long, String) -> Unit,
     onReorderCue: (Int, Int) -> Unit,
+    onShowYesterday: () -> Unit = {},
     timerCategories: List<String>
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
@@ -1298,6 +1315,20 @@ private fun DailyCuesSection(
                 }
             }
             TextButton(
+                onClick = onShowYesterday,
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                modifier = Modifier.height(32.dp)
+            ) {
+                Icon(Icons.Outlined.AccessTime, null, modifier = Modifier.size(14.dp), tint = Purple.copy(alpha = 0.8f))
+                Spacer(Modifier.width(2.dp))
+                Text(
+                    "어제",
+                    fontSize = 13.sp,
+                    color = Purple.copy(alpha = 0.8f),
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            TextButton(
                 onClick = { onToggleShowAll() },
                 enabled = cues.size > 4,
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
@@ -1344,6 +1375,58 @@ private fun DailyCuesSection(
                 onStartRoutine = onStartRoutine,
                 modifier = cellModifier
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun YesterdayCuesSheet(
+    cues: List<DailyCueItem>,
+    onStartRoutine: (Long, String, Long, String) -> Unit,
+    onCompleteNow: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color.White,
+        shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                "어제의 Daily Cues",
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                color = Purple
+            )
+            if (cues.isEmpty()) {
+                Text(
+                    "어제 등록된 루틴이 없어요",
+                    fontSize = 13.sp,
+                    color = TextMuted,
+                    modifier = Modifier.padding(vertical = 24.dp)
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    cues.forEach { cue ->
+                        DailyCueCard(
+                            cue = cue,
+                            onToggle = { onCompleteNow(cue.id) },
+                            onEdit = {},
+                            onStartRoutine = onStartRoutine,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
         }
     }
 }
