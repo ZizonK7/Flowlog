@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed yesterday Daily Cue routine check completions not reliably reaching
+  Firestore: `toggleYesterdayCue` now triggers a pending-changes sync
+  immediately instead of waiting for the next app start or network
+  reconnect, so the web dashboard reflects the change right away.
 - Refreshed `README.md` around the current Flowlog product core: lightweight
   Android time tracking, Todo-linked work time, local-first records, Firebase
   sync, and a companion web statistics dashboard.
