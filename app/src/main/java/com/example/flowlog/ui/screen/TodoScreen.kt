@@ -572,36 +572,18 @@ fun TodoScreen(
             }
             items(tabActive, key = { "tab_active_${it.id}" }) { todo ->
                 val itemKey = "${todo.id}_${todo.createdAt}"
-                val isEditing = editingId == itemKey
-                Crossfade(
-                    targetState = isEditing,
-                    animationSpec = tween(200),
-                    label = "edit_$itemKey"
-                ) { editing ->
-                    if (editing) {
-                        TodoCard(
-                            todo         = todo,
-                            isEditing    = true,
-                            isCompleting = completingId == itemKey,
-                            isFocus      = false,
-                            onStartTodo  = { onStartTodo(todo) },
-                            onComplete   = { onCompleteNormal(todo) },
-                            onUncomplete = { viewModel.uncompleteTodo(todo) },
-                            onEditToggle = { editingId = if (editingId == itemKey) null else itemKey },
-                            onSave       = { t, c, d -> viewModel.updateTodo(todo.copy(title = t, category = c, selectedDate = d)); editingId = null },
-                            onDelete     = { viewModel.deleteTodo(todo); editingId = null }
-                        )
-                    } else {
-                        TodoTabListItem(
-                            todo         = todo,
-                            todayStart   = todayStart,
-                            isCompleting = completingId == itemKey,
-                            onComplete   = { onCompleteNormal(todo) },
-                            onUncomplete = { viewModel.uncompleteTodo(todo) },
-                            onEditToggle = { editingId = itemKey }
-                        )
-                    }
-                }
+                TodoCard(
+                    todo         = todo,
+                    isEditing    = editingId == itemKey,
+                    isCompleting = completingId == itemKey,
+                    isFocus      = false,
+                    onStartTodo  = { onStartTodo(todo) },
+                    onComplete   = { onCompleteNormal(todo) },
+                    onUncomplete = { viewModel.uncompleteTodo(todo) },
+                    onEditToggle = { editingId = if (editingId == itemKey) null else itemKey },
+                    onSave       = { t, c, d -> viewModel.updateTodo(todo.copy(title = t, category = c, selectedDate = d)); editingId = null },
+                    onDelete     = { viewModel.deleteTodo(todo); editingId = null }
+                )
             }
             if (tabCompleted.isNotEmpty()) {
                 item(key = "tab_completed_divider") {
@@ -2558,7 +2540,7 @@ private fun TodoCard(
                             TodoCategory.ASSIGNMENT -> "마감일 선택"
                             else -> "날짜 선택"
                         }
-                        DateChipButton(editDate, editDatePlaceholder) { showEditDatePick = true }
+                        DateChipButton(editDate, editDatePlaceholder, iconOnly = true) { showEditDatePick = true }
                     }
                     Spacer(Modifier.height(12.dp))
 
@@ -2795,19 +2777,26 @@ private fun TypeChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun DateChipButton(date: Long?, placeholder: String = "날짜 선택", onClick: () -> Unit) {
+private fun DateChipButton(
+    date: Long?,
+    placeholder: String = "날짜 선택",
+    iconOnly: Boolean = false,
+    onClick: () -> Unit
+) {
     val hasDate = date != null
     OutlinedButton(
         onClick = onClick,
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(1.dp, if (hasDate) Purple else BorderLight),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = if (hasDate) Purple else TextMuted),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-        modifier = Modifier.height(36.dp)
+        contentPadding = if (iconOnly) PaddingValues(0.dp) else PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+        modifier = if (iconOnly) Modifier.size(44.dp, 36.dp) else Modifier.height(36.dp)
     ) {
         Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(15.dp))
-        Spacer(Modifier.width(5.dp))
-        Text(date?.let { fmtDate(it) } ?: placeholder, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        if (!iconOnly) {
+            Spacer(Modifier.width(5.dp))
+            Text(date?.let { fmtDate(it) } ?: placeholder, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        }
     }
 }
 
@@ -2832,43 +2821,6 @@ private const val DAY_MILLIS = 24L * 60L * 60L * 1000L
 
 private fun fmtTime(millis: Long): String =
     SimpleDateFormat("a h:mm", Locale.KOREAN).format(Date(millis))
-
-private fun todoTabSubtitle(todo: TodoItem, todayStart: Long): String? {
-    if (todo.category == TodoCategory.REVIEW) {
-        return when (todo.reviewStage) {
-            0 -> todo.selectedDate?.let { date ->
-                val days = (date - todayStart) / DAY_MILLIS
-                when {
-                    days < 0  -> "D+1 복습 · 기한 지남"
-                    days == 0L -> "D+1 복습 · 오늘"
-                    days == 1L -> "D+1 복습 · 내일"
-                    else      -> "D+1 복습 · ${days}일 후"
-                }
-            }
-            1 -> todo.reviewStage1CompletedAt?.let { completedAt ->
-                val d7 = startOfDay(completedAt) + 7 * DAY_MILLIS
-                val days = (d7 - todayStart) / DAY_MILLIS
-                when {
-                    days < 0  -> "D+7 복습 · 기한 지남"
-                    days == 0L -> "D+7 복습 · 오늘"
-                    days == 1L -> "D+7 복습 · 내일"
-                    else      -> "D+7 복습 · ${days}일 후"
-                }
-            }
-            else -> null
-        }
-    }
-    if (todo.isCompleted) return todo.completedAt?.let { "완료 시간: ${fmtTime(it)}" }
-    return todo.selectedDate?.let { date ->
-        val daysUntil = (date - todayStart) / DAY_MILLIS
-        val dateStr = when {
-            daysUntil < 0  -> "기한 지남"
-            daysUntil == 0L -> "오늘"
-            else           -> fmtDate(date)
-        }
-        "마감: $dateStr"
-    }
-}
 
 // ── 탭 바 ─────────────────────────────────────────────────────────────────────
 @Composable
@@ -2911,86 +2863,6 @@ private fun TodoTabRow(
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                     color = fg
                 )
-            }
-        }
-    }
-}
-
-// ── 탭 리스트 아이템 ───────────────────────────────────────────────────────────
-@Composable
-private fun TodoTabListItem(
-    todo: TodoItem,
-    todayStart: Long,
-    isCompleting: Boolean,
-    onComplete: () -> Unit,
-    onUncomplete: () -> Unit,
-    onEditToggle: () -> Unit
-) {
-    val isReviewWaiting = todo.category == TodoCategory.REVIEW && todo.reviewStage == 1
-    val cardBg by animateColorAsState(
-        targetValue = if (isCompleting) GreenSoft else Color.White,
-        animationSpec = tween(250),
-        label = "tabItemBg"
-    )
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable { onEditToggle() },
-        colors = CardDefaults.cardColors(containerColor = cardBg),
-        elevation = CardDefaults.cardElevation(0.dp),
-        border = BorderStroke(1.dp, Color(0xFFF0EFF5)),
-        shape = RoundedCornerShape(14.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val checkBg = when {
-                isReviewWaiting  -> Purple.copy(alpha = 0.35f)
-                todo.isCompleted -> Purple
-                else             -> Color.Transparent
-            }
-            val checkBorder = if (todo.isCompleted || isReviewWaiting) Purple else BorderLight
-            Box(
-                modifier = Modifier
-                    .size(22.dp)
-                    .clip(CircleShape)
-                    .background(checkBg)
-                    .border(BorderStroke(2.dp, checkBorder), CircleShape)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { if (todo.isCompleted) onUncomplete() else onComplete() },
-                contentAlignment = Alignment.Center
-            ) {
-                if (todo.isCompleted || isReviewWaiting) {
-                    Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(13.dp))
-                }
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = todo.title,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (todo.isCompleted && !isReviewWaiting) TextMuted else TextPrimary,
-                    textDecoration = if (todo.isCompleted && !isReviewWaiting) TextDecoration.LineThrough else TextDecoration.None,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                val subtitle = todoTabSubtitle(todo, todayStart)
-                if (subtitle != null) {
-                    Spacer(Modifier.height(3.dp))
-                    Text(subtitle, fontSize = 12.sp, color = TextMuted)
-                }
-                if (todo.category == TodoCategory.REVIEW) {
-                    Spacer(Modifier.height(5.dp))
-                    ReviewProgressRow(reviewStage = todo.reviewStage)
-                }
-            }
-            if (todo.category != TodoCategory.REVIEW) {
-                Spacer(Modifier.width(8.dp))
-                TodoCategoryBadge(todo.category)
             }
         }
     }
