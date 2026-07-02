@@ -106,8 +106,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.zIndex
@@ -2119,9 +2117,7 @@ private fun NewTodoSheetContent(
     onAdd: () -> Unit,
     onAddToCalendar: () -> Unit
 ) {
-    val focusRequester = remember { FocusRequester() }
     val trimmedTitle = title.trim()
-    LaunchedEffect(Unit) { delay(100); focusRequester.requestFocus() }
 
     Column(
         Modifier
@@ -2163,8 +2159,7 @@ private fun NewTodoSheetContent(
             onValueChange = onTitleChange,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(58.dp)
-                .focusRequester(focusRequester),
+                .height(58.dp),
             singleLine = true,
             placeholder = { Text("무엇을 해볼까요?") },
             leadingIcon = {
