@@ -121,18 +121,25 @@ class FlowRecommendationEngine {
         }
 
         routineFor(remainingRoutines, DailyCueRecommendationTiming.AFTER_MAIN_TASKS)?.let { routine ->
-            val timetableReady = timetableProgress.total == 0 ||
-                timetableProgress.completionRatio >= REWARD_COMPLETION_RATIO
-            val coreFocusCompleted = routines
-                .filter { it.recommendationTiming == DailyCueRecommendationTiming.FOCUS_READY.name }
-                .any { it.id in completedRoutineIds }
+            val timetableAllDone = timetableProgress.total == 0 ||
+                timetableProgress.completed >= timetableProgress.total
+            val hasLongSchoolOrCompanySession = activities.any {
+                it.startTime >= startOfDay(now) &&
+                    it.category in SCHOOL_OR_COMPANY_CATEGORIES &&
+                    it.durationMillis >= SCHOOL_OR_COMPANY_LONG_SESSION_MILLIS
+            }
+            val productiveThresholdMillis = if (hasLongSchoolOrCompanySession) {
+                REWARD_PRODUCTIVE_MILLIS_REDUCED
+            } else {
+                REWARD_PRODUCTIVE_MILLIS
+            }
             val productiveMillis = activities
                 .filter { it.startTime >= startOfDay(now) && it.category in PRODUCTIVE_CATEGORIES }
                 .sumOf { it.durationMillis.coerceAtLeast(0L) }
-            val earnedReward = coreFocusCompleted || productiveMillis >= REWARD_PRODUCTIVE_MILLIS
+            val earnedReward = timetableAllDone || productiveMillis >= productiveThresholdMillis
             val enoughTimeBeforeSleep = millisUntilLongSleep == null ||
                 millisUntilLongSleep > SOFT_BUFFER_WINDOW_MILLIS
-            if (timetableReady && earnedReward && enoughTimeBeforeSleep) {
+            if (earnedReward && enoughTimeBeforeSleep) {
                 return FlowRecommendationDecision(
                     source = FlowRecommendationSource.ROUTINE,
                     step = 5,
@@ -226,14 +233,16 @@ class FlowRecommendationEngine {
 
     private companion object {
         val MIN_LONG_SLEEP_MILLIS = TimeUnit.MINUTES.toMillis(90)
-        val AFTER_WAKING_WINDOW_MILLIS = TimeUnit.MINUTES.toMillis(30)
+        val AFTER_WAKING_WINDOW_MILLIS = TimeUnit.MINUTES.toMillis(60)
         val SOFT_BUFFER_WINDOW_MILLIS = TimeUnit.MINUTES.toMillis(60)
         val RESET_REST_MILLIS = TimeUnit.MINUTES.toMillis(120)
         val RESET_HOBBY_MILLIS = TimeUnit.MINUTES.toMillis(90)
-        val REWARD_PRODUCTIVE_MILLIS = TimeUnit.MINUTES.toMillis(75)
+        val REWARD_PRODUCTIVE_MILLIS = TimeUnit.MINUTES.toMillis(60)
+        val REWARD_PRODUCTIVE_MILLIS_REDUCED = TimeUnit.MINUTES.toMillis(45)
+        val SCHOOL_OR_COMPANY_LONG_SESSION_MILLIS = TimeUnit.MINUTES.toMillis(60)
         val SLEEP_HISTORY_MILLIS = TimeUnit.DAYS.toMillis(14)
-        const val REWARD_COMPLETION_RATIO = 0.7
-        val PRODUCTIVE_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK", "COMPANY", "SCHOOL")
+        val PRODUCTIVE_CATEGORIES = setOf("TODO", "STUDY", "DEVELOPMENT", "WORK")
+        val SCHOOL_OR_COMPANY_CATEGORIES = setOf("SCHOOL", "COMPANY")
         val ACTIVE_TIMETABLE_STATUSES = setOf("PLANNED", "RESCHEDULED", "STARTED")
     }
 }
