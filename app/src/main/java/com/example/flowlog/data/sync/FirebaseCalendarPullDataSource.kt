@@ -36,6 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * type 분기:
  *   CALENDAR_PETITE        → todos (NORMAL 카테고리 NORMAL 할 일로 자동 추가; calendarSourceId로 중복 방지)
+ *                            단, autoStartEnabled=true(고정 시간 자동 시작)인 이벤트는 Todo를 만들지 않는다.
+ *                            applyCalendarFixedRoutineDocuments()가 AutoButtonSchedule로 별도 관리한다.
  *   LECTURE_PLAN / CLASS_EVENT / SYLLABUS → lecture_calendar_infos (오늘 범위 atomic replace)
  *   GENERAL_EVENT          → calendar_events (오늘 범위 atomic replace)
  *
@@ -330,6 +332,7 @@ class FirebaseCalendarPullDataSource(context: Context) {
         val now = System.currentTimeMillis()
         val calendarPetiteEntities = mutableListOf<Pair<String, TodoEntity>>()  // eventId to entity
         val calendarPetiteDeletedIds = mutableListOf<String>()                   // deletedAt 있는 CALENDAR_PETITE
+        val calendarPetiteAutoStartSuppressedIds = mutableListOf<String>()       // autoStartEnabled=true로 전환된 CALENDAR_PETITE
         val lectureEntities = mutableListOf<LectureCalendarInfoEntity>()
         val generalEventEntities = mutableListOf<CalendarEventEntity>()
         val todoEntities = mutableListOf<TodoEntity>()
@@ -349,6 +352,13 @@ class FirebaseCalendarPullDataSource(context: Context) {
                     "CALENDAR_PETITE" -> {
                         if (deletedAt != null) {
                             calendarPetiteDeletedIds.add(eventId)
+                            return@runCatching
+                        }
+                        if (doc.getBoolean("autoStartEnabled") == true) {
+                            // 고정 시간 자동 시작 루틴은 applyCalendarFixedRoutineDocuments()가
+                            // AutoButtonSchedule로 별도 관리 — 앱에서 만든 반복 루틴과 동일하게
+                            // 여기서는 Todo를 만들지 않는다 (중복 추천 방지).
+                            calendarPetiteAutoStartSuppressedIds.add(eventId)
                             return@runCatching
                         }
                         val title = doc.getString("title") ?: return@runCatching
@@ -468,6 +478,25 @@ class FirebaseCalendarPullDataSource(context: Context) {
                 todoDao.softDeleteByCalendarSourceId(userId, eventId, now)
             }.onFailure { e ->
                 Log.w(TAG, "Calendar petite todo delete failed for eventId=$eventId: ${e.message}")
+            }
+        }
+
+        // ── 3b. CALENDAR_PETITE: autoStartEnabled=true 전환 → Todo 정리 ──────
+        // 사용자가 손댄 적 없는(미완료·미삭제) 항목은 완전 삭제해서, 나중에
+        // autoStartEnabled가 다시 false로 바뀌면 새 Todo로 자연 재생성되게 한다.
+        // 이미 완료 처리된 항목은 기록 보존을 위해 소프트 삭제로 남긴다.
+        calendarPetiteAutoStartSuppressedIds.forEach { eventId ->
+            runCatching {
+                val existing = todoDao.getTodoByCalendarSourceId(userId, eventId)
+                if (existing != null && !existing.isDeleted) {
+                    if (existing.isCompleted) {
+                        todoDao.softDeleteByCalendarSourceId(userId, eventId, now)
+                    } else {
+                        todoDao.hardDeleteByCalendarSourceId(userId, eventId)
+                    }
+                }
+            }.onFailure { e ->
+                Log.w(TAG, "Calendar petite auto-start suppression cleanup failed for eventId=$eventId: ${e.message}")
             }
         }
 

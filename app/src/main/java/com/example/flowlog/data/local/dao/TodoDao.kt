@@ -287,4 +287,16 @@ interface TodoDao {
           AND isDeleted = 0
     """)
     suspend fun softDeleteByCalendarSourceId(userId: String, calendarSourceId: String, deletedAt: Long)
+
+    // 사용자가 완료/편집한 적 없는 캘린더 연동 할 일 정리용. 완전 삭제라 나중에 같은
+    // calendarSourceId로 다시 동기화되면 새 row로 자연 재생성된다 (소프트 삭제와 달리
+    // "사용자가 지웠다"는 표시가 남지 않음 — 재생성을 막지 않기 위한 용도).
+    @Query("""
+        DELETE FROM todos
+        WHERE userId = :userId
+          AND calendarSourceId = :calendarSourceId
+          AND isCompleted = 0
+          AND isDeleted = 0
+    """)
+    suspend fun hardDeleteByCalendarSourceId(userId: String, calendarSourceId: String)
 }
