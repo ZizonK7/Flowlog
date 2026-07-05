@@ -143,6 +143,7 @@ class TodoViewModel(
     val yesterdaySuggestion: StateFlow<YesterdayFlowSuggestion?> = _yesterdaySuggestion.asStateFlow()
     private var latestActivities: List<ActivitySession> = emptyList()
     private var isRefreshing = false
+    private var isInitializingFocusIds = false
     private var lastRecommendationDateKey = 0L
 
     val todayFocusItems: StateFlow<List<TodoItem>> = combine(
@@ -168,10 +169,7 @@ class TodoViewModel(
             repository.getAllTodos().collect { todos ->
                 _todos.value = todos
                 _yesterdaySuggestion.value = buildYesterdaySuggestion(todos, latestActivities)
-                if (_focusIds.value.isEmpty() && todos.isNotEmpty() &&
-                    lastRecommendationDateKey != startOfDay(System.currentTimeMillis())) {
-                    initFocusIds(todos)
-                }
+                ensureTodayFocusRecommendation(todos)
             }
         }
         viewModelScope.launch {
@@ -196,9 +194,27 @@ class TodoViewModel(
         }
     }
 
+    private suspend fun ensureTodayFocusRecommendation(allTodos: List<TodoItem>) {
+        if (allTodos.isEmpty() || isInitializingFocusIds) return
+
+        val todayKey = startOfDay(System.currentTimeMillis())
+        val dateKey = dailyGoalRepository.todayDateKey()
+        val hasTodayRecommendation = dailyGoalRepository.getTodayRecommendation(dateKey) != null
+        val storedKey = focusPrefs.getLong("date_key", 0L)
+        val hasUsableFocusIds = _focusIds.value.isNotEmpty() && storedKey == todayKey
+
+        if (hasTodayRecommendation && (hasUsableFocusIds || lastRecommendationDateKey == todayKey)) return
+
+        isInitializingFocusIds = true
+        try {
+            initFocusIds(allTodos)
+        } finally {
+            isInitializingFocusIds = false
+        }
+    }
+
     private suspend fun initFocusIds(allTodos: List<TodoItem>) {
         val todayKey = startOfDay(System.currentTimeMillis())
-        lastRecommendationDateKey = todayKey
         val storedKey = focusPrefs.getLong("date_key", 0L)
         val storedOrdered: List<String> = focusPrefs.getString("focus_ids_ordered", null)
             ?.split(",")
@@ -224,8 +240,11 @@ class TodoViewModel(
             }
         }
         val existingRecForToday = dailyGoalRepository.getTodayRecommendation(dailyGoalRepository.todayDateKey())
-        if (storedKey == todayKey && !hasUrgentMissed && (storedOrdered.isNotEmpty() || existingRecForToday != null)) {
-            _focusIds.value = storedOrdered
+        if (!hasUrgentMissed && existingRecForToday != null) {
+            if (storedKey == todayKey) {
+                _focusIds.value = storedOrdered
+            }
+            lastRecommendationDateKey = todayKey
             return
         }
 
@@ -235,28 +254,27 @@ class TodoViewModel(
         val selectionResult = selectTodayFocus(allTodos, burdenAnalyses)
         val newIds = selectionResult.map { it.entityTodoId }
         _focusIds.value = newIds
+        lastRecommendationDateKey = todayKey
 
         focusPrefs.edit()
             .putLong("date_key", todayKey)
             .putString("focus_ids_ordered", newIds.joinToString(","))
             .apply()
 
-        // Room에 오늘의 목표 추천 저장 (async, 실패해도 기존 동작 유지)
+        // Room에 오늘의 목표 추천과 시간 계획을 보장한다.
         val dateKey = dailyGoalRepository.todayDateKey()
-        viewModelScope.launch {
-            runCatching {
-                dailyGoalRepository.saveRecommendation(
-                    dateKey = dateKey,
-                    selectedItems = selectionResult,
-                    candidateTodos = allTodos.filter { !it.isCompleted },
-                    isRefresh = false
-                )
-                dailyGoalRepository.ensureTodayTimePlan(
-                    dateKey = dateKey,
-                    activities = latestActivities,
-                    forceRefresh = false
-                )
-            }
+        runCatching {
+            dailyGoalRepository.saveRecommendation(
+                dateKey = dateKey,
+                selectedItems = selectionResult,
+                candidateTodos = allTodos.filter { !it.isCompleted },
+                isRefresh = false
+            )
+            dailyGoalRepository.ensureTodayTimePlan(
+                dateKey = dateKey,
+                activities = latestActivities,
+                forceRefresh = false
+            )
         }
 
         selectionResult
