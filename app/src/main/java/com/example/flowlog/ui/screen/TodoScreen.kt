@@ -26,6 +26,8 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -128,7 +130,8 @@ import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.data.model.DailyCueRecommendationTiming
 import com.example.flowlog.ui.component.PickerWaveBackground
 import com.example.flowlog.ui.component.WheelPickerColumn
-import com.example.flowlog.ui.component.CategoryPicker
+import com.example.flowlog.ui.component.CategoryGlyph
+import com.example.flowlog.ui.component.categoryColor
 import com.example.flowlog.ui.component.displayCategory
 import com.example.flowlog.ui.component.formatDuration
 import com.example.flowlog.ui.viewmodel.DailyCueItem
@@ -1411,6 +1414,7 @@ private fun YesterdayCuesSheet(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DailyCueEditorDialog(
     cue: DailyCueItem?,
@@ -1537,12 +1541,23 @@ private fun DailyCueEditorDialog(
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        CategoryPicker(
-                            categories = categoryOptions,
-                            selectedCategory = timerCategory,
-                            onSelect = { timerCategory = it },
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        FlowRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(PurpleSoft.copy(alpha = 0.4f), RoundedCornerShape(18.dp))
+                                .border(1.dp, BorderLight, RoundedCornerShape(18.dp))
+                                .padding(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            categoryOptions.forEach { item ->
+                                DailyCueCategorySegment(
+                                    category = item,
+                                    selected = timerCategory == item,
+                                    onClick = { timerCategory = item }
+                                )
+                            }
+                        }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1654,6 +1669,41 @@ private fun DailyCueEditorDialog(
             }
         }
     )
+}
+
+@Composable
+private fun DailyCueCategorySegment(
+    category: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val accent = categoryColor(category)
+    Row(
+        modifier = modifier
+            .height(42.dp)
+            .background(
+                if (selected) Purple else Color.Transparent,
+                RoundedCornerShape(16.dp)
+            )
+            .combinedClickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        CategoryGlyph(
+            category = category,
+            tint = if (selected) Color.White else accent.copy(alpha = 0.52f),
+            modifier = Modifier.size(19.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = displayCategory(category),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = if (selected) Color.White else TextMuted
+        )
+    }
 }
 
 @Composable

@@ -143,6 +143,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.DoNotDisturb
 import com.example.flowlog.notification.FocusDndController
 import com.example.flowlog.data.model.AiMessage
+import com.example.flowlog.data.model.MainButtonConfig
 import com.example.flowlog.data.model.RecommendationStatus
 import com.example.flowlog.ui.component.displayCategory
 import com.example.flowlog.ui.viewmodel.AiMessengerUiState
@@ -198,7 +199,7 @@ class MainActivity : ComponentActivity() {
                     homeMainTimerScrollRequest += 1
                 }
                 val routineTimerCategories = remember(promotedButtons) {
-                    val base = listOf("SLEEP", "REST", "WORK", "STUDY", "EXERCISE", "WASH", "MEAL", "ETC")
+                    val base = MainButtonConfig.ALL_SELECTABLE_CATEGORIES
                     if (promotedButtons.isNotEmpty()) {
                         base.take(6) + promotedButtons.asReversed() + base.drop(6)
                     } else {
