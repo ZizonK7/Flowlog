@@ -12,6 +12,8 @@ data class ExerciseLastSettings(
 object ExerciseOptionsStore {
     private const val PREFS_NAME = "exercise_options"
     private const val KEY_CUSTOM_EXERCISES = "custom_exercises"
+    private const val KEY_EXERCISE_ORDER = "exercise_order"
+    private const val KEY_HIDDEN_DEFAULT_EXERCISES = "hidden_default_exercises"
     private const val SEPARATOR = "||"
 
     fun loadCustomExercises(context: Context): List<String> {
@@ -33,6 +35,41 @@ object ExerciseOptionsStore {
     fun removeCustomExercise(context: Context, name: String) {
         val updated = loadCustomExercises(context).filter { it != name }
         save(context, updated)
+    }
+
+    fun loadHiddenDefaultExercises(context: Context): List<String> {
+        val raw = context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_HIDDEN_DEFAULT_EXERCISES, null)
+            ?: return emptyList()
+        return raw.split(SEPARATOR).filter { it.isNotBlank() }
+    }
+
+    fun hideDefaultExercise(context: Context, name: String) {
+        val current = loadHiddenDefaultExercises(context)
+        if (name !in current) {
+            saveHiddenDefaults(context, current + name)
+        }
+    }
+
+    fun showDefaultExercise(context: Context, name: String) {
+        saveHiddenDefaults(context, loadHiddenDefaultExercises(context).filter { it != name })
+    }
+
+    fun loadExerciseOrder(context: Context): List<String> {
+        val raw = context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_EXERCISE_ORDER, null)
+            ?: return emptyList()
+        return raw.split(SEPARATOR).filter { it.isNotBlank() }
+    }
+
+    fun saveExerciseOrder(context: Context, exercises: List<String>) {
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_EXERCISE_ORDER, exercises.distinct().joinToString(SEPARATOR))
+            .apply()
     }
 
     fun saveLastSettings(context: Context, exerciseName: String, settings: ExerciseLastSettings) {
@@ -68,6 +105,14 @@ object ExerciseOptionsStore {
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_CUSTOM_EXERCISES, exercises.joinToString(SEPARATOR))
+            .apply()
+    }
+
+    private fun saveHiddenDefaults(context: Context, exercises: List<String>) {
+        context.applicationContext
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_HIDDEN_DEFAULT_EXERCISES, exercises.distinct().joinToString(SEPARATOR))
             .apply()
     }
 }

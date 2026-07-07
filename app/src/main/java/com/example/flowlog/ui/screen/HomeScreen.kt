@@ -25,6 +25,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -91,8 +92,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ModalBottomSheet
@@ -119,6 +118,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -127,6 +127,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -134,6 +135,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -141,6 +143,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -151,6 +155,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.example.flowlog.data.constants.ActivitySourceType
 import com.example.flowlog.data.local.ExerciseLastSettings
 import com.example.flowlog.data.local.ExerciseOptionsStore
@@ -2163,7 +2168,7 @@ private fun ExerciseTimedSetCard(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun ExerciseAddSetSheet(
     initialName: String,
@@ -2173,6 +2178,7 @@ private fun ExerciseAddSetSheet(
     onSave: (ExerciseSetRecord) -> Unit
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     val seededExercise = initialRecord?.name
         ?: prefillRecord?.name
         ?: initialName.ifBlank { "팔굽혀펴기" }
@@ -2199,14 +2205,66 @@ private fun ExerciseAddSetSheet(
     val defaultExerciseOptions = remember { listOf("팔굽혀펴기", "스쿼트", "플랭크") }
     var exerciseOptions by remember(initialName, initialRecord, prefillRecord) {
         val custom = ExerciseOptionsStore.loadCustomExercises(context)
-        mutableStateOf((defaultExerciseOptions + custom + seededExercise).distinct())
+        val hiddenDefaults = ExerciseOptionsStore.loadHiddenDefaultExercises(context)
+        val visibleDefaults = defaultExerciseOptions.filter { it !in hiddenDefaults || it == seededExercise }
+        val baseOptions = (visibleDefaults + custom + seededExercise).distinct()
+        val savedOrder = ExerciseOptionsStore.loadExerciseOrder(context)
+        mutableStateOf(savedOrder.filter { it in baseOptions } + baseOptions.filter { it !in savedOrder })
     }
     var customExercise by remember { mutableStateOf("") }
     var showExerciseAddCard by remember { mutableStateOf(false) }
-    var showMoreDropdown by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
     var editingExerciseItem by remember { mutableStateOf<String?>(null) }
     var editingExerciseNewName by remember { mutableStateOf("") }
+    var movingExercise by remember { mutableStateOf<String?>(null) }
+    var dragPositionInRoot by remember { mutableStateOf<Offset?>(null) }
+    var editListPositionInRoot by remember { mutableStateOf(Offset.Zero) }
+    val exerciseChipBounds = remember { mutableStateMapOf<String, Rect>() }
+
+    fun swapExerciseOptions(from: String, to: String) {
+        if (from == to) return
+        val fromIndex = exerciseOptions.indexOf(from)
+        val toIndex = exerciseOptions.indexOf(to)
+        if (fromIndex >= 0 && toIndex >= 0) {
+            exerciseOptions = exerciseOptions.toMutableList().also { options ->
+                options[fromIndex] = to
+                options[toIndex] = from
+            }
+            ExerciseOptionsStore.saveExerciseOrder(context, exerciseOptions)
+        }
+    }
+
+    fun renameExerciseOption(option: String, newName: String) {
+        if (newName.isBlank() || newName == option) return
+        val wasSelected = selectedExercise == option
+        exerciseOptions = exerciseOptions.map { if (it == option) newName else it }.distinct()
+        if (option in defaultExerciseOptions) {
+            ExerciseOptionsStore.hideDefaultExercise(context, option)
+        } else {
+            ExerciseOptionsStore.removeCustomExercise(context, option)
+        }
+        if (newName in defaultExerciseOptions) {
+            ExerciseOptionsStore.showDefaultExercise(context, newName)
+        } else {
+            ExerciseOptionsStore.addCustomExercise(context, newName)
+        }
+        ExerciseOptionsStore.saveExerciseOrder(context, exerciseOptions)
+        if (wasSelected) selectedExercise = newName
+        if (movingExercise == option) movingExercise = newName
+    }
+
+    fun deleteExerciseOption(option: String) {
+        if (exerciseOptions.size <= 1) return
+        exerciseOptions = exerciseOptions - option
+        if (option in defaultExerciseOptions) {
+            ExerciseOptionsStore.hideDefaultExercise(context, option)
+        } else {
+            ExerciseOptionsStore.removeCustomExercise(context, option)
+        }
+        ExerciseOptionsStore.saveExerciseOrder(context, exerciseOptions)
+        if (selectedExercise == option) selectedExercise = exerciseOptions.firstOrNull() ?: defaultExerciseOptions.first()
+        if (movingExercise == option) movingExercise = null
+    }
 
     // 운동 칩 변경 시 해당 운동의 마지막 설정으로 폼 업데이트 (새 세트 추가 시에만)
     LaunchedEffect(selectedExercise) {
@@ -2232,6 +2290,7 @@ private fun ExerciseAddSetSheet(
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .imePadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 10.dp)
         ) {
             Text(
@@ -2243,11 +2302,7 @@ private fun ExerciseAddSetSheet(
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(22.dp))
-            // 기본 3개는 항상 메인 행, 커스텀은 항상 더보기에만
-            val customExercises = exerciseOptions.filter { it !in defaultExerciseOptions }
-            val isCustomSelected = selectedExercise !in defaultExerciseOptions
-
-            // 운동 레이블 + 추가 / 수정 / 더보기 액션
+            // 운동 레이블 + 추가 / 수정 액션
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -2263,80 +2318,42 @@ private fun ExerciseAddSetSheet(
                         .clickable { showExerciseAddCard = !showExerciseAddCard }
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
-                if (customExercises.isNotEmpty()) {
-                    Text(
-                        "수정",
-                        color = FlowPurpleDeep,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 13.sp,
-                        modifier = Modifier
-                            .clickable {
-                                editingExerciseItem = null
-                                editingExerciseNewName = ""
-                                showEditDialog = true
-                            }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-                if (customExercises.isNotEmpty()) {
-                    Box {
-                        // 커스텀 운동 선택 중이면 버튼에 이름 표시
-                        val moreLabel = if (isCustomSelected) selectedExercise else "더보기"
-                        Text(
-                            moreLabel,
-                            color = if (isCustomSelected) FlowPurpleDeep else FlowPurpleDeep,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 13.sp,
-                            modifier = Modifier
-                                .clickable { showMoreDropdown = true }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                        DropdownMenu(
-                            expanded = showMoreDropdown,
-                            onDismissRequest = { showMoreDropdown = false },
-                            containerColor = Color.White
-                        ) {
-                            customExercises.forEach { option ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Text(
-                                                option,
-                                                fontWeight = if (option == selectedExercise) FontWeight.ExtraBold else FontWeight.Bold,
-                                                color = if (option == selectedExercise) FlowPurpleDeep else FlowInk,
-                                                fontSize = 14.sp,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            if (option == selectedExercise) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Close,
-                                                    contentDescription = null,
-                                                    tint = FlowPurpleDeep,
-                                                    modifier = Modifier.size(14.dp)
-                                                )
-                                            }
-                                        }
-                                    },
-                                    onClick = {
-                                        selectedExercise = option
-                                        showMoreDropdown = false
-                                    }
-                                )
-                            }
+                Text(
+                    "수정",
+                    color = FlowPurpleDeep,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 13.sp,
+                    modifier = Modifier
+                        .clickable {
+                            editingExerciseItem = null
+                            editingExerciseNewName = ""
+                            movingExercise = null
+                            dragPositionInRoot = null
+                            showEditDialog = true
                         }
-                    }
-                }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                )
             }
             Spacer(modifier = Modifier.height(8.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(defaultExerciseOptions) { option ->
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                exerciseOptions.forEach { option ->
                     FilterChip(
                         selected = selectedExercise == option,
                         onClick = { selectedExercise = option },
-                        label = { Text(option, fontWeight = FontWeight.Bold) }
+                        label = {
+                            Text(
+                                option,
+                                fontWeight = if (selectedExercise == option) {
+                                    FontWeight.ExtraBold
+                                } else {
+                                    FontWeight.Bold
+                                }
+                            )
+                        }
                     )
                 }
             }
@@ -2381,6 +2398,7 @@ private fun ExerciseAddSetSheet(
                                     exerciseOptions = (exerciseOptions + cleanExercise).distinct()
                                     selectedExercise = cleanExercise
                                     ExerciseOptionsStore.addCustomExercise(context, cleanExercise)
+                                    ExerciseOptionsStore.saveExerciseOrder(context, exerciseOptions)
                                     customExercise = ""
                                     showExerciseAddCard = false
                                 }
@@ -2401,76 +2419,192 @@ private fun ExerciseAddSetSheet(
             // 수정 다이얼로그 — 커스텀 운동 이름 변경 / 삭제
             if (showEditDialog) {
                 AlertDialog(
-                    onDismissRequest = { showEditDialog = false; editingExerciseItem = null },
+                    onDismissRequest = {
+                        showEditDialog = false
+                        editingExerciseItem = null
+                        movingExercise = null
+                        dragPositionInRoot = null
+                    },
                     containerColor = Color.White,
                     shape = RoundedCornerShape(20.dp),
                     title = { Text("운동 수정", fontWeight = FontWeight.ExtraBold, color = FlowInk) },
                     text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            customExercises.forEach { option ->
-                                if (editingExerciseItem == option) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        OutlinedTextField(
-                                            value = editingExerciseNewName,
-                                            onValueChange = { editingExerciseNewName = it },
-                                            modifier = Modifier.weight(1f),
-                                            shape = RoundedCornerShape(10.dp),
-                                            singleLine = true,
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedTextColor = FlowInk,
-                                                unfocusedTextColor = FlowInk,
-                                                cursorColor = FlowPurple
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onGloballyPositioned { coordinates ->
+                                    editListPositionInRoot = coordinates.positionInRoot()
+                                }
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .heightIn(max = 420.dp)
+                                    .verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                exerciseOptions.forEach { option ->
+                                    val bounds = exerciseChipBounds[option]
+                                    val isMoving = movingExercise == option
+                                    val isDropTarget = movingExercise != null &&
+                                        movingExercise != option &&
+                                        dragPositionInRoot?.let { bounds?.contains(it) } == true
+
+                                    if (editingExerciseItem == option) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedTextField(
+                                                value = editingExerciseNewName,
+                                                onValueChange = { editingExerciseNewName = it },
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(10.dp),
+                                                singleLine = true,
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedTextColor = FlowInk,
+                                                    unfocusedTextColor = FlowInk,
+                                                    cursorColor = FlowPurple
+                                                )
                                             )
-                                        )
-                                        IconButton(onClick = {
-                                            val newName = editingExerciseNewName.trim()
-                                            if (newName.isNotBlank() && newName != option) {
-                                                exerciseOptions = exerciseOptions.map { if (it == option) newName else it }
-                                                ExerciseOptionsStore.removeCustomExercise(context, option)
-                                                ExerciseOptionsStore.addCustomExercise(context, newName)
-                                                if (selectedExercise == option) selectedExercise = newName
+                                            IconButton(onClick = {
+                                                val newName = editingExerciseNewName.trim()
+                                                renameExerciseOption(option, newName)
+                                                editingExerciseItem = null
+                                            }) {
+                                                Icon(Icons.Filled.Close, contentDescription = "완료", tint = FlowPurple)
                                             }
-                                            editingExerciseItem = null
-                                        }) {
-                                            Icon(Icons.Filled.Close, contentDescription = "완료", tint = FlowPurple)
+                                        }
+                                    } else {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .graphicsLayer {
+                                                    alpha = when {
+                                                        isMoving -> 0.28f
+                                                        movingExercise != null && !isDropTarget -> 0.82f
+                                                        else -> 1f
+                                                    }
+                                                }
+                                                .background(
+                                                    if (isDropTarget) FlowPurpleSoft else Color.Transparent,
+                                                    RoundedCornerShape(12.dp)
+                                                )
+                                                .onGloballyPositioned { coordinates ->
+                                                    val position = coordinates.positionInRoot()
+                                                    val size = coordinates.size
+                                                    exerciseChipBounds[option] = Rect(
+                                                        left = position.x,
+                                                        top = position.y,
+                                                        right = position.x + size.width,
+                                                        bottom = position.y + size.height
+                                                    )
+                                                }
+                                                .pointerInput(option, exerciseOptions, showEditDialog) {
+                                                    detectDragGesturesAfterLongPress(
+                                                        onDragStart = { offset ->
+                                                            val rowBounds = exerciseChipBounds[option]
+                                                            movingExercise = option
+                                                            dragPositionInRoot = rowBounds?.let {
+                                                                Offset(it.left + offset.x, it.top + offset.y)
+                                                            }
+                                                        },
+                                                        onDragEnd = {
+                                                            val from = movingExercise
+                                                            val dropPosition = dragPositionInRoot
+                                                            val target = if (from != null && dropPosition != null) {
+                                                                exerciseChipBounds.entries.firstOrNull { (name, rowBounds) ->
+                                                                    name != from && rowBounds.contains(dropPosition)
+                                                                }?.key
+                                                            } else {
+                                                                null
+                                                            }
+                                                            if (from != null && target != null) {
+                                                                swapExerciseOptions(from, target)
+                                                            }
+                                                            movingExercise = null
+                                                            dragPositionInRoot = null
+                                                        },
+                                                        onDragCancel = {
+                                                            movingExercise = null
+                                                            dragPositionInRoot = null
+                                                        },
+                                                        onDrag = { change, dragAmount ->
+                                                            change.consume()
+                                                            dragPositionInRoot = (dragPositionInRoot ?: Offset.Zero) + dragAmount
+                                                        }
+                                                    )
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                option,
+                                                modifier = Modifier.weight(1f),
+                                                fontWeight = if (isDropTarget) FontWeight.ExtraBold else FontWeight.Bold,
+                                                color = if (isDropTarget) FlowPurpleDeep else FlowInk,
+                                                fontSize = 14.sp
+                                            )
+                                            IconButton(onClick = {
+                                                editingExerciseItem = option
+                                                editingExerciseNewName = option
+                                            }) {
+                                                Icon(Icons.Filled.Edit, contentDescription = "이름 변경", tint = Color.Gray, modifier = Modifier.size(18.dp))
+                                            }
+                                            IconButton(
+                                                enabled = exerciseOptions.size > 1,
+                                                onClick = { deleteExerciseOption(option) }
+                                            ) {
+                                                Icon(
+                                                    Icons.Filled.Delete,
+                                                    contentDescription = "삭제",
+                                                    tint = if (exerciseOptions.size > 1) Color.Gray else Color.LightGray,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
                                         }
                                     }
-                                } else {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            option,
-                                            modifier = Modifier.weight(1f),
-                                            fontWeight = FontWeight.Bold,
-                                            color = FlowInk,
-                                            fontSize = 14.sp
-                                        )
-                                        IconButton(onClick = {
-                                            editingExerciseItem = option
-                                            editingExerciseNewName = option
-                                        }) {
-                                            Icon(Icons.Filled.Edit, contentDescription = "이름 변경", tint = Color.Gray, modifier = Modifier.size(18.dp))
+                                }
+                            }
+
+                            val previewName = movingExercise
+                            val previewBounds = previewName?.let { exerciseChipBounds[it] }
+                            val previewPosition = dragPositionInRoot
+                            if (previewName != null && previewBounds != null && previewPosition != null) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .zIndex(2f)
+                                        .graphicsLayer {
+                                            translationY = previewPosition.y - editListPositionInRoot.y - (previewBounds.height / 2f)
+                                            scaleX = 1.01f
+                                            scaleY = 1.01f
+                                            shadowElevation = with(density) { 4.dp.toPx() }
                                         }
-                                        IconButton(onClick = {
-                                            exerciseOptions = exerciseOptions - option
-                                            ExerciseOptionsStore.removeCustomExercise(context, option)
-                                            if (selectedExercise == option) selectedExercise = defaultExerciseOptions.first()
-                                            if (customExercises.size == 1) showEditDialog = false
-                                        }) {
-                                            Icon(Icons.Filled.Delete, contentDescription = "삭제", tint = Color.Gray, modifier = Modifier.size(18.dp))
-                                        }
-                                    }
+                                        .background(Color.White, RoundedCornerShape(12.dp))
+                                        .border(1.dp, FlowPurpleSoft, RoundedCornerShape(12.dp))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        previewName,
+                                        modifier = Modifier.weight(1f),
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = FlowPurpleDeep,
+                                        fontSize = 14.sp
+                                    )
+                                    Icon(Icons.Filled.Edit, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(48.dp).padding(15.dp))
+                                    Icon(Icons.Filled.Delete, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(48.dp).padding(15.dp))
                                 }
                             }
                         }
                     },
                     confirmButton = {
-                        TextButton(onClick = { showEditDialog = false; editingExerciseItem = null }) {
+                        TextButton(onClick = {
+                            showEditDialog = false
+                            editingExerciseItem = null
+                            movingExercise = null
+                            dragPositionInRoot = null
+                        }) {
                             Text("완료", color = FlowPurple, fontWeight = FontWeight.Bold)
                         }
                     }
