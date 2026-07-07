@@ -198,6 +198,8 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -2219,7 +2221,31 @@ private fun ExerciseAddSetSheet(
     var movingExercise by remember { mutableStateOf<String?>(null) }
     var dragPositionInRoot by remember { mutableStateOf<Offset?>(null) }
     var editListPositionInRoot by remember { mutableStateOf(Offset.Zero) }
+    var editListBoundsInRoot by remember { mutableStateOf<Rect?>(null) }
+    var exerciseInsertIndex by remember { mutableStateOf<Int?>(null) }
+    var exerciseSwapTarget by remember { mutableStateOf<String?>(null) }
+    var exerciseAutoScrollJob by remember { mutableStateOf<Job?>(null) }
+    var exerciseAutoScrollDelta by remember { mutableStateOf(0) }
     val exerciseChipBounds = remember { mutableStateMapOf<String, Rect>() }
+    val editExerciseScrollState = rememberScrollState()
+    val editExerciseDragScope = rememberCoroutineScope()
+
+    fun dragPositionIsInsideList(position: Offset): Boolean {
+        val bounds = editListBoundsInRoot ?: return false
+        return position.x in bounds.left..bounds.right
+    }
+
+    fun insertionIndexForDrag(from: String, position: Offset): Int? {
+        val fromIndex = exerciseOptions.indexOf(from)
+        if (fromIndex < 0) return null
+        if (!dragPositionIsInsideList(position)) return null
+        val visibleOptions = exerciseOptions.filter { it != from }
+        val insertInVisible = visibleOptions.indexOfFirst { option ->
+            val bounds = exerciseChipBounds[option] ?: return@indexOfFirst false
+            position.y < bounds.center.y
+        }.let { index -> if (index == -1) visibleOptions.size else index }
+        return insertInVisible.coerceIn(0, visibleOptions.size)
+    }
 
     fun swapExerciseOptions(from: String, to: String) {
         if (from == to) return
@@ -2232,6 +2258,96 @@ private fun ExerciseAddSetSheet(
             }
             ExerciseOptionsStore.saveExerciseOrder(context, exerciseOptions)
         }
+    }
+
+    fun swapTargetForDrag(from: String, position: Offset): String? {
+        val visibleOptions = exerciseOptions.filter { it != from }
+        return visibleOptions.firstOrNull { option ->
+            val bounds = exerciseChipBounds[option] ?: return@firstOrNull false
+            if (position.x !in bounds.left..bounds.right) return@firstOrNull false
+            val centerBandTop = bounds.top + bounds.height * 0.38f
+            val centerBandBottom = bounds.bottom - bounds.height * 0.38f
+            position.y in centerBandTop..centerBandBottom
+        }
+    }
+
+    fun moveExerciseOption(from: String, targetIndex: Int?) {
+        val fromIndex = exerciseOptions.indexOf(from)
+        val insertIndex = targetIndex ?: return
+        if (fromIndex >= 0) {
+            val moved = exerciseOptions.toMutableList()
+            moved.removeAt(fromIndex)
+            moved.add(insertIndex.coerceIn(0, moved.size), from)
+            exerciseOptions = moved
+            ExerciseOptionsStore.saveExerciseOrder(context, exerciseOptions)
+        }
+    }
+
+    fun updateExerciseDropTargets(position: Offset) {
+        val from = movingExercise
+        exerciseSwapTarget = if (from != null) swapTargetForDrag(from, position) else null
+        exerciseInsertIndex = if (from != null && exerciseSwapTarget == null) {
+            insertionIndexForDrag(from, position)
+        } else {
+            null
+        }
+    }
+
+    fun stopExerciseAutoScroll() {
+        exerciseAutoScrollJob?.cancel()
+        exerciseAutoScrollJob = null
+        exerciseAutoScrollDelta = 0
+    }
+
+    fun updateExerciseAutoScroll(position: Offset) {
+        val listBounds = editListBoundsInRoot
+        val edge = with(density) { 56.dp.toPx() }
+        val nextDelta = if (listBounds != null && dragPositionIsInsideList(position)) {
+            when {
+                position.y < listBounds.top + edge -> -14
+                position.y > listBounds.bottom - edge -> 14
+                else -> 0
+            }
+        } else {
+            0
+        }
+
+        if (nextDelta == 0) {
+            stopExerciseAutoScroll()
+            return
+        }
+
+        if (exerciseAutoScrollJob?.isActive == true && exerciseAutoScrollDelta == nextDelta) return
+
+        exerciseAutoScrollJob?.cancel()
+        exerciseAutoScrollDelta = nextDelta
+        exerciseAutoScrollJob = editExerciseDragScope.launch {
+            while (true) {
+                val next = (editExerciseScrollState.value + exerciseAutoScrollDelta)
+                    .coerceIn(0, editExerciseScrollState.maxValue)
+                if (next == editExerciseScrollState.value) {
+                    delay(16L)
+                } else {
+                    editExerciseScrollState.scrollTo(next)
+                    dragPositionInRoot?.let { updateExerciseDropTargets(it) }
+                    delay(16L)
+                }
+            }
+        }
+    }
+
+    fun updateExerciseDragPosition(position: Offset) {
+        dragPositionInRoot = position
+        updateExerciseDropTargets(position)
+        updateExerciseAutoScroll(position)
+    }
+
+    fun clearExerciseDragState() {
+        movingExercise = null
+        dragPositionInRoot = null
+        exerciseInsertIndex = null
+        exerciseSwapTarget = null
+        stopExerciseAutoScroll()
     }
 
     fun renameExerciseOption(option: String, newName: String) {
@@ -2263,7 +2379,7 @@ private fun ExerciseAddSetSheet(
         }
         ExerciseOptionsStore.saveExerciseOrder(context, exerciseOptions)
         if (selectedExercise == option) selectedExercise = exerciseOptions.firstOrNull() ?: defaultExerciseOptions.first()
-        if (movingExercise == option) movingExercise = null
+        if (movingExercise == option) clearExerciseDragState()
     }
 
     // 운동 칩 변경 시 해당 운동의 마지막 설정으로 폼 업데이트 (새 세트 추가 시에만)
@@ -2327,8 +2443,7 @@ private fun ExerciseAddSetSheet(
                         .clickable {
                             editingExerciseItem = null
                             editingExerciseNewName = ""
-                            movingExercise = null
-                            dragPositionInRoot = null
+                            clearExerciseDragState()
                             showEditDialog = true
                         }
                         .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -2422,8 +2537,7 @@ private fun ExerciseAddSetSheet(
                     onDismissRequest = {
                         showEditDialog = false
                         editingExerciseItem = null
-                        movingExercise = null
-                        dragPositionInRoot = null
+                        clearExerciseDragState()
                     },
                     containerColor = Color.White,
                     shape = RoundedCornerShape(20.dp),
@@ -2434,20 +2548,33 @@ private fun ExerciseAddSetSheet(
                                 .fillMaxWidth()
                                 .onGloballyPositioned { coordinates ->
                                     editListPositionInRoot = coordinates.positionInRoot()
+                                    val position = coordinates.positionInRoot()
+                                    val size = coordinates.size
+                                    editListBoundsInRoot = Rect(
+                                        left = position.x,
+                                        top = position.y,
+                                        right = position.x + size.width,
+                                        bottom = position.y + size.height
+                                    )
                                 }
                         ) {
                             Column(
                                 modifier = Modifier
                                     .heightIn(max = 420.dp)
-                                    .verticalScroll(rememberScrollState()),
+                                    .verticalScroll(editExerciseScrollState),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
+                                var visibleIndex = 0
                                 exerciseOptions.forEach { option ->
-                                    val bounds = exerciseChipBounds[option]
                                     val isMoving = movingExercise == option
+                                    if (!isMoving && exerciseInsertIndex == visibleIndex) {
+                                        ExerciseInsertIndicator()
+                                    }
+                                    val bounds = exerciseChipBounds[option]
+                                    val isSwapTarget = movingExercise != null && exerciseSwapTarget == option
                                     val isDropTarget = movingExercise != null &&
-                                        movingExercise != option &&
-                                        dragPositionInRoot?.let { bounds?.contains(it) } == true
+                                        !isMoving &&
+                                        exerciseInsertIndex == visibleIndex
 
                                     if (editingExerciseItem == option) {
                                         Row(
@@ -2481,12 +2608,12 @@ private fun ExerciseAddSetSheet(
                                                 .graphicsLayer {
                                                     alpha = when {
                                                         isMoving -> 0.28f
-                                                        movingExercise != null && !isDropTarget -> 0.82f
+                                                        movingExercise != null && !isDropTarget && !isSwapTarget -> 0.82f
                                                         else -> 1f
                                                     }
                                                 }
                                                 .background(
-                                                    if (isDropTarget) FlowPurpleSoft else Color.Transparent,
+                                                    if (isDropTarget || isSwapTarget) FlowPurpleSoft else Color.Transparent,
                                                     RoundedCornerShape(12.dp)
                                                 )
                                                 .onGloballyPositioned { coordinates ->
@@ -2501,47 +2628,45 @@ private fun ExerciseAddSetSheet(
                                                 }
                                                 .pointerInput(option, exerciseOptions, showEditDialog) {
                                                     detectDragGesturesAfterLongPress(
-                                                        onDragStart = { offset ->
-                                                            val rowBounds = exerciseChipBounds[option]
-                                                            movingExercise = option
-                                                            dragPositionInRoot = rowBounds?.let {
-                                                                Offset(it.left + offset.x, it.top + offset.y)
-                                                            }
-                                                        },
-                                                        onDragEnd = {
-                                                            val from = movingExercise
-                                                            val dropPosition = dragPositionInRoot
-                                                            val target = if (from != null && dropPosition != null) {
-                                                                exerciseChipBounds.entries.firstOrNull { (name, rowBounds) ->
-                                                                    name != from && rowBounds.contains(dropPosition)
-                                                                }?.key
-                                                            } else {
-                                                                null
-                                                            }
-                                                            if (from != null && target != null) {
-                                                                swapExerciseOptions(from, target)
-                                                            }
-                                                            movingExercise = null
-                                                            dragPositionInRoot = null
-                                                        },
-                                                        onDragCancel = {
-                                                            movingExercise = null
-                                                            dragPositionInRoot = null
-                                                        },
-                                                        onDrag = { change, dragAmount ->
-                                                            change.consume()
-                                                            dragPositionInRoot = (dragPositionInRoot ?: Offset.Zero) + dragAmount
+                                                    onDragStart = { offset ->
+                                                        val rowBounds = exerciseChipBounds[option]
+                                                        movingExercise = option
+                                                        val startPosition = rowBounds?.let {
+                                                            Offset(it.left + offset.x, it.top + offset.y)
                                                         }
-                                                    )
-                                                }
+                                                        if (startPosition != null) {
+                                                            updateExerciseDragPosition(startPosition)
+                                                        }
+                                                    },
+                                                    onDragEnd = {
+                                                        val from = movingExercise
+                                                        if (from != null) {
+                                                            val swapTarget = exerciseSwapTarget
+                                                            if (swapTarget != null) {
+                                                                swapExerciseOptions(from, swapTarget)
+                                                            } else {
+                                                                moveExerciseOption(from, exerciseInsertIndex)
+                                                            }
+                                                        }
+                                                        clearExerciseDragState()
+                                                    },
+                                                    onDragCancel = {
+                                                        clearExerciseDragState()
+                                                    },
+                                                    onDrag = { change, dragAmount ->
+                                                        change.consume()
+                                                        updateExerciseDragPosition((dragPositionInRoot ?: Offset.Zero) + dragAmount)
+                                                    }
+                                                )
+                                            }
                                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
                                                 option,
                                                 modifier = Modifier.weight(1f),
-                                                fontWeight = if (isDropTarget) FontWeight.ExtraBold else FontWeight.Bold,
-                                                color = if (isDropTarget) FlowPurpleDeep else FlowInk,
+                                                fontWeight = if (isDropTarget || isSwapTarget) FontWeight.ExtraBold else FontWeight.Bold,
+                                                color = if (isDropTarget || isSwapTarget) FlowPurpleDeep else FlowInk,
                                                 fontSize = 14.sp
                                             )
                                             IconButton(onClick = {
@@ -2563,6 +2688,12 @@ private fun ExerciseAddSetSheet(
                                             }
                                         }
                                     }
+                                    if (!isMoving) {
+                                        visibleIndex += 1
+                                    }
+                                }
+                                if (exerciseInsertIndex == visibleIndex) {
+                                    ExerciseInsertIndicator()
                                 }
                             }
 
@@ -2602,8 +2733,7 @@ private fun ExerciseAddSetSheet(
                         TextButton(onClick = {
                             showEditDialog = false
                             editingExerciseItem = null
-                            movingExercise = null
-                            dragPositionInRoot = null
+                            clearExerciseDragState()
                         }) {
                             Text("완료", color = FlowPurple, fontWeight = FontWeight.Bold)
                         }
@@ -2723,6 +2853,24 @@ private fun ExerciseStepButton(label: String, onClick: () -> Unit) {
         contentPadding = PaddingValues(0.dp)
     ) {
         Text(label, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+    }
+}
+
+@Composable
+private fun ExerciseInsertIndicator() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(10.dp)
+            .padding(horizontal = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(FlowPurple, RoundedCornerShape(999.dp))
+        )
     }
 }
 
