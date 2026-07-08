@@ -609,6 +609,8 @@ class ActivityViewModel(
             return
         }
         val cleanCategory = category.trim()
+        val pinnedTimer = TimerStateStore.getPinnedTimer(appContext)
+            ?.takeIf { it.category == cleanCategory && it.startTime == startTime }
         val activity = ActivitySession(
             category = cleanCategory,
             title = defaultTitle(cleanCategory),
@@ -616,7 +618,8 @@ class ActivityViewModel(
             endTime = endTime,
             durationMillis = endTime - startTime,
             tags = emptyList(),
-            sourceType = ActivitySourceType.MANUAL
+            sourceType = pinnedTimer?.sourceType ?: ActivitySourceType.MANUAL,
+            sourceId = pinnedTimer?.sourceId
         )
         viewModelScope.launch {
             val newId = repository.insertActivity(activity)
@@ -1415,6 +1418,7 @@ class ActivityViewModel(
     }
 
     private fun restoreActiveSession() {
+        syncPinnedAutoButtonFromStore()
         val activeTimer = TimerStateStore.getActiveTimer(appContext) ?: return
         if (activeTimer.status != TimerStatus.RUNNING) return
 
@@ -1493,9 +1497,10 @@ class ActivityViewModel(
     private fun syncActiveSessionFromStore() {
         val activeTimer = TimerStateStore.getActiveTimer(appContext)
         val state = _uiState.value
+        val hasPinnedAutoButton = syncPinnedAutoButtonFromStore()
 
         if (activeTimer == null) {
-            if (state.activeAutoButtonCategory != null) {
+            if (state.activeAutoButtonCategory != null && !hasPinnedAutoButton) {
                 _uiState.update { it.copy(activeAutoButtonCategory = null, activeAutoButtonStartedAt = 0L) }
             }
             if (state.isRunning) {
@@ -1538,7 +1543,7 @@ class ActivityViewModel(
             // 비 SCHOOL/COMPANY AUTO_BUTTON은 도넛 타이머에도 표시
         }
 
-        if (state.activeAutoButtonCategory != null) {
+        if (state.activeAutoButtonCategory != null && !hasPinnedAutoButton) {
             _uiState.update { it.copy(activeAutoButtonCategory = null, activeAutoButtonStartedAt = 0L) }
         }
 
@@ -1862,6 +1867,7 @@ class ActivityViewModel(
     fun refreshTimerStates() {
         val now = System.currentTimeMillis()
         val state = _uiState.value
+        syncActiveSessionFromStore()
         if (state.brushDoneEndsAtMillis > 0 && state.brushDoneEndsAtMillis <= now) {
             clearBrushTimerState()
         }
@@ -2501,6 +2507,28 @@ class ActivityViewModel(
 
     private fun resetTimerDisplayState() {
         _timerDisplayState.value = TimerDisplayState()
+    }
+
+    private fun syncPinnedAutoButtonFromStore(): Boolean {
+        val pinned = TimerStateStore.getPinnedTimer(appContext)
+        val isPinnedAutoButton = pinned?.sourceType == ActivitySourceType.AUTO_BUTTON &&
+            (pinned.category == "SCHOOL" || pinned.category == "COMPANY")
+        val state = _uiState.value
+        return if (isPinnedAutoButton) {
+            val changed = state.activeAutoButtonCategory != pinned.category ||
+                state.activeAutoButtonStartedAt != pinned.startTime
+            if (changed) {
+                _uiState.update {
+                    it.copy(
+                        activeAutoButtonCategory = pinned.category,
+                        activeAutoButtonStartedAt = pinned.startTime
+                    )
+                }
+            }
+            true
+        } else {
+            false
+        }
     }
 
     private fun clearPendingActivity() {

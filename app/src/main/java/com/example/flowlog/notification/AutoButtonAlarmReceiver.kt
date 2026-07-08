@@ -119,19 +119,33 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
             TimerStateStore.clearPinnedTimer(context)
         }
 
-        TimerStateStore.saveActiveTimer(
-            context = context,
-            category = schedule.category,
-            startTime = startAt,
-            goalMillis = (schedule.endMinuteOfDay - schedule.startMinuteOfDay).coerceAtLeast(1) * 60_000L,
-            sourceType = ActivitySourceType.AUTO_BUTTON,
-            sourceId = schedule.scheduleId
-        )
+        val goalMillis = (schedule.endMinuteOfDay - schedule.startMinuteOfDay).coerceAtLeast(1) * 60_000L
+        if (schedule.category.isPinnedAutoButtonCategory()) {
+            TimerStateStore.savePinnedTimer(
+                context = context,
+                category = schedule.category,
+                startTime = startAt,
+                goalMillis = goalMillis,
+                sourceType = ActivitySourceType.AUTO_BUTTON,
+                sourceId = schedule.scheduleId
+            )
+        } else {
+            TimerStateStore.saveActiveTimer(
+                context = context,
+                category = schedule.category,
+                startTime = startAt,
+                goalMillis = goalMillis,
+                sourceType = ActivitySourceType.AUTO_BUTTON,
+                sourceId = schedule.scheduleId
+            )
+        }
         markStarted(context, scheduleId, dateKey)
         FlowStatusWidgetProvider.updateAll(context)
         ActivityTimerNotifier(context).apply {
             clearRunningTimer()
-            showRunningTimer(schedule.category, startAt)
+            if (!schedule.category.isPinnedAutoButtonCategory()) {
+                showRunningTimer(schedule.category, startAt)
+            }
             showAutoButtonStarted(schedule.title, schedule.category, previousTitle, undoSnapshotId)
         }
         AutoButtonScheduler(context).reschedule(scheduleId)
@@ -147,7 +161,11 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
             return
         }
 
-        val active = TimerStateStore.getActiveTimer(context) ?: run {
+        val active = if (schedule.category.isPinnedAutoButtonCategory()) {
+            TimerStateStore.getPinnedTimer(context)
+        } else {
+            TimerStateStore.getActiveTimer(context)
+        } ?: run {
             AutoButtonScheduler(context).reschedule(scheduleId)
             return
         }
@@ -171,7 +189,11 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
             sourceType = active.sourceType,
             sourceId = active.sourceId
         )
-        TimerStateStore.clearActiveTimer(context)
+        if (schedule.category.isPinnedAutoButtonCategory()) {
+            TimerStateStore.clearPinnedTimer(context)
+        } else {
+            TimerStateStore.clearActiveTimer(context)
+        }
         FlowStatusWidgetProvider.updateAll(context)
         ActivityTimerNotifier(context).apply {
             clearRunningTimer()
@@ -267,6 +289,14 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
         ) {
             return true
         }
+        val pinned = TimerStateStore.getPinnedTimer(context)
+        if (pinned?.sourceType == ActivitySourceType.AUTO_BUTTON &&
+            pinned.sourceId == scheduleId &&
+            pinned.startTime >= dateKey &&
+            pinned.startTime < dateKey + DAY_MILLIS
+        ) {
+            return true
+        }
         if (wasStarted(context, scheduleId, dateKey)) return true
 
         val userId = FirebaseAuth.getInstance().currentUser?.uid ?: "anonymous"
@@ -304,6 +334,8 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
     private fun startedKey(scheduleId: String, dateKey: Long): String = "$scheduleId:$dateKey"
 
     private fun activeAutoActivityId(scheduleId: String, dateKey: Long): String = "active:$scheduleId:$dateKey"
+
+    private fun String.isPinnedAutoButtonCategory(): Boolean = this == "SCHOOL" || this == "COMPANY"
 
     private fun AutoButtonScheduleEntity.repeatsOn(dateKey: Long): Boolean {
         val dateKeys = sourceDateKeysCsv.split(",").mapNotNull { it.trim().toLongOrNull() }.toSet()

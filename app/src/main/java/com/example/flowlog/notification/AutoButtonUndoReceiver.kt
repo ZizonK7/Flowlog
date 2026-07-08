@@ -42,6 +42,7 @@ class AutoButtonUndoReceiver : BroadcastReceiver() {
         }
 
         val active = TimerStateStore.getActiveTimer(context)
+            ?: TimerStateStore.getPinnedTimer(context)
         if (active?.sourceType != ActivitySourceType.AUTO_BUTTON ||
             active.sourceId != snapshot.scheduleId
         ) {
@@ -82,6 +83,11 @@ class AutoButtonUndoReceiver : BroadcastReceiver() {
             ?: ActivitySourceType.MANUAL
         val restoreSourceId = previousSavedActivity?.sourceId ?: snapshot.previousSourceId
 
+        if (active.category == "SCHOOL" || active.category == "COMPANY") {
+            TimerStateStore.clearPinnedTimer(context)
+        } else {
+            TimerStateStore.clearActiveTimer(context)
+        }
         TimerStateStore.saveActiveTimer(
             context = context,
             category = restoreCategory,

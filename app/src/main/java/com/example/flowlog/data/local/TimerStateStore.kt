@@ -61,6 +61,8 @@ object TimerStateStore {
     private const val KEY_PINNED_CATEGORY = "pinned_category"
     private const val KEY_PINNED_START_TIME = "pinned_start_time"
     private const val KEY_PINNED_GOAL_MILLIS = "pinned_goal_millis"
+    private const val KEY_PINNED_SOURCE_TYPE = "pinned_source_type"
+    private const val KEY_PINNED_SOURCE_ID = "pinned_source_id"
     private const val KEY_BRUSH_TIMER_ENDS_AT = "brush_timer_ends_at"
     private const val KEY_SNACK_BUTTON_TIMER_ENDS_AT = "snack_button_timer_ends_at"
     private const val NO_TODO_ID = -1L
@@ -171,7 +173,10 @@ object TimerStateStore {
             category = category,
             startTime = startTime,
             goalMillis = goalMillis,
-            status = TimerStatus.RUNNING
+            status = TimerStatus.RUNNING,
+            sourceType = preferences.getString(KEY_PINNED_SOURCE_TYPE, ActivitySourceType.MANUAL)
+                ?: ActivitySourceType.MANUAL,
+            sourceId = preferences.getString(KEY_PINNED_SOURCE_ID, null)
         )
     }
 
@@ -179,13 +184,17 @@ object TimerStateStore {
         context: Context,
         category: String,
         startTime: Long,
-        goalMillis: Long = DEFAULT_GOAL_MILLIS
+        goalMillis: Long = DEFAULT_GOAL_MILLIS,
+        sourceType: String = ActivitySourceType.MANUAL,
+        sourceId: String? = null
     ) {
         context.applicationContext.getSharedPreferences(PREFS_TIMER_STATE, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_PINNED_CATEGORY, category)
             .putLong(KEY_PINNED_START_TIME, startTime)
             .putLong(KEY_PINNED_GOAL_MILLIS, goalMillis.coerceAtLeast(1L))
+            .putString(KEY_PINNED_SOURCE_TYPE, sourceType)
+            .putString(KEY_PINNED_SOURCE_ID, sourceId)
             .apply()
     }
 
@@ -195,6 +204,8 @@ object TimerStateStore {
             .remove(KEY_PINNED_CATEGORY)
             .remove(KEY_PINNED_START_TIME)
             .remove(KEY_PINNED_GOAL_MILLIS)
+            .remove(KEY_PINNED_SOURCE_TYPE)
+            .remove(KEY_PINNED_SOURCE_ID)
             .apply()
     }
 
