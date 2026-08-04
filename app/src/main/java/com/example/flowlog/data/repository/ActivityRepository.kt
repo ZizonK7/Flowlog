@@ -5,6 +5,7 @@ import com.example.flowlog.data.constants.EntityType
 import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.local.RoomActivityLocalDataSource
 import com.example.flowlog.data.model.ActivitySession
+import com.example.flowlog.data.sync.DeleteSyncTrigger
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -15,6 +16,7 @@ import java.util.Calendar
 import java.util.concurrent.atomic.AtomicLong
 
 class ActivityRepository(context: Context) {
+    private val appContext = context.applicationContext
     private val eventLogRepository = EventLogRepository(context)
     private val roomDataSource = RoomActivityLocalDataSource(context)
 
@@ -110,6 +112,7 @@ class ActivityRepository(context: Context) {
                 entityId = activity.id.toString()
             )
         }
+        DeleteSyncTrigger.trigger(appContext)
     }
 
     suspend fun deleteActivityById(id: Long) {
@@ -121,6 +124,7 @@ class ActivityRepository(context: Context) {
                 entityId = id.toString()
             )
         }
+        DeleteSyncTrigger.trigger(appContext)
     }
 
     suspend fun hasActivityBySourceToday(sourceType: String, sourceId: String): Boolean =
@@ -158,6 +162,7 @@ class ActivityRepository(context: Context) {
                 entityId = "$sourceType:$sourceId"
             )
         }
+        DeleteSyncTrigger.trigger(appContext)
     }
 
     // ── 유틸리티 ─────────────────────────────────────────────────────────

@@ -242,13 +242,13 @@ interface TodoDao {
     suspend fun getTodoByCalendarSourceId(userId: String, calendarSourceId: String): TodoEntity?
 
     @Query("""
-        UPDATE todos SET isCompleted = 1, completedAt = :now, updatedAt = :now, syncStatus = '${SyncStatus.SYNCED}'
+        UPDATE todos SET isCompleted = 1, completedAt = :now, updatedAt = :now, syncStatus = '${SyncStatus.PENDING}'
         WHERE userId = :userId AND calendarSourceId = :calendarSourceId AND isDeleted = 0
     """)
     suspend fun completeTodoByCalendarSourceId(userId: String, calendarSourceId: String, now: Long)
 
     @Query("""
-        UPDATE todos SET isCompleted = 0, completedAt = NULL, updatedAt = :now, syncStatus = '${SyncStatus.SYNCED}'
+        UPDATE todos SET isCompleted = 0, completedAt = NULL, updatedAt = :now, syncStatus = '${SyncStatus.PENDING}'
         WHERE userId = :userId AND calendarSourceId = :calendarSourceId AND isDeleted = 0
     """)
     suspend fun uncompleteTodoByCalendarSourceId(userId: String, calendarSourceId: String, now: Long)
@@ -281,7 +281,7 @@ interface TodoDao {
         SET isDeleted = 1,
             deletedAt = :deletedAt,
             updatedAt = :deletedAt,
-            syncStatus = '${SyncStatus.SYNCED}'
+            syncStatus = '${SyncStatus.PENDING}'
         WHERE userId = :userId
           AND calendarSourceId = :calendarSourceId
           AND isDeleted = 0

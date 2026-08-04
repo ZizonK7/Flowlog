@@ -7,6 +7,7 @@ import com.example.flowlog.data.local.RoomTodoLocalDataSource
 import com.example.flowlog.data.local.entity.TodoEntity
 import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.data.recommendation.TodoBurdenAnalysis
+import com.example.flowlog.data.sync.DeleteSyncTrigger
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -135,6 +136,7 @@ class TodoRepository(context: Context) {
                 entityId = todo.id.toString()
             )
         }
+        DeleteSyncTrigger.trigger(appContext)
     }
 
     suspend fun addAccumulatedSeconds(id: Long, seconds: Long) {

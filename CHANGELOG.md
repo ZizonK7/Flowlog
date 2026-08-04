@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Fixed Todo/Activity deletes not reliably reaching Firestore: deleting used
+  to only flip a local `PENDING` flag and wait for the next app-open/midnight
+  alarm/foreground-reconnect sync pass, so a delete could sit unsynced for
+  weeks if none of those fired. `deleteTodo`/`deleteActivity*` now trigger an
+  immediate best-effort sync attempt plus a `WorkManager` job
+  (`DeleteSyncWorker`, `NetworkType.CONNECTED` constraint) that survives
+  process death and normal background kills, so the delete reaches Firestore
+  as soon as the device is back online even if the app isn't reopened.
+- Fixed calendar-linked Todos (`calendarSourceId != null`): completing,
+  un-completing, or soft-deleting one previously marked the local row
+  `syncStatus = SYNCED` immediately, before it was ever actually uploaded —
+  so the change silently never reached Firestore. All three DAO queries now
+  correctly mark `PENDING` so the existing sync pass (and the new delete
+  trigger above) actually pick them up.
 - Fixed yesterday Daily Cue routine check completions not reliably reaching
   Firestore: `toggleYesterdayCue` now triggers a pending-changes sync
   immediately instead of waiting for the next app start or network
