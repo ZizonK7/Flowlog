@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added a daily "today's schedule" snapshot push
+  (`data/assistant/AssistantSnapshotBuilder.kt`) to
+  `assistantSnapshots/{yyyy-MM-dd}` — active repeat routines and time-slotted
+  todos, today's-focus todos still needing a time slot, and sleep anchors.
+  Feeds the web assistant (`flowlog.pfkfks.org/assistant`) for scheduling
+  questions; nothing on the Android side reads it back.
 - Fixed Todo/Activity deletes not reliably reaching Firestore: deleting used
   to only flip a local `PENDING` flag and wait for the next app-open/midnight
   alarm/foreground-reconnect sync pass, so a delete could sit unsynced for

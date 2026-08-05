@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.flowlog.data.agent.OrganizedPetite
 import com.example.flowlog.data.agent.PetiteSourceType
+import com.example.flowlog.data.assistant.AssistantSnapshotBuilder
 import com.example.flowlog.data.constants.ActivitySourceType
 import com.example.flowlog.data.constants.RecommendationReason
 import com.example.flowlog.data.model.ActivitySession
@@ -18,6 +19,7 @@ import com.example.flowlog.data.recommendation.ReviewRecommendationPolicy
 import com.example.flowlog.data.constants.EntityType
 import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.repository.ActivityRepository
+import com.example.flowlog.data.repository.AutoButtonScheduleRepository
 import com.example.flowlog.data.repository.DailyCueRecord
 import com.example.flowlog.data.repository.DailyCueRepository
 import com.example.flowlog.data.remote.FirestoreSyncRepository
@@ -77,6 +79,7 @@ class TodoViewModel(
     private val cuePrefs = context.getSharedPreferences("daily_cues", Context.MODE_PRIVATE)
     private val normalTodoOrderPrefs = context.getSharedPreferences("todo_normal_order", Context.MODE_PRIVATE)
     private val dailyGoalRepository = DailyGoalRepository(context.applicationContext)
+    private val autoButtonScheduleRepository = AutoButtonScheduleRepository(context.applicationContext)
     private val activityRepository = ActivityRepository(context.applicationContext)
     private val dailyCueRepository = DailyCueRepository(context.applicationContext)
     private val firestoreSyncRepository = FirestoreSyncRepository()
@@ -276,6 +279,7 @@ class TodoViewModel(
                 forceRefresh = false
             )
         }
+        runCatching { pushAssistantSnapshot() }
 
         selectionResult
             .filter { it.todo?.category == TodoCategory.REVIEW && it.todo?.reviewStage == 1 && it.todo?.isCompleted == true }
@@ -284,6 +288,15 @@ class TodoViewModel(
                     repository.updateTodo(todo.copy(isCompleted = false, updatedAt = System.currentTimeMillis()))
                 }
             }
+    }
+
+    private suspend fun pushAssistantSnapshot() {
+        val snapshot = AssistantSnapshotBuilder.build(
+            dailyGoalRepository = dailyGoalRepository,
+            autoButtonScheduleRepository = autoButtonScheduleRepository,
+            activities = latestActivities
+        )
+        firestoreSyncRepository.overwriteAssistantSnapshot(AssistantSnapshotBuilder.kstDateKey(), snapshot)
     }
 
     fun addTodo(title: String, category: TodoCategory = TodoCategory.NORMAL, selectedDate: Long? = null) {
@@ -432,6 +445,7 @@ class TodoViewModel(
                         recommendationModeOverride = DailyGoalRepository.MODE_MANUAL_REFRESH
                     )
                 }
+                runCatching { pushAssistantSnapshot() }
 
                 selectionResult
                     .filter { it.todo?.category == TodoCategory.REVIEW && it.todo?.reviewStage == 1 && it.todo?.isCompleted == true }

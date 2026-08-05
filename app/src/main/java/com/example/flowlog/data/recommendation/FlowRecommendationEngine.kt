@@ -197,7 +197,7 @@ class FlowRecommendationEngine {
         return items[Random(seed).nextInt(items.size)]
     }
 
-    private fun estimateNextLongSleepStart(now: Long, activities: List<ActivitySession>): Long? {
+    internal fun estimateNextLongSleepStart(now: Long, activities: List<ActivitySession>): Long? {
         val starts = activities
             .asSequence()
             .filter { it.category == "SLEEP" && it.durationMillis >= MIN_LONG_SLEEP_MILLIS }

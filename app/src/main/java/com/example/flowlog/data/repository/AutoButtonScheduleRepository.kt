@@ -13,6 +13,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -75,6 +76,31 @@ class AutoButtonScheduleRepository(context: Context) {
                 }
                 routineBlocks
             }
+        }
+    }
+
+    /**
+     * 오늘 하루 전체(이미 지난 시간대 포함)의 활성 반복 루틴 — 비서 시간표 스냅샷의 "배치됨" 목록용.
+     * [observeTodayBlocks]와 달리 지난 블록/완료된 블록도 그대로 포함한다(하루 전체 계획을 보여줘야 하므로).
+     */
+    suspend fun getTodayActiveBlocks(dateKey: Long = todayDateKey()): List<ScheduledAutoButtonBlock> {
+        val dayOfWeek = Calendar.getInstance().apply { timeInMillis = dateKey }.get(Calendar.DAY_OF_WEEK)
+        return observeSchedules(dateKey).first().mapNotNull { schedule ->
+            if (!schedule.isEnabled ||
+                schedule.isSkippedToday ||
+                dayOfWeek !in schedule.repeatDays ||
+                !schedule.isValidForDate(dateKey)
+            ) {
+                return@mapNotNull null
+            }
+            ScheduledAutoButtonBlock(
+                scheduleId = schedule.scheduleId,
+                title = schedule.title,
+                category = schedule.category,
+                startTime = dateKey + schedule.startMinuteOfDay * MILLIS_PER_MINUTE,
+                endTime = dateKey + schedule.endMinuteOfDay * MILLIS_PER_MINUTE,
+                isSkippedToday = false
+            )
         }
     }
 

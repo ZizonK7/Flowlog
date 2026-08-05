@@ -318,6 +318,19 @@ class FirestoreSyncRepository(
         return MainButtonConfig(buttons = buttons, configured = true, version = version)
     }
 
+    // ── 비서(/assistant) 시간표 스냅샷 ────────────────────────────────────
+    // 저장 경로: users/{uid}/flowlog/data/assistantSnapshots/{kstDateKey}
+    // 매번 통째로 재계산되므로 merge가 아니라 전체 덮어쓰기.
+
+    suspend fun overwriteAssistantSnapshot(dateKey: String, snapshot: Map<String, Any?>) {
+        val userId = uid ?: return
+        firestore.collection("users").document(userId)
+            .collection("flowlog").document("data")
+            .collection("assistantSnapshots").document(dateKey)
+            .set(snapshot)
+            .awaitResult()
+    }
+
     suspend fun syncCalendarEventCompletion(
         docId: String,
         isCompleted: Boolean,

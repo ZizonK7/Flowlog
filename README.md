@@ -74,6 +74,8 @@ app/src/main/java/com/example/flowlog/
                     promotion, flow/routine nudges, Todo burden scoring)
   data/remote/      Firebase Auth and Firestore helpers
   data/sync/        Batch sync from local changes to Firestore
+  data/assistant/   Builds the daily "today's schedule" snapshot pushed to
+                    Firestore for the web assistant (flowlog.pfkfks.org/assistant)
   data/agent/       Local organizer rules and optional remote AI provider
   notification/     Timer, reminder, focus, and widget notification paths
   ui/               Compose screens, components, theme, and view models
@@ -108,6 +110,16 @@ Firestore:
   app being killed and fires as soon as the device reconnects — this is on
   top of, not instead of, the triggers above.
 
+Whenever today's focus recommendation recomputes, `TodoViewModel` also
+pushes a full-overwrite "today's schedule" snapshot
+(`data/assistant/AssistantSnapshotBuilder.kt` → `FirestoreSyncRepository
+.overwriteAssistantSnapshot`) to `assistantSnapshots/{yyyy-MM-dd}` — active
+repeat routines and time-slotted todos (`placed`), today's-focus todos with
+no time slot yet (`unplaced`), and sleep anchors (last wake time, predicted
+bedtime). This is read-only input for the web assistant
+(`flowlog.pfkfks.org/assistant`) to answer scheduling questions; the app
+never reads it back.
+
 Primary Firestore paths used by the Android app and website include:
 
 ```text
@@ -118,6 +130,7 @@ users/{uid}/flowlog/data/dailyGoalRecommendations
 users/{uid}/flowlog/data/dailyGoalItems
 users/{uid}/flowlog/data/dailyCues
 users/{uid}/flowlog/data/calendarEvents
+users/{uid}/flowlog/data/assistantSnapshots
 ```
 
 Firestore is a synced copy for web viewing and analysis, not the primary local

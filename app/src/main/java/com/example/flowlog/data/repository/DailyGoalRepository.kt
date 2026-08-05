@@ -56,6 +56,14 @@ data class GoalItem(
     }
 }
 
+data class UnplacedFocusItem(
+    val todoId: String,
+    val title: String,
+    val category: String?,
+    val reason: String?,
+    val burdenLevel: String?
+)
+
 @Serializable
 private data class TimeBlockSnapshot(
     val category: String,
@@ -180,6 +188,30 @@ class DailyGoalRepository(context: Context) {
 
     suspend fun getTodayItems(dateKey: String = todayDateKey()): List<DailyGoalItemEntity> {
         return dao.getItemsForDate(userId, dateKey)
+    }
+
+    /**
+     * 오늘의 포커스로 선정됐지만 아직 시간이 배정되지 않은 항목 — 비서 시간표 스냅샷의 "미배치" 목록용.
+     * 캘린더 연동 항목(calendar_petite_)은 제외 — 그건 agentContext.calendarEvents가 이미 커버함.
+     */
+    suspend fun getTodayUnplacedFocusItems(dateKey: String = todayDateKey()): List<UnplacedFocusItem> {
+        return getTodayItems(dateKey)
+            .filter { item ->
+                item.userActionStatus in REPLANNABLE_ACTION_STATUSES &&
+                    !item.wasCompleted && !item.wasSkipped && !item.wasDeleted &&
+                    (item.plannedStartMillis == null || item.plannedEndMillis == null) &&
+                    item.todoId.startsWith("legacy_todo_")
+            }
+            .map { item ->
+                val snapshot = item.decodedTodoSnapshot()
+                UnplacedFocusItem(
+                    todoId = item.todoId.removePrefix("legacy_todo_"),
+                    title = snapshot?.title ?: item.displayTitle(),
+                    category = snapshot?.category?.name,
+                    reason = item.reason,
+                    burdenLevel = item.burdenLevel ?: burdenLevel(item)
+                )
+            }
     }
 
     /**
