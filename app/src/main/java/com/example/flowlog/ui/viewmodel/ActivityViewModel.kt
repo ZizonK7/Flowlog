@@ -580,6 +580,60 @@ class ActivityViewModel(
         startActivity(activity.category)
     }
 
+    fun startScheduledAutoButtonNow(block: ScheduledAutoButtonBlock) {
+        val startTime = System.currentTimeMillis()
+        val goalMillis = (block.endTime - block.startTime).coerceAtLeast(60_000L)
+
+        if (block.category == "SCHOOL" || block.category == "COMPANY") {
+            TimerStateStore.savePinnedTimer(
+                context = appContext,
+                category = block.category,
+                startTime = startTime,
+                goalMillis = goalMillis,
+                sourceType = ActivitySourceType.AUTO_BUTTON,
+                sourceId = block.scheduleId
+            )
+            FlowStatusWidgetProvider.updateAll(appContext)
+            return
+        }
+
+        if (_uiState.value.isRunning) return
+
+        _timerDisplayState.value = TimerDisplayState(
+            elapsedTime = 0L,
+            timerGoalMillis = goalMillis
+        )
+        _uiState.update {
+            it.copy(
+                isRunning = true,
+                currentCategory = block.category,
+                startTime = startTime,
+                linkedTodoId = null,
+                linkedTodoCalendarSourceId = null,
+                linkedPetiteId = null,
+                sourceType = ActivitySourceType.AUTO_BUTTON,
+                sourceId = block.scheduleId,
+                pendingTitle = block.title,
+                pendingNote = null,
+                dailyCueId = null,
+                dailyCueTargetDateKey = null,
+                statusMessage = null,
+                exerciseSets = emptyList(),
+                exerciseMemo = ""
+            )
+        }
+        saveActiveSession(
+            category = block.category,
+            startTime = startTime,
+            goalMillis = goalMillis,
+            pendingTitle = block.title,
+            sourceType = ActivitySourceType.AUTO_BUTTON,
+            sourceId = block.scheduleId
+        )
+        activityTimerNotifier.showRunningTimer(block.category, startTime)
+        startTimer()
+    }
+
     fun updateExerciseSets(sets: List<ExerciseSetRecord>) {
         _uiState.update { it.copy(exerciseSets = sets) }
         val json = if (sets.isEmpty()) null else undoJson.encodeToString(sets)
@@ -2414,74 +2468,6 @@ class ActivityViewModel(
         }
     }
 
-    private fun buildAnalytics(activities: List<ActivitySession>): AnalyticsState {
-        val now = System.currentTimeMillis()
-        val todayStart = startOfDay(Calendar.getInstance().apply {
-            timeInMillis = now
-        }).timeInMillis
-        val tomorrowStart = startOfDay(Calendar.getInstance().apply {
-            timeInMillis = todayStart
-            add(Calendar.DAY_OF_YEAR, 1)
-        }).timeInMillis
-        val yesterdayStart = startOfDay(Calendar.getInstance().apply {
-            timeInMillis = todayStart
-            add(Calendar.DAY_OF_YEAR, -1)
-        }).timeInMillis
-        val analyticsActivities = splitActivitiesAcrossDays(
-            activities = activities,
-            rangeStartMillis = yesterdayStart,
-            rangeEndMillis = tomorrowStart
-        )
-        val todayActivities = analyticsActivities.filter { it.startTime >= todayStart && it.startTime < tomorrowStart }
-        val yesterdayActivities = analyticsActivities.filter { it.startTime >= yesterdayStart && it.startTime < todayStart }
-        return AnalyticsState(
-            todayCategoryStats = buildCategoryStats(todayActivities),
-            yesterdayCategoryStats = buildCategoryStats(yesterdayActivities)
-        )
-    }
-
-    private fun buildCategoryStats(activities: List<ActivitySession>): List<CategoryStat> {
-        return activities.groupBy { it.category }
-            .map { (category, sessions) ->
-                val total = sessions.sumOf { it.durationMillis }
-                CategoryStat(
-                    category = category,
-                    totalMillis = total,
-                    count = sessions.size,
-                    averageMillis = total
-                )
-            }
-            .sortedByDescending { it.totalMillis }
-    }
-
-    private fun startOfDay(calendar: Calendar): Calendar {
-        return calendar.apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-    }
-
-    private fun koreaTimeMillis(
-        year: Int,
-        month: Int,
-        day: Int,
-        hour: Int,
-        minute: Int,
-        second: Int
-    ): Long {
-        return Calendar.getInstance(TimeZone.getTimeZone("Asia/Seoul")).apply {
-            set(Calendar.YEAR, year)
-            set(Calendar.MONTH, month)
-            set(Calendar.DAY_OF_MONTH, day)
-            set(Calendar.HOUR_OF_DAY, hour)
-            set(Calendar.MINUTE, minute)
-            set(Calendar.SECOND, second)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
-    }
-
     private fun currentElapsedTime(): Long {
         val state = _uiState.value
         if (!state.isRunning || state.startTime == 0L) return _timerDisplayState.value.elapsedTime
@@ -2632,10 +2618,6 @@ class ActivityViewModel(
         return runCatching {
             undoJson.decodeFromString<ActivitySession>(data)
         }.getOrNull()
-    }
-
-    private fun isTimedCategory(category: String): Boolean {
-        return category != "SNACK" && category != "TOOTHBRUSH"
     }
 
     private fun observeAutoButtonSchedules() {

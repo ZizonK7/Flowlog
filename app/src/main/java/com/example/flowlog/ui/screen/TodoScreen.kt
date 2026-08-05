@@ -1,5 +1,6 @@
 package com.example.flowlog.ui.screen
 
+import com.example.flowlog.R
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
@@ -99,8 +100,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.annotation.StringRes
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -144,8 +147,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // ── 탭 정의 ───────────────────────────────────────────────────────────────────
-private enum class TodoTab(val label: String) {
-    ALL("전체"), TODAY("오늘"), ASSIGNMENT("마감이 있는 일"), REVIEW("복습"), NORMAL("일반")
+private enum class TodoTab(@StringRes val labelRes: Int) {
+    ALL(R.string.todo_screen_tab_all),
+    TODAY(R.string.todo_screen_tab_today),
+    ASSIGNMENT(R.string.todo_screen_tab_assignment),
+    REVIEW(R.string.todo_screen_tab_review),
+    NORMAL(R.string.todo_screen_tab_normal)
 }
 
 private fun TodoTab.toCategory(): TodoCategory? = when (this) {
@@ -188,6 +195,9 @@ fun TodoScreen(
     isDeveloperMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val itemCompletedSnackbarFormat = stringResource(R.string.todo_screen_item_completed_snackbar)
+    val todoCompletedSnackbarFormat = stringResource(R.string.todo_screen_todo_completed_snackbar)
+    val undoActionLabel = stringResource(R.string.todo_screen_undo)
     val todos         by viewModel.todos.collectAsState()
     val normalTodosOrdered by viewModel.normalTodosOrdered.collectAsState()
     val focusTodos    by viewModel.todayFocusItems.collectAsState()
@@ -274,8 +284,8 @@ fun TodoScreen(
     LaunchedEffect(viewModel) {
         viewModel.organizedPetiteUndoEvents.collect { event ->
             val result = normalSnackbarHostState.showSnackbar(
-                message = "${event.item.title} 완료했어요",
-                actionLabel = "되돌리기",
+                message = String.format(itemCompletedSnackbarFormat, event.item.title),
+                actionLabel = undoActionLabel,
                 duration = SnackbarDuration.Short
             )
             if (result == SnackbarResult.ActionPerformed) {
@@ -307,8 +317,8 @@ fun TodoScreen(
             completingId = null
             if (editingId == (todo.calendarSourceId ?: "${todo.id}_${todo.createdAt}")) editingId = null
             val result = normalSnackbarHostState.showSnackbar(
-                message = "${todo.title} 완료됨",
-                actionLabel = "되돌리기",
+                message = String.format(todoCompletedSnackbarFormat, todo.title),
+                actionLabel = undoActionLabel,
                 duration = SnackbarDuration.Short
             )
             if (result == SnackbarResult.ActionPerformed) {
@@ -360,7 +370,7 @@ fun TodoScreen(
                 ) {
                     Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("추가", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.todo_screen_add), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -397,7 +407,7 @@ fun TodoScreen(
                         modifier = Modifier.height(32.dp)
                     ) {
                         Text(
-                            if (petitesShowAll) "접기" else "더보기",
+                            if (petitesShowAll) stringResource(R.string.todo_screen_collapse) else stringResource(R.string.todo_screen_expand_more),
                             fontSize = 13.sp,
                             color = if (petiteCount > 4) Purple else TextMuted.copy(alpha = 0.45f),
                             fontWeight = FontWeight.SemiBold
@@ -515,7 +525,7 @@ fun TodoScreen(
 
         // ── 전체 할 일 ────────────────────────────────────────────────────────
         item(key = "active_header") {
-            SectionHeader(title = "전체 할 일")
+            SectionHeader(title = stringResource(R.string.todo_screen_section_all_todos))
         }
 
         if (activeTodos.isEmpty() && normalTodos.isEmpty() && completedRegular == null) {
@@ -524,7 +534,7 @@ fun TodoScreen(
                     Modifier.fillMaxWidth().height(100.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("아직 할 일이 없습니다.", color = TextMuted, fontSize = 15.sp)
+                    Text(stringResource(R.string.todo_screen_empty_todo), color = TextMuted, fontSize = 15.sp)
                 }
             }
         }
@@ -567,7 +577,7 @@ fun TodoScreen(
                         Modifier.fillMaxWidth().height(120.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("아직 할 일이 없습니다.", color = TextMuted, fontSize = 15.sp)
+                        Text(stringResource(R.string.todo_screen_empty_todo), color = TextMuted, fontSize = 15.sp)
                     }
                 }
             }
@@ -656,11 +666,11 @@ fun TodoScreen(
             onDismissRequest = { showInputDatePick = false },
             confirmButton = {
                 TextButton(onClick = { inputDate = state.selectedDateMillis; showInputDatePick = false }) {
-                    Text("확인", color = Purple, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.todo_screen_confirm), color = Purple, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showInputDatePick = false }) { Text("취소", color = TextMuted) }
+                TextButton(onClick = { showInputDatePick = false }) { Text(stringResource(R.string.todo_screen_cancel), color = TextMuted) }
             }
         ) { DatePicker(state = state) }
     }
@@ -963,7 +973,7 @@ private fun OrganizedPetiteCard(
     var showDetail by remember(item.id) { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val accent = organizedPetiteAccent(item.sourceType)
-    val label = organizedPetiteLabel(item.sourceType)
+    val label = organizedPetiteLabel(item.sourceType, stringResource(R.string.todo_screen_exam_label))
     val metaItems = organizedPetiteMetaItems(item)
     val dateMeta = organizedPetiteDateMeta(item)
     val timeStr = accumulatedMillis?.takeIf { it > 0L }?.let { formatCueDuration(it) }
@@ -1148,7 +1158,7 @@ private fun OrganizedPetiteDetailSheet(
                 border = BorderStroke(1.dp, BorderLight),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = TextMuted)
             ) {
-                Text("취소", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.todo_screen_cancel), fontWeight = FontWeight.Bold)
             }
             OutlinedButton(
                 onClick = onDelete,
@@ -1157,7 +1167,7 @@ private fun OrganizedPetiteDetailSheet(
                 border = BorderStroke(1.dp, Color(0xFFE57373)),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE57373))
             ) {
-                Text("삭제", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.todo_screen_delete), fontWeight = FontWeight.Bold)
             }
             Button(
                 onClick = { if (editTitle.isNotBlank()) onSave(editTitle.trim()) },
@@ -1165,7 +1175,7 @@ private fun OrganizedPetiteDetailSheet(
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.White)
             ) {
-                Text("저장", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.todo_screen_save), fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -1200,8 +1210,8 @@ private fun organizedPetiteAccent(sourceType: PetiteSourceType): Color = when (s
     PetiteSourceType.CALENDAR -> Color(0xFF00897B)
 }
 
-private fun organizedPetiteLabel(sourceType: PetiteSourceType): String = when (sourceType) {
-    PetiteSourceType.EXAM -> "시험"
+private fun organizedPetiteLabel(sourceType: PetiteSourceType, examLabel: String): String = when (sourceType) {
+    PetiteSourceType.EXAM -> examLabel
     PetiteSourceType.ROUTINE -> "Routine"
     PetiteSourceType.TODO -> "Todo"
     PetiteSourceType.PETITE -> "Petite"
@@ -1305,7 +1315,7 @@ private fun DailyCuesSection(
                 Icon(Icons.Outlined.AccessTime, null, modifier = Modifier.size(14.dp), tint = Purple.copy(alpha = 0.8f))
                 Spacer(Modifier.width(2.dp))
                 Text(
-                    "어제",
+                    stringResource(R.string.todo_screen_yesterday),
                     fontSize = 13.sp,
                     color = Purple.copy(alpha = 0.8f),
                     fontWeight = FontWeight.SemiBold
@@ -1318,7 +1328,7 @@ private fun DailyCuesSection(
                 modifier = Modifier.height(32.dp)
             ) {
                 Text(
-                    if (isShowingAll) "접기" else "더보기",
+                    if (isShowingAll) stringResource(R.string.todo_screen_collapse) else stringResource(R.string.todo_screen_expand_more),
                     fontSize = 13.sp,
                     color = if (cues.size > 4) Purple else TextMuted.copy(alpha = 0.45f),
                     fontWeight = FontWeight.SemiBold
@@ -1334,7 +1344,7 @@ private fun DailyCuesSection(
             ) {
                 Icon(Icons.Filled.Add, null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("추가", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.todo_screen_add), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
         }
 
@@ -1385,14 +1395,14 @@ private fun YesterdayCuesSheet(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
-                "어제의 Daily Cues",
+                stringResource(R.string.todo_screen_yesterday_daily_cues_title),
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
                 color = Purple
             )
             if (cues.isEmpty()) {
                 Text(
-                    "어제 등록된 루틴이 없어요",
+                    stringResource(R.string.todo_screen_yesterday_no_routine),
                     fontSize = 13.sp,
                     color = TextMuted,
                     modifier = Modifier.padding(vertical = 24.dp)
@@ -1459,13 +1469,13 @@ private fun DailyCueEditorDialog(
         title = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    if (isEditing) "Daily Cue 수정" else "Daily Cue 추가",
+                    if (isEditing) stringResource(R.string.todo_screen_daily_cue_edit_title) else stringResource(R.string.todo_screen_daily_cue_add_title),
                     color = TextPrimary,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    if (isEditing) "작은 신호의 이름과 종류를 바꿀 수 있어요." else "오늘 붙잡아둘 작은 신호를 적어주세요.",
+                    if (isEditing) stringResource(R.string.todo_screen_daily_cue_edit_desc) else stringResource(R.string.todo_screen_daily_cue_add_desc),
                     color = TextMuted,
                     fontSize = 12.sp,
                     lineHeight = 16.sp
@@ -1484,7 +1494,7 @@ private fun DailyCueEditorDialog(
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2,
                     maxLines = 4,
-                    placeholder = { Text("예: 물 마시기", color = TextMuted) },
+                    placeholder = { Text(stringResource(R.string.todo_screen_water_placeholder), color = TextMuted) },
                     textStyle = TextStyle(
                         color = TextPrimary,
                         fontSize = 16.sp,
@@ -1511,13 +1521,13 @@ private fun DailyCueEditorDialog(
                 ) {
                     DailyCueTypeButton(
                         label = "Routine",
-                        helper = "매일 유지",
+                        helper = stringResource(R.string.todo_screen_helper_daily),
                         isSelected = label == "Routine",
                         modifier = Modifier.weight(1f)
                     ) { label = "Routine" }
                     DailyCueTypeButton(
                         label = "Memo",
-                        helper = "오늘만",
+                        helper = stringResource(R.string.todo_screen_helper_today_only),
                         isSelected = label == "Memo",
                         modifier = Modifier.weight(1f)
                     ) {
@@ -1536,7 +1546,7 @@ private fun DailyCueEditorDialog(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            "활동 카테고리",
+                            stringResource(R.string.todo_screen_activity_category_label),
                             color = TextPrimary,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
@@ -1569,13 +1579,13 @@ private fun DailyCueEditorDialog(
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    timerDurationMillis?.let { formatCueDuration(it) } ?: "No timer",
+                                    timerDurationMillis?.let { formatCueDuration(it) } ?: stringResource(R.string.duration_none),
                                     color = if (timerDurationMillis == null) TextMuted else TextPrimary,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    "Routine 카드에서 실행할 목표 시간",
+                                    stringResource(R.string.todo_screen_routine_goal_time_desc),
                                     color = TextMuted,
                                     fontSize = 11.sp,
                                     lineHeight = 14.sp
@@ -1583,7 +1593,7 @@ private fun DailyCueEditorDialog(
                             }
                             if (timerDurationMillis != null) {
                                 TextButton(onClick = { timerDurationMillis = null }) {
-                                    Text("없음", color = TextMuted, fontWeight = FontWeight.Bold)
+                                    Text(stringResource(R.string.todo_screen_none), color = TextMuted, fontWeight = FontWeight.Bold)
                                 }
                             }
                             OutlinedButton(
@@ -1592,7 +1602,7 @@ private fun DailyCueEditorDialog(
                                 border = BorderStroke(1.dp, Purple.copy(alpha = 0.35f)),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                             ) {
-                                Text("설정", color = Purple, fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.todo_screen_set_label), color = Purple, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -1611,7 +1621,7 @@ private fun DailyCueEditorDialog(
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                "메모 (선택)",
+                                stringResource(R.string.todo_screen_memo_optional_label),
                                 color = TextPrimary,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
@@ -1623,7 +1633,7 @@ private fun DailyCueEditorDialog(
                                 minLines = 2,
                                 maxLines = 4,
                                 placeholder = {
-                                    Text("이 루틴에 대한 메모를 남겨보세요.", color = TextMuted)
+                                    Text(stringResource(R.string.todo_screen_memo_placeholder), color = TextMuted)
                                 },
                                 shape = RoundedCornerShape(12.dp),
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -1653,18 +1663,18 @@ private fun DailyCueEditorDialog(
                 ),
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
             ) {
-                Text(if (isEditing) "저장" else "추가", fontWeight = FontWeight.Bold)
+                Text(if (isEditing) stringResource(R.string.todo_screen_save) else stringResource(R.string.todo_screen_add), fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (isEditing && onDelete != null) {
                     TextButton(onClick = onDelete) {
-                        Text("삭제", color = Color(0xFFE35B5B), fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.todo_screen_delete), color = Color(0xFFE35B5B), fontWeight = FontWeight.Bold)
                     }
                 }
                 TextButton(onClick = onDismiss) {
-                    Text("취소", color = TextMuted)
+                    Text(stringResource(R.string.todo_screen_cancel), color = TextMuted)
                 }
             }
         }
@@ -1721,13 +1731,13 @@ private fun DailyCueRecommendationTimingSection(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
-            "추천 타이밍",
+            stringResource(R.string.todo_screen_recommend_timing_title),
             color = TextPrimary,
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold
         )
         Text(
-            "언제 추천받고 싶나요?",
+            stringResource(R.string.todo_screen_recommend_timing_question),
             color = TextMuted,
             fontSize = 11.sp
         )
@@ -1838,9 +1848,9 @@ private fun DailyCueRecommendationTimingSection(
             Spacer(Modifier.width(8.dp))
             Text(
                 if (selected == DailyCueRecommendationTiming.NONE) {
-                    "이 Routine은 특정 추천 타이밍 없이 저장돼요."
+                    stringResource(R.string.todo_screen_routine_no_timing_desc)
                 } else {
-                    "선택한 타이밍을 기준으로 Flowlog가 상황을 보고 추천할 수 있도록 저장해둘게요."
+                    stringResource(R.string.todo_screen_routine_with_timing_desc)
                 },
                 color = TextMuted,
                 fontSize = 10.sp,
@@ -2071,7 +2081,7 @@ private fun RoutineDurationPickerSheet(
                     modifier = Modifier.padding(top = 12.dp)
                 )
                 Text(
-                    "Routine 카드에서 실행할 목표 시간을 선택하세요.",
+                    stringResource(R.string.todo_screen_routine_goal_time_select_desc),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = TextMuted,
@@ -2119,7 +2129,7 @@ private fun RoutineDurationPickerSheet(
                             .height(56.dp),
                         colors = ButtonDefaults.textButtonColors(contentColor = TextPrimary)
                     ) {
-                        Text("취소", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(stringResource(R.string.todo_screen_cancel), fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
                     }
                     Button(
                         onClick = {
@@ -2134,7 +2144,7 @@ private fun RoutineDurationPickerSheet(
                         ),
                         shape = RoundedCornerShape(16.dp)
                     ) {
-                        Text("확인", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(stringResource(R.string.todo_screen_confirm), fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
                     }
                 }
             }
@@ -2142,16 +2152,17 @@ private fun RoutineDurationPickerSheet(
     }
 }
 
+@Composable
 private fun formatCueDuration(durationMillis: Long): String {
     val hours = TimeUnit.MILLISECONDS.toHours(durationMillis)
     val minutes = TimeUnit.MILLISECONDS.toMinutes(durationMillis) % 60
     val seconds = TimeUnit.MILLISECONDS.toSeconds(durationMillis) % 60
     return when {
-        hours > 0 && minutes > 0 -> "${hours}시간 ${minutes}분"
-        hours > 0 -> "${hours}시간"
-        minutes > 0 -> "${minutes}분"
-        seconds > 0 -> "${seconds}초"
-        else -> "No timer"
+        hours > 0 && minutes > 0 -> stringResource(R.string.duration_hours_minutes, hours, minutes)
+        hours > 0 -> stringResource(R.string.duration_hours_only, hours)
+        minutes > 0 -> stringResource(R.string.duration_minutes_only, minutes)
+        seconds > 0 -> stringResource(R.string.duration_seconds_only, seconds)
+        else -> stringResource(R.string.duration_none)
     }
 }
 
@@ -2191,16 +2202,16 @@ private fun NewTodoSheetContent(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Column(Modifier.weight(1f)) {
-                Text("새 할 일", fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
+                Text(stringResource(R.string.todo_screen_new_todo_title), fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    "분류와 날짜는 필요할 때만 골라두면 돼요.",
+                    stringResource(R.string.todo_screen_new_todo_subtitle),
                     fontSize = 12.sp,
                     color = TextMuted
                 )
             }
             IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Filled.Close, "닫기", tint = TextMuted, modifier = Modifier.size(20.dp))
+                Icon(Icons.Filled.Close, stringResource(R.string.todo_screen_close_content_desc), tint = TextMuted, modifier = Modifier.size(20.dp))
             }
         }
         Spacer(Modifier.height(18.dp))
@@ -2211,7 +2222,7 @@ private fun NewTodoSheetContent(
                 .fillMaxWidth()
                 .height(58.dp),
             singleLine = true,
-            placeholder = { Text("무엇을 해볼까요?") },
+            placeholder = { Text(stringResource(R.string.todo_screen_new_todo_input_placeholder)) },
             leadingIcon = {
                 Icon(Icons.Outlined.CheckCircle, null, tint = Purple, modifier = Modifier.size(20.dp))
             },
@@ -2246,32 +2257,32 @@ private fun NewTodoSheetContent(
         ) {
             Icon(Icons.Filled.Add, null, modifier = Modifier.size(19.dp))
             Spacer(Modifier.width(6.dp))
-            Text("할 일 추가", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.todo_screen_new_todo_add_button), fontSize = 15.sp, fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.height(16.dp))
-        Text("종류", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+        Text(stringResource(R.string.todo_screen_type_label), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextMuted)
         Spacer(Modifier.height(8.dp))
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            NewTodoTypeChip("오늘 할 일", Icons.Outlined.WbSunny, category == TodoCategory.TODAY) {
+            NewTodoTypeChip(stringResource(R.string.todo_screen_type_today), Icons.Outlined.WbSunny, category == TodoCategory.TODAY) {
                 onCategoryChange(if (category == TodoCategory.TODAY) null else TodoCategory.TODAY)
             }
-            NewTodoTypeChip("복습", Icons.Outlined.Loop, category == TodoCategory.REVIEW) {
+            NewTodoTypeChip(stringResource(R.string.todo_screen_type_review), Icons.Outlined.Loop, category == TodoCategory.REVIEW) {
                 onCategoryChange(if (category == TodoCategory.REVIEW) null else TodoCategory.REVIEW)
             }
-            NewTodoTypeChip("마감 있는 일", Icons.Outlined.CalendarMonth, category == TodoCategory.ASSIGNMENT) {
+            NewTodoTypeChip(stringResource(R.string.todo_screen_type_assignment), Icons.Outlined.CalendarMonth, category == TodoCategory.ASSIGNMENT) {
                 onCategoryChange(if (category == TodoCategory.ASSIGNMENT) null else TodoCategory.ASSIGNMENT)
             }
         }
         Spacer(Modifier.height(16.dp))
         val datePlaceholder = when (category) {
-            TodoCategory.ASSIGNMENT -> "마감일 선택"
-            else -> "날짜 선택"
+            TodoCategory.ASSIGNMENT -> stringResource(R.string.todo_screen_due_date_select)
+            else -> stringResource(R.string.todo_screen_date_select)
         }
-        Text("일정", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+        Text(stringResource(R.string.todo_screen_schedule_label), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextMuted)
         Spacer(Modifier.height(8.dp))
         Row(
             Modifier.fillMaxWidth(),
@@ -2303,7 +2314,7 @@ private fun NewTodoSheetContent(
             ) {
                 Icon(Icons.Outlined.CalendarMonth, null, modifier = Modifier.size(17.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("캘린더", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.todo_screen_calendar_label), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
         }
         Spacer(Modifier.height(2.dp))
@@ -2400,11 +2411,11 @@ private fun TodoCard(
             onDismissRequest = { showEditDatePick = false },
             confirmButton = {
                 TextButton(onClick = { editDate = state.selectedDateMillis; showEditDatePick = false }) {
-                    Text("확인", color = Purple, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.todo_screen_confirm), color = Purple, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showEditDatePick = false }) { Text("취소", color = TextMuted) }
+                TextButton(onClick = { showEditDatePick = false }) { Text(stringResource(R.string.todo_screen_cancel), color = TextMuted) }
             }
         ) { DatePicker(state = state) }
     }
@@ -2450,7 +2461,7 @@ private fun TodoCard(
                         onClick = onUncomplete,
                         colors = ButtonDefaults.textButtonColors(contentColor = Purple)
                     ) {
-                        Text("되돌리기", fontSize = 12.sp)
+                        Text(stringResource(R.string.todo_screen_undo), fontSize = 12.sp)
                     }
                 }
             } else {
@@ -2522,7 +2533,7 @@ private fun TodoCard(
                                 .clickable(onClick = onComplete),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Outlined.CheckCircle, "완료", tint = GreenTint, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Outlined.CheckCircle, stringResource(R.string.todo_screen_status_completed), tint = GreenTint, modifier = Modifier.size(18.dp))
                         }
                         // 시작 (연보라 원, 주요 액션)
                         Box(
@@ -2533,7 +2544,7 @@ private fun TodoCard(
                                 .clickable(onClick = onStartTodo),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Filled.PlayArrow, "시작", tint = Purple, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Filled.PlayArrow, stringResource(R.string.todo_screen_start_content_desc), tint = Purple, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -2571,19 +2582,19 @@ private fun TodoCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        TypeChip("오늘 할 일", editCategory == TodoCategory.TODAY) {
+                        TypeChip(stringResource(R.string.todo_screen_type_today), editCategory == TodoCategory.TODAY) {
                             editCategory = if (editCategory == TodoCategory.TODAY) TodoCategory.NORMAL else TodoCategory.TODAY
                         }
-                        TypeChip("복습", editCategory == TodoCategory.REVIEW) {
+                        TypeChip(stringResource(R.string.todo_screen_type_review), editCategory == TodoCategory.REVIEW) {
                             editCategory = if (editCategory == TodoCategory.REVIEW) TodoCategory.NORMAL else TodoCategory.REVIEW
                         }
-                        TypeChip("마감 있는 일", editCategory == TodoCategory.ASSIGNMENT) {
+                        TypeChip(stringResource(R.string.todo_screen_type_assignment), editCategory == TodoCategory.ASSIGNMENT) {
                             editCategory = if (editCategory == TodoCategory.ASSIGNMENT) TodoCategory.NORMAL else TodoCategory.ASSIGNMENT
                         }
                         Spacer(Modifier.weight(1f))
                         val editDatePlaceholder = when (editCategory) {
-                            TodoCategory.ASSIGNMENT -> "마감일 선택"
-                            else -> "날짜 선택"
+                            TodoCategory.ASSIGNMENT -> stringResource(R.string.todo_screen_due_date_select)
+                            else -> stringResource(R.string.todo_screen_date_select)
                         }
                         DateChipButton(editDate, editDatePlaceholder, iconOnly = true) { showEditDatePick = true }
                     }
@@ -2597,15 +2608,15 @@ private fun TodoCard(
                             ) {
                                 Icon(Icons.Outlined.Delete, null, Modifier.size(16.dp))
                                 Spacer(Modifier.width(3.dp))
-                                Text("삭제", fontSize = 13.sp)
+                                Text(stringResource(R.string.todo_screen_delete), fontSize = 13.sp)
                             }
                             Spacer(Modifier.weight(1f))
                             TextButton(onClick = onEditToggle) {
-                                Text("취소", fontSize = 13.sp, color = TextMuted)
+                                Text(stringResource(R.string.todo_screen_cancel), fontSize = 13.sp, color = TextMuted)
                             }
                         } else {
                             Text(
-                                "정말 삭제할까요?",
+                                stringResource(R.string.todo_screen_delete_confirm_title),
                                 fontSize = 13.sp,
                                 color = TextMuted,
                                 modifier = Modifier.weight(1f)
@@ -2615,13 +2626,13 @@ private fun TodoCard(
                                 colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE35B5B)),
                                 contentPadding = PaddingValues(horizontal = 8.dp)
                             ) {
-                                Text("삭제", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.todo_screen_delete), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             }
                             TextButton(
                                 onClick = { confirmDelete = false },
                                 contentPadding = PaddingValues(horizontal = 8.dp)
                             ) {
-                                Text("취소", fontSize = 13.sp, color = TextMuted)
+                                Text(stringResource(R.string.todo_screen_cancel), fontSize = 13.sp, color = TextMuted)
                             }
                         }
                         Button(
@@ -2631,7 +2642,7 @@ private fun TodoCard(
                             colors = ButtonDefaults.buttonColors(containerColor = Purple),
                             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
                         ) {
-                            Text("저장", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.todo_screen_save), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -2647,12 +2658,12 @@ private fun ReviewProgressRow(
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         ReviewProgressChip(
-            label = "1회",
+            label = stringResource(R.string.todo_screen_routine_count_once),
             isCompleted = reviewStage >= 1,
             muted = muted
         )
         ReviewProgressChip(
-            label = "2회",
+            label = stringResource(R.string.todo_screen_routine_count_twice),
             isCompleted = reviewStage >= 2,
             muted = muted
         )
@@ -2692,7 +2703,7 @@ private fun ReviewProgressChip(
             )
         }
         Text(
-            text = "$label ${if (isCompleted) "완료" else "대기"}",
+            text = "$label ${if (isCompleted) stringResource(R.string.todo_screen_status_completed) else stringResource(R.string.todo_screen_status_waiting)}",
             color = foreground,
             fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold
@@ -2735,17 +2746,17 @@ private fun CompletedCard(
                 }
                 todo.completedAt?.let {
                     Spacer(Modifier.height(2.dp))
-                    Text("완료 ${fmtDate(it)}", fontSize = 11.sp, color = TextMuted.copy(alpha = 0.7f))
+                    Text(stringResource(R.string.todo_screen_completed_at, fmtDate(it)), fontSize = 11.sp, color = TextMuted.copy(alpha = 0.7f))
                 }
             }
             TextButton(
                 onClick = onUndo,
                 colors = ButtonDefaults.textButtonColors(contentColor = Purple)
             ) {
-                Text("되돌리기", fontSize = 12.sp)
+                Text(stringResource(R.string.todo_screen_undo), fontSize = 12.sp)
             }
             IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Outlined.Delete, "삭제", tint = BorderLight, modifier = Modifier.size(17.dp))
+                Icon(Icons.Outlined.Delete, stringResource(R.string.todo_screen_delete), tint = BorderLight, modifier = Modifier.size(17.dp))
             }
         }
     }
@@ -2778,7 +2789,7 @@ private fun MoreButton(hiddenCount: Int, onClick: () -> Unit) {
             onClick = onClick,
             colors = ButtonDefaults.textButtonColors(contentColor = Purple)
         ) {
-            Text("더 보기 (${hiddenCount}개)", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.todo_screen_more_count, hiddenCount), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.width(4.dp))
             Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(16.dp))
         }
@@ -2789,8 +2800,8 @@ private fun MoreButton(hiddenCount: Int, onClick: () -> Unit) {
 @Composable
 private fun CategoryTag(category: TodoCategory, muted: Boolean = false) {
     val (bg, fg, label) = when (category) {
-        TodoCategory.REVIEW          -> Triple(if (muted) Color(0xFFF0EEFF) else PurpleSoft, if (muted) Purple.copy(.5f) else Purple, "복습")
-        TodoCategory.ASSIGNMENT      -> Triple(if (muted) Color(0xFFFFF0F0) else Color(0xFFFFEFF0), if (muted) Color(0xFFE35B5B).copy(.5f) else Color(0xFFE35B5B), "마감 있는 일")
+        TodoCategory.REVIEW          -> Triple(if (muted) Color(0xFFF0EEFF) else PurpleSoft, if (muted) Purple.copy(.5f) else Purple, stringResource(R.string.todo_screen_category_review_label))
+        TodoCategory.ASSIGNMENT      -> Triple(if (muted) Color(0xFFFFF0F0) else Color(0xFFFFEFF0), if (muted) Color(0xFFE35B5B).copy(.5f) else Color(0xFFE35B5B), stringResource(R.string.todo_screen_category_assignment_label))
         TodoCategory.NORMAL, TodoCategory.TODAY, TodoCategory.UNIVERSITY_EXAM -> return
     }
     Text(
@@ -2824,7 +2835,7 @@ private fun TypeChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun DateChipButton(
     date: Long?,
-    placeholder: String = "날짜 선택",
+    placeholder: String = stringResource(R.string.todo_screen_date_select),
     iconOnly: Boolean = false,
     onClick: () -> Unit
 ) {
@@ -2903,7 +2914,7 @@ private fun TodoTabRow(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    tab.label,
+                    stringResource(tab.labelRes),
                     fontSize = 14.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                     color = fg
@@ -2955,7 +2966,7 @@ private fun TabCompletedItem(
                 )
                 todo.completedAt?.let {
                     Spacer(Modifier.height(2.dp))
-                    Text("완료 시간: ${fmtTime(it)}", fontSize = 12.sp, color = TextMuted.copy(alpha = 0.7f))
+                    Text(stringResource(R.string.todo_screen_completed_time_label, fmtTime(it)), fontSize = 12.sp, color = TextMuted.copy(alpha = 0.7f))
                 }
             }
             TextButton(
@@ -2963,7 +2974,7 @@ private fun TabCompletedItem(
                 colors = ButtonDefaults.textButtonColors(contentColor = Purple),
                 contentPadding = PaddingValues(horizontal = 8.dp)
             ) {
-                Text("되돌리기", fontSize = 12.sp)
+                Text(stringResource(R.string.todo_screen_undo), fontSize = 12.sp)
             }
         }
     }
@@ -2973,11 +2984,11 @@ private fun TabCompletedItem(
 @Composable
 private fun TodoCategoryBadge(category: TodoCategory) {
     val (label, color) = when (category) {
-        TodoCategory.TODAY           -> "오늘"  to Color(0xFFE8760A)
-        TodoCategory.ASSIGNMENT      -> "과제"  to Color(0xFFE35B5B)
-        TodoCategory.REVIEW          -> "복습"  to Purple
-        TodoCategory.NORMAL          -> "일반"  to TextMuted
-        TodoCategory.UNIVERSITY_EXAM -> "시험"  to Color(0xFF1565C0)
+        TodoCategory.TODAY           -> stringResource(R.string.todo_screen_category_today_label)  to Color(0xFFE8760A)
+        TodoCategory.ASSIGNMENT      -> stringResource(R.string.todo_screen_category_assignment_short)  to Color(0xFFE35B5B)
+        TodoCategory.REVIEW          -> stringResource(R.string.todo_screen_category_review_label)  to Purple
+        TodoCategory.NORMAL          -> stringResource(R.string.todo_screen_category_normal_label)  to TextMuted
+        TodoCategory.UNIVERSITY_EXAM -> stringResource(R.string.todo_screen_exam_label)  to Color(0xFF1565C0)
     }
     Text(text = label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = color)
 }

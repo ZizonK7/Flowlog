@@ -72,12 +72,39 @@ class AnalyticsActivityUtilsTest {
         assertTrue(activity.durationMillis > result.single().durationMillis)
     }
 
-    private fun activity(start: Long, end: Long) = ActivitySession(
-        category = "STUDY",
+    @Test
+    fun buildCategoryStatsSortsByTotalDurationDescending() {
+        val activities = listOf(
+            activity(start = 0L, end = 0L, category = "REST", durationOverrideMillis = 10 * 60_000L),
+            activity(start = 0L, end = 0L, category = "STUDY", durationOverrideMillis = 30 * 60_000L),
+            activity(start = 0L, end = 0L, category = "STUDY", durationOverrideMillis = 20 * 60_000L)
+        )
+
+        val result = buildCategoryStats(activities)
+
+        assertEquals(listOf("STUDY", "REST"), result.map { it.category })
+        assertEquals(50 * 60_000L, result.first { it.category == "STUDY" }.totalMillis)
+        assertEquals(2, result.first { it.category == "STUDY" }.count)
+    }
+
+    @Test
+    fun isTimedCategoryExcludesQuickTimerCategories() {
+        assertTrue(isTimedCategory("STUDY"))
+        assertTrue(!isTimedCategory("SNACK"))
+        assertTrue(!isTimedCategory("TOOTHBRUSH"))
+    }
+
+    private fun activity(
+        start: Long,
+        end: Long,
+        category: String = "STUDY",
+        durationOverrideMillis: Long? = null
+    ) = ActivitySession(
+        category = category,
         title = "Study",
         startTime = start,
         endTime = end,
-        durationMillis = end - start
+        durationMillis = durationOverrideMillis ?: (end - start)
     )
 
     private fun time(year: Int, month: Int, day: Int, hour: Int, minute: Int): Long {

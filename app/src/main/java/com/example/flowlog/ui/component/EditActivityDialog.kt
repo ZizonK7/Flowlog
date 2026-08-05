@@ -1,5 +1,6 @@
 package com.example.flowlog.ui.component
 
+import com.example.flowlog.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -44,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -109,7 +111,7 @@ fun EditActivityDialog(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "기록 수정",
+                        text = stringResource(R.string.edit_activity_title),
                         fontSize = 20.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = strongText
@@ -144,7 +146,7 @@ fun EditActivityDialog(
 
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "카테고리",
+                            text = stringResource(R.string.edit_activity_category_label),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = strongText
@@ -159,7 +161,7 @@ fun EditActivityDialog(
                     OutlinedTextField(
                         value = title,
                         onValueChange = { title = it },
-                        label = { Text("제목") },
+                        label = { Text(stringResource(R.string.edit_activity_title_label)) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Filled.EditNote,
@@ -176,8 +178,8 @@ fun EditActivityDialog(
                     OutlinedTextField(
                         value = note,
                         onValueChange = { note = it },
-                        label = { Text("메모") },
-                        placeholder = { Text("남겨둘 내용을 적어주세요") },
+                        label = { Text(stringResource(R.string.edit_activity_memo_label)) },
+                        placeholder = { Text(stringResource(R.string.edit_activity_memo_placeholder)) },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 3,
                         maxLines = 5,
@@ -211,12 +213,12 @@ fun EditActivityDialog(
                     disabledContentColor = Color(0xFF9EA3B5)
                 )
             ) {
-                Text("저장", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.edit_activity_save), fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("취소", color = readableMuted, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.edit_activity_cancel), color = readableMuted, fontWeight = FontWeight.Bold)
             }
         }
     )
@@ -241,7 +243,7 @@ private fun ExerciseActivityEditContent(
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
-            text = "최근 기록",
+            text = stringResource(R.string.exercise_recent_records),
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
             color = strongText
@@ -254,7 +256,7 @@ private fun ExerciseActivityEditContent(
                 border = BorderStroke(1.dp, Color(0xFFE4E2F4))
             ) {
                 Text(
-                    text = "아직 세트 기록이 없습니다.",
+                    text = stringResource(R.string.edit_activity_no_sets_yet),
                     modifier = Modifier.padding(14.dp),
                     color = readableMuted,
                     fontSize = 13.sp,
@@ -289,7 +291,7 @@ private fun ExerciseActivityEditContent(
     ) {
         Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp), tint = violet)
         Spacer(modifier = Modifier.width(8.dp))
-        Text("같은 운동 세트 추가", color = violet, fontWeight = FontWeight.ExtraBold)
+        Text(stringResource(R.string.exercise_add_same_set), color = violet, fontWeight = FontWeight.ExtraBold)
     }
 
     OutlinedButton(
@@ -303,14 +305,14 @@ private fun ExerciseActivityEditContent(
     ) {
         Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp), tint = violet)
         Spacer(modifier = Modifier.width(8.dp))
-        Text("다른 운동 추가", color = violet, fontWeight = FontWeight.ExtraBold)
+        Text(stringResource(R.string.exercise_add_other), color = violet, fontWeight = FontWeight.ExtraBold)
     }
 
     OutlinedTextField(
         value = note,
         onValueChange = onNoteChange,
-        label = { Text("메모") },
-        placeholder = { Text("오늘 운동 느낌이나 메모를 남겨보세요") },
+        label = { Text(stringResource(R.string.edit_activity_memo_label)) },
+        placeholder = { Text(stringResource(R.string.exercise_memo_placeholder)) },
         modifier = Modifier.fillMaxWidth(),
         minLines = 2,
         maxLines = 4,
@@ -321,8 +323,8 @@ private fun ExerciseActivityEditContent(
     val targetEditIndex = editingIndex
     if (targetEditIndex != null) {
         ExerciseSetEditDialog(
-            title = "세트 수정",
-            initialRecord = sets.getOrNull(targetEditIndex) ?: ExerciseSetRecord("팔굽혀펴기", 12, "힘듦"),
+            title = stringResource(R.string.exercise_edit_set_title),
+            initialRecord = sets.getOrNull(targetEditIndex) ?: ExerciseSetRecord(stringResource(R.string.exercise_default_option_pushup), 12, stringResource(R.string.exercise_default_intensity)),
             onDismiss = { editingIndex = null },
             onSave = { updated ->
                 onSetsChange(sets.toMutableList().also { if (targetEditIndex in it.indices) it[targetEditIndex] = updated })
@@ -336,8 +338,8 @@ private fun ExerciseActivityEditContent(
 
     if (showAddSetDialog) {
         ExerciseSetEditDialog(
-            title = "세트 추가",
-            initialRecord = addingPrefill ?: ExerciseSetRecord("팔굽혀펴기", 12, "힘듦"),
+            title = stringResource(R.string.exercise_add_set_title),
+            initialRecord = addingPrefill ?: ExerciseSetRecord(stringResource(R.string.exercise_default_option_pushup), 12, stringResource(R.string.exercise_default_intensity)),
             onDismiss = { showAddSetDialog = false },
             onSave = { added ->
                 onSetsChange(sets + added)
@@ -378,7 +380,7 @@ private fun ExerciseSetEditRow(
                     color = strongText
                 )
                 Text(
-                    text = "${index + 1}세트 · ${formatExerciseEditSetValue(set)} · ${set.intensity}",
+                    text = stringResource(R.string.exercise_set_summary, index + 1, formatExerciseEditSetValue(set), set.intensity),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = readableMuted,
@@ -386,10 +388,10 @@ private fun ExerciseSetEditRow(
                 )
             }
             IconButton(onClick = onEdit, modifier = Modifier.size(34.dp)) {
-                Icon(Icons.Filled.Edit, contentDescription = "세트 수정", tint = violet, modifier = Modifier.size(17.dp))
+                Icon(Icons.Filled.Edit, contentDescription = stringResource(R.string.exercise_edit_set_content_desc), tint = violet, modifier = Modifier.size(17.dp))
             }
             IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
-                Icon(Icons.Filled.Delete, contentDescription = "세트 삭제", tint = Color(0xFFE04F5F), modifier = Modifier.size(17.dp))
+                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.edit_activity_delete_set_content_desc), tint = Color(0xFFE04F5F), modifier = Modifier.size(17.dp))
             }
         }
     }
@@ -410,7 +412,13 @@ private fun ExerciseSetEditDialog(
     var recordMode by remember(initialRecord) { mutableStateOf(initialRecord.mode) }
     var durationMillis by remember(initialRecord) { mutableStateOf(initialRecord.durationMillis ?: 40_000L) }
     var intensity by remember(initialRecord) { mutableStateOf(initialRecord.intensity) }
-    val defaultExerciseOptions = remember { listOf("팔굽혀펴기", "스쿼트", "플랭크") }
+    val defaultExercisePushup = stringResource(R.string.exercise_default_option_pushup)
+    val defaultExerciseSquat = stringResource(R.string.exercise_default_option_squat)
+    val defaultExercisePlank = stringResource(R.string.exercise_default_option_plank)
+    val defaultExerciseCategoryLabel = stringResource(R.string.exercise_label)
+    val defaultExerciseOptions = remember(defaultExercisePushup, defaultExerciseSquat, defaultExercisePlank) {
+        listOf(defaultExercisePushup, defaultExerciseSquat, defaultExercisePlank)
+    }
     var options by remember(initialRecord) {
         mutableStateOf((defaultExerciseOptions + initialRecord.name).distinct())
     }
@@ -427,7 +435,7 @@ private fun ExerciseSetEditDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("운동", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = strongText)
+                    Text(stringResource(R.string.exercise_label), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = strongText)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(options) { option ->
                             val canDelete = option !in defaultExerciseOptions
@@ -439,13 +447,13 @@ private fun ExerciseSetEditDialog(
                                     {
                                         Icon(
                                             imageVector = Icons.Filled.Delete,
-                                            contentDescription = "운동 삭제",
+                                            contentDescription = stringResource(R.string.edit_activity_delete_exercise_content_desc),
                                             modifier = Modifier
                                                 .size(15.dp)
                                                 .clickable {
                                                     options = options - option
                                                     if (selectedExercise == option) {
-                                                        selectedExercise = options.firstOrNull { it != option } ?: "팔굽혀펴기"
+                                                        selectedExercise = options.firstOrNull { it != option } ?: defaultExercisePushup
                                                     }
                                                 }
                                         )
@@ -467,7 +475,7 @@ private fun ExerciseSetEditDialog(
                             OutlinedTextField(
                                 value = customExercise,
                                 onValueChange = { customExercise = it },
-                                placeholder = { Text("운동 이름") },
+                                placeholder = { Text(stringResource(R.string.exercise_name_placeholder)) },
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp),
                                 singleLine = true,
@@ -482,7 +490,7 @@ private fun ExerciseSetEditDialog(
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
-                                    Text("취소", fontWeight = FontWeight.Bold)
+                                    Text(stringResource(R.string.exercise_cancel), fontWeight = FontWeight.Bold)
                                 }
                                 Button(
                                     onClick = {
@@ -498,7 +506,7 @@ private fun ExerciseSetEditDialog(
                                     shape = RoundedCornerShape(10.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = violet, contentColor = Color.White)
                                 ) {
-                                    Text("추가", fontWeight = FontWeight.ExtraBold)
+                                    Text(stringResource(R.string.exercise_add_label), fontWeight = FontWeight.ExtraBold)
                                 }
                             }
                         }
@@ -510,13 +518,13 @@ private fun ExerciseSetEditDialog(
                         ) {
                             Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp), tint = violet)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("운동 추가", color = violet, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.edit_activity_add_exercise_label), color = violet, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("기록 방식", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = strongText)
+                    Text(stringResource(R.string.exercise_record_method_label), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = strongText)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         Button(
                             onClick = { recordMode = "COUNT" },
@@ -527,7 +535,7 @@ private fun ExerciseSetEditDialog(
                                 contentColor = if (recordMode == "COUNT") Color.White else strongText
                             )
                         ) {
-                            Text("개수", fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.exercise_count_label), fontWeight = FontWeight.Bold)
                         }
                         Button(
                             onClick = { recordMode = "TIME" },
@@ -538,13 +546,13 @@ private fun ExerciseSetEditDialog(
                                 contentColor = if (recordMode == "TIME") Color.White else strongText
                             )
                         ) {
-                            Text("시간", fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.exercise_time_label), fontWeight = FontWeight.Bold)
                         }
                     }
                 }
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(if (recordMode == "TIME") "시간" else "개수", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = strongText)
+                    Text(if (recordMode == "TIME") stringResource(R.string.exercise_time_label) else stringResource(R.string.exercise_count_label), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = strongText)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -563,9 +571,13 @@ private fun ExerciseSetEditDialog(
                 }
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("강도 (RPE 느낌)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = strongText)
+                    Text(stringResource(R.string.exercise_intensity_rpe_label), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = strongText)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        listOf("가벼움", "보통", "힘듦").forEach { option ->
+                        listOf(
+                            stringResource(R.string.exercise_intensity_light),
+                            stringResource(R.string.exercise_intensity_normal),
+                            stringResource(R.string.exercise_intensity_heavy)
+                        ).forEach { option ->
                             ExerciseIntensityButton(
                                 label = option,
                                 selected = intensity == option,
@@ -581,7 +593,7 @@ private fun ExerciseSetEditDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("취소", color = readableMuted, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.exercise_cancel), color = readableMuted, fontWeight = FontWeight.Bold)
             }
         },
         confirmButton = {
@@ -589,7 +601,7 @@ private fun ExerciseSetEditDialog(
                 onClick = {
                     onSave(
                         ExerciseSetRecord(
-                            name = selectedExercise.trim().ifBlank { "운동" },
+                            name = selectedExercise.trim().ifBlank { defaultExerciseCategoryLabel },
                             reps = reps,
                             intensity = intensity,
                             mode = recordMode,
@@ -600,7 +612,7 @@ private fun ExerciseSetEditDialog(
                 shape = RoundedCornerShape(13.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = violet, contentColor = Color.White)
             ) {
-                Text("저장", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.edit_activity_save), fontWeight = FontWeight.Bold)
             }
         }
     )
@@ -645,11 +657,12 @@ private fun ExerciseIntensityButton(
     }
 }
 
+@Composable
 private fun formatExerciseEditSetValue(record: ExerciseSetRecord): String {
     return if (record.mode == "TIME") {
         formatExerciseEditDuration(record.durationMillis ?: 0L)
     } else {
-        "${record.reps}개"
+        stringResource(R.string.exercise_reps_count, record.reps)
     }
 }
 

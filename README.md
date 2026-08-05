@@ -249,6 +249,12 @@ Run unit tests with:
   and evidence exist.
 - This repository is public on GitHub; keep that in mind for code quality and
   for anything that would reveal account-specific details.
+- User-facing strings in the most-used screens (`TodoScreen.kt`, `MainActivity.kt`,
+  and the larger `ui/screen/home/` sections) live in `res/values/strings.xml`
+  rather than as inline literals, so those screens are ready for a future
+  locale without further refactoring. Category-keyword dictionaries in
+  `data/recommendation/` (e.g. `ButtonRecommendationEngine.kt`) are Korean on
+  purpose — they classify user-entered titles and are not display text.
 
 ## Changelog
 

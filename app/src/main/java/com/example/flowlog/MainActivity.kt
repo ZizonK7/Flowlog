@@ -71,6 +71,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -93,6 +94,7 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.example.flowlog.notification.ReminderScheduler
 import com.example.flowlog.notification.AutoButtonScheduler
 import com.example.flowlog.notification.PlannedTodoReminderScheduler
@@ -160,6 +162,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        FirebaseCrashlytics.getInstance().setCrashlyticsCollectionEnabled(!BuildConfig.DEBUG)
         requestedScreen = intent.getStringExtra(EXTRA_OPEN_SCREEN) ?: SCREEN_HOME
         ReminderScheduler(applicationContext).ensureNotificationChannel()
         FirebaseSyncAlarmScheduler.scheduleNextMidnightSync(applicationContext)
@@ -293,19 +296,19 @@ class MainActivity : ComponentActivity() {
                         if (signedInUser != null) {
                             auth.signOut()
                             syncStatus = null
-                            Toast.makeText(this@MainActivity, "로그아웃되었습니다.", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@MainActivity, getString(R.string.main_activity_logged_out), Toast.LENGTH_SHORT).show()
                             return@launch
                         }
 
                         syncStatus = "Signing in..."
-                        Toast.makeText(this@MainActivity, "Google 로그인 시작", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, getString(R.string.main_activity_google_signin_start), Toast.LENGTH_SHORT).show()
                         val signInResult = runCatching {
                             signInWithGoogle()
                             uploadLocalFlowlogSnapshot()
                         }
                         syncStatus = signInResult.fold(
                             onSuccess = {
-                                Toast.makeText(this@MainActivity, "로그인되었습니다.", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this@MainActivity, getString(R.string.main_activity_logged_in), Toast.LENGTH_SHORT).show()
                                 null
                             },
                             onFailure = { error ->
@@ -336,8 +339,8 @@ class MainActivity : ComponentActivity() {
                     scope.launch {
                         val result = uploadAllPendingFlowlogSnapshot()
                         val message = when {
-                            result?.deferred == true -> "진행 중인 Activity가 있어 동기화를 보류했습니다."
-                            result == null -> "Firebase 동기화에 실패했습니다."
+                            result?.deferred == true -> getString(R.string.main_activity_sync_deferred)
+                            result == null -> getString(R.string.main_activity_sync_failed)
                             else -> buildFirebaseSyncMessage(result)
                         }
                         Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
@@ -345,7 +348,7 @@ class MainActivity : ComponentActivity() {
                 }
                 val regenerateRecommendedTimePlan: () -> Unit = {
                     todoViewModel.refreshSort()
-                    Toast.makeText(this@MainActivity, "오늘 추천 시간 계획을 다시 만들었습니다.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, getString(R.string.main_activity_recommended_plan_regenerated), Toast.LENGTH_SHORT).show()
                 }
 
                 val restoreTodosLauncher = rememberLauncherForActivityResult(
@@ -356,12 +359,12 @@ class MainActivity : ComponentActivity() {
                         val message = runCatching {
                             val jsonText = withContext(Dispatchers.IO) {
                                 this@MainActivity.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                                    ?: error("복원 파일을 열 수 없습니다.")
+                                    ?: error(getString(R.string.main_activity_restore_file_open_failed))
                             }
                             val restoredCount = todoViewModel.restoreTodosFromBackup(jsonText)
-                            "Todo ${restoredCount}개를 복원했습니다."
+                            getString(R.string.main_activity_todo_restored_count, restoredCount)
                         }.getOrElse { error ->
-                            error.message ?: "Todo 복원에 실패했습니다."
+                            error.message ?: getString(R.string.main_activity_todo_restore_failed)
                         }
                         Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
                     }
@@ -621,28 +624,28 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildFirebaseSyncMessage(result: com.example.flowlog.data.sync.SyncOutcome): String {
-        val uploadPart = "업로드 성공 ${result.successCount}건, 실패 ${result.failureCount}건"
+        val uploadPart = getString(R.string.main_activity_upload_result, result.successCount, result.failureCount)
         val pull = result.calendarPull
         val calendarPart = when {
             pull == null -> null
-            pull.failed -> "캘린더 불러오기 실패"
+            pull.failed -> getString(R.string.main_activity_calendar_pull_failed)
             pull.pulledCalendarTodoCount + pull.pulledLectureInfoCount + pull.pulledGeneralEventCount == 0 -> null
             else -> buildString {
-                if (pull.pulledCalendarTodoCount > 0) append("할 일 ${pull.pulledCalendarTodoCount}개")
+                if (pull.pulledCalendarTodoCount > 0) append(getString(R.string.main_activity_calendar_todo_count, pull.pulledCalendarTodoCount))
                 if (pull.pulledLectureInfoCount > 0) {
                     if (isNotEmpty()) append(", ")
-                    append("수업 정보 ${pull.pulledLectureInfoCount}개")
+                    append(getString(R.string.main_activity_calendar_lecture_count, pull.pulledLectureInfoCount))
                 }
                 if (pull.pulledGeneralEventCount > 0) {
                     if (isNotEmpty()) append(", ")
-                    append("일정 ${pull.pulledGeneralEventCount}개")
+                    append(getString(R.string.main_activity_calendar_event_count, pull.pulledGeneralEventCount))
                 }
             }
         }
         return if (calendarPart != null) {
-            "Firebase 동기화 완료: $uploadPart, $calendarPart"
+            getString(R.string.main_activity_sync_complete_with_calendar, uploadPart, calendarPart)
         } else {
-            "Firebase 동기화 완료: $uploadPart"
+            getString(R.string.main_activity_sync_complete, uploadPart)
         }
     }
 
@@ -716,6 +719,9 @@ private fun HeaderActions(
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val signingInLabel = stringResource(R.string.main_activity_signing_in_status)
+    val logoutLabel = stringResource(R.string.main_activity_logout_label)
+    val loginLabel = stringResource(R.string.main_activity_login_label)
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(
@@ -736,7 +742,7 @@ private fun HeaderActions(
             ) {
                 Icon(
                     imageVector = Icons.Filled.BarChart,
-                    contentDescription = "통계",
+                    contentDescription = stringResource(R.string.main_activity_stats_content_desc),
                     tint = if (isFocusFireActive) Color(0xFFFF7A2F) else Color(0xFF5140D8),
                     modifier = Modifier.size(24.dp)
                 )
@@ -760,7 +766,7 @@ private fun HeaderActions(
             ) {
                 Icon(
                     imageVector = Icons.Filled.AutoAwesome,
-                    contentDescription = "AI 메신저",
+                    contentDescription = stringResource(R.string.main_activity_ai_messenger_content_desc),
                     tint = if (isFocusFireActive) Color(0xFFFF7A2F) else Color(0xFF5140D8),
                     modifier = Modifier
                         .size(24.dp)
@@ -798,7 +804,7 @@ private fun HeaderActions(
                         contentColor = Color.White
                     )
                 ) {
-                    Text(accountActionLabel(isSignedIn, syncStatus))
+                    Text(accountActionLabel(isSignedIn, syncStatus, signingInLabel, logoutLabel, loginLabel))
                 }
             }
             DropdownMenu(
@@ -807,7 +813,7 @@ private fun HeaderActions(
                 containerColor = Color.White
             ) {
                 DropdownMenuItem(
-                    text = { Text(accountActionLabel(isSignedIn, syncStatus), color = Color(0xFF10182C)) },
+                    text = { Text(accountActionLabel(isSignedIn, syncStatus, signingInLabel, logoutLabel, loginLabel), color = Color(0xFF10182C)) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Login,
@@ -821,7 +827,7 @@ private fun HeaderActions(
                     }
                 )
                 DropdownMenuItem(
-                    text = { Text("설정", color = Color(0xFF10182C)) },
+                    text = { Text(stringResource(R.string.main_activity_settings), color = Color(0xFF10182C)) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Filled.Settings,
@@ -835,7 +841,7 @@ private fun HeaderActions(
                     }
                 )
                 DropdownMenuItem(
-                    text = { Text("개발자 블로그", color = Color(0xFF10182C)) },
+                    text = { Text(stringResource(R.string.main_activity_developer_blog), color = Color(0xFF10182C)) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Article,
@@ -850,7 +856,7 @@ private fun HeaderActions(
                 )
                 if (isDeveloperMode) {
                     DropdownMenuItem(
-                        text = { Text("Firebase 동기화", color = Color(0xFF10182C)) },
+                        text = { Text(stringResource(R.string.main_activity_firebase_sync), color = Color(0xFF10182C)) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Filled.CheckBox,
@@ -863,7 +869,7 @@ private fun HeaderActions(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("오늘 추천 시간 재생성", color = Color(0xFF10182C)) },
+                        text = { Text(stringResource(R.string.main_activity_regenerate_recommended_plan_menu), color = Color(0xFF10182C)) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Filled.Schedule,
@@ -876,7 +882,7 @@ private fun HeaderActions(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("Todo 복원", color = Color(0xFF10182C)) },
+                        text = { Text(stringResource(R.string.main_activity_restore_todo_menu), color = Color(0xFF10182C)) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Filled.CheckBox,
@@ -891,7 +897,7 @@ private fun HeaderActions(
                 }
                 if (isDeveloper) {
                     DropdownMenuItem(
-                        text = { Text("개발자 모드", color = Color(0xFF10182C)) },
+                        text = { Text(stringResource(R.string.main_activity_developer_mode), color = Color(0xFF10182C)) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Filled.Build,
@@ -921,7 +927,7 @@ private fun HeaderActions(
             containerColor = Color.White,
             title = {
                 Text(
-                    text = "설정",
+                    text = stringResource(R.string.main_activity_settings),
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 18.sp,
                     color = Color(0xFF10182C)
@@ -930,7 +936,7 @@ private fun HeaderActions(
             text = {
                 Column {
                     Text(
-                        text = "알림 설정",
+                        text = stringResource(R.string.main_activity_notification_settings),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF5140D8)
@@ -949,13 +955,13 @@ private fun HeaderActions(
                         Spacer(modifier = Modifier.size(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "알림 소리",
+                                text = stringResource(R.string.main_activity_notification_sound),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF10182C)
                             )
                             Text(
-                                text = if (isNotificationSoundEnabled) "켜짐" else "꺼짐",
+                                text = if (isNotificationSoundEnabled) stringResource(R.string.main_activity_on) else stringResource(R.string.main_activity_off),
                                 fontSize = 12.sp,
                                 color = Color(0xFF9E9E9E)
                             )
@@ -979,13 +985,13 @@ private fun HeaderActions(
                         Spacer(modifier = Modifier.size(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "기록 공백 알림",
+                                text = stringResource(R.string.main_activity_inactivity_reminder),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF10182C)
                             )
                             Text(
-                                text = if (isInactivityReminderEnabled) "100분 동안 기록이 없으면 알려줘요" else "꺼짐",
+                                text = if (isInactivityReminderEnabled) stringResource(R.string.main_activity_inactivity_reminder_desc) else stringResource(R.string.main_activity_off),
                                 fontSize = 12.sp,
                                 color = Color(0xFF9E9E9E)
                             )
@@ -997,7 +1003,7 @@ private fun HeaderActions(
                     }
                     Spacer(modifier = Modifier.height(20.dp))
                     Text(
-                        text = "집중 모드",
+                        text = stringResource(R.string.main_activity_focus_mode),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF5140D8)
@@ -1016,13 +1022,13 @@ private fun HeaderActions(
                         Spacer(modifier = Modifier.size(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "방해금지 액세스 권한",
+                                text = stringResource(R.string.main_activity_dnd_permission),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF10182C)
                             )
                             Text(
-                                text = if (hasDndAccess) "허용됨 · 시스템 설정에서 변경 가능" else "집중 모드 시 방해금지를 함께 켤 수 있어요",
+                                text = if (hasDndAccess) stringResource(R.string.main_activity_dnd_granted) else stringResource(R.string.main_activity_dnd_desc),
                                 fontSize = 12.sp,
                                 color = Color(0xFF9E9E9E)
                             )
@@ -1048,7 +1054,7 @@ private fun HeaderActions(
                     ),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("닫기", fontWeight = FontWeight.ExtraBold)
+                    Text(stringResource(R.string.main_activity_close), fontWeight = FontWeight.ExtraBold)
                 }
             }
         )
@@ -1086,7 +1092,7 @@ private fun ProfileAvatar(
         if (isSignedIn && image != null) {
             Image(
                 bitmap = image,
-                contentDescription = "구글 프로필",
+                contentDescription = stringResource(R.string.main_activity_google_profile_content_desc),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
@@ -1096,7 +1102,7 @@ private fun ProfileAvatar(
         } else {
             Icon(
                 imageVector = Icons.Filled.AccountCircle,
-                contentDescription = "기본 프로필",
+                contentDescription = stringResource(R.string.main_activity_default_profile_content_desc),
                 tint = Color(0xFF5140D8),
                 modifier = Modifier.size(31.dp)
             )
@@ -1157,7 +1163,7 @@ private fun AiMessengerSheet(
                         color = Color(0xFF10182C)
                     )
                     Text(
-                        text = "활동 패턴 기반 제안",
+                        text = stringResource(R.string.main_activity_pattern_suggestion_title),
                         fontSize = 12.sp,
                         color = Color(0xFF697386)
                     )
@@ -1173,7 +1179,7 @@ private fun AiMessengerSheet(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "아직 제안할 내용이 없어요.\n기록이 조금 더 쌓이면 Flowlog가 도와줄게요.",
+                            text = stringResource(R.string.main_activity_no_suggestion_yet),
                             fontSize = 14.sp,
                             color = Color(0xFF697386),
                             textAlign = TextAlign.Center
@@ -1211,7 +1217,7 @@ private fun AiSuggestionCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "최근 $name 기록이 자주 보여요. $name 버튼을 메인에 추가해볼까요?",
+                text = stringResource(R.string.main_activity_category_suggestion, name),
                 fontSize = 14.sp,
                 color = Color(0xFF10182C)
             )
@@ -1223,7 +1229,7 @@ private fun AiSuggestionCard(
                     border = BorderStroke(1.dp, Color(0xFFE8E8EE)),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF697386))
                 ) {
-                    Text("나중에", fontSize = 13.sp)
+                    Text(stringResource(R.string.main_activity_later), fontSize = 13.sp)
                 }
                 Button(
                     onClick = onAccept,
@@ -1233,7 +1239,7 @@ private fun AiSuggestionCard(
                         contentColor = Color.White
                     )
                 ) {
-                    Text("추가하기", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.main_activity_add_button), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1268,10 +1274,10 @@ private fun FlowlogBottomBar(
             icon = {
                 Icon(
                     imageVector = Icons.Filled.Home,
-                    contentDescription = "홈"
+                    contentDescription = stringResource(R.string.main_activity_home_content_desc)
                 )
             },
-            label = { Text("홈") }
+            label = { Text(stringResource(R.string.main_activity_home_content_desc)) }
         )
         NavigationBarItem(
             selected = currentScreen == "todo",
@@ -1292,10 +1298,16 @@ private fun FlowlogBottomBar(
     }
 }
 
-private fun accountActionLabel(isSignedIn: Boolean, syncStatus: String?): String {
+private fun accountActionLabel(
+    isSignedIn: Boolean,
+    syncStatus: String?,
+    signingInLabel: String,
+    logoutLabel: String,
+    loginLabel: String
+): String {
     return when (syncStatus) {
-        "Signing in..." -> "로그인 중..."
-        null -> if (isSignedIn) "로그아웃" else "로그인"
-        else -> if (isSignedIn) "로그아웃" else "로그인"
+        "Signing in..." -> signingInLabel
+        null -> if (isSignedIn) logoutLabel else loginLabel
+        else -> if (isSignedIn) logoutLabel else loginLabel
     }
 }
