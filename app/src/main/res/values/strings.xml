@@ -39,6 +39,11 @@
     <string name="main_activity_off">꺼짐</string>
     <string name="main_activity_inactivity_reminder">기록 공백 알림</string>
     <string name="main_activity_inactivity_reminder_desc">100분 동안 기록이 없으면 알려줘요</string>
+    <string name="main_activity_timetable_plan_settings">타임테이블 추천</string>
+    <string name="main_activity_timetable_auto_place">추천 활동 자동 배치</string>
+    <string name="main_activity_timetable_auto_place_desc">추천 활동을 오늘 타임테이블에 자동으로 올려요</string>
+    <string name="main_activity_timetable_reminder">예정 시간 알림</string>
+    <string name="main_activity_timetable_reminder_desc">타임테이블에 놓인 시간이 되면 알려줘요</string>
     <string name="main_activity_focus_mode">집중 모드</string>
     <string name="main_activity_dnd_permission">방해금지 액세스 권한</string>
     <string name="main_activity_dnd_granted">허용됨 · 시스템 설정에서 변경 가능</string>

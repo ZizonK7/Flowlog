@@ -6,6 +6,7 @@ import com.example.flowlog.data.constants.EntityType
 import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.constants.RecommendationReason
 import com.example.flowlog.data.constants.SyncStatus
+import com.example.flowlog.data.local.TimetablePlanSettingsStore
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.agent.OrganizedPetite
 import com.example.flowlog.data.local.entity.DailyGoalItemEntity
@@ -120,6 +121,7 @@ private data class ItemReplacedMetadata(
 
 class DailyGoalRepository(context: Context) {
 
+    private val appContext = context.applicationContext
     private val db = FlowlogDatabase.getInstance(context)
     private val dao = db.dailyGoalDao()
     private val autoButtonDao = db.autoButtonScheduleDao()
@@ -294,6 +296,7 @@ class DailyGoalRepository(context: Context) {
         forceRefresh: Boolean = false,
         recommendationModeOverride: String? = null
     ): Boolean {
+        if (!TimetablePlanSettingsStore.isAutoPlaceEnabled(appContext)) return false
         val currentUserId = userId
         val recommendation = dao.getRecommendationByDate(currentUserId, dateKey) ?: return false
         val items = dao.getGoalItems(recommendation.recommendationId)

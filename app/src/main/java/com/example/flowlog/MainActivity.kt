@@ -196,6 +196,8 @@ class MainActivity : ComponentActivity() {
                 val promotedButtons by activityViewModel.promotedButtons.collectAsState()
                 val isNotificationSoundEnabled by activityViewModel.isNotificationSoundEnabled.collectAsState()
                 val isInactivityReminderEnabled by activityViewModel.isInactivityReminderEnabled.collectAsState()
+                val isTimetableAutoPlaceEnabled by activityViewModel.isTimetableAutoPlaceEnabled.collectAsState()
+                val isTimetableReminderEnabled by activityViewModel.isTimetableReminderEnabled.collectAsState()
                 var homeMainTimerScrollRequest by remember { mutableStateOf(0) }
                 fun showHomeMainTimer() {
                     currentScreen = "home"
@@ -474,6 +476,14 @@ class MainActivity : ComponentActivity() {
                                             isInactivityReminderEnabled = isInactivityReminderEnabled,
                                             onToggleInactivityReminder = {
                                                 activityViewModel.toggleInactivityReminder()
+                                            },
+                                            isTimetableAutoPlaceEnabled = isTimetableAutoPlaceEnabled,
+                                            onToggleTimetableAutoPlace = {
+                                                activityViewModel.toggleTimetableAutoPlace()
+                                            },
+                                            isTimetableReminderEnabled = isTimetableReminderEnabled,
+                                            onToggleTimetableReminder = {
+                                                activityViewModel.toggleTimetableReminder()
                                             }
                                         )
                                     },
@@ -714,7 +724,11 @@ private fun HeaderActions(
     isNotificationSoundEnabled: Boolean = true,
     onToggleNotificationSound: () -> Unit = {},
     isInactivityReminderEnabled: Boolean = true,
-    onToggleInactivityReminder: () -> Unit = {}
+    onToggleInactivityReminder: () -> Unit = {},
+    isTimetableAutoPlaceEnabled: Boolean = true,
+    onToggleTimetableAutoPlace: () -> Unit = {},
+    isTimetableReminderEnabled: Boolean = true,
+    onToggleTimetableReminder: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -999,6 +1013,73 @@ private fun HeaderActions(
                         Switch(
                             checked = isInactivityReminderEnabled,
                             onCheckedChange = { onToggleInactivityReminder() }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Text(
+                        text = stringResource(R.string.main_activity_timetable_plan_settings),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF5140D8)
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    androidx.compose.foundation.layout.Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Schedule,
+                            contentDescription = null,
+                            tint = if (isTimetableAutoPlaceEnabled) Color(0xFF5140D8) else Color(0xFF9E9E9E),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.size(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.main_activity_timetable_auto_place),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF10182C)
+                            )
+                            Text(
+                                text = if (isTimetableAutoPlaceEnabled) stringResource(R.string.main_activity_timetable_auto_place_desc) else stringResource(R.string.main_activity_off),
+                                fontSize = 12.sp,
+                                color = Color(0xFF9E9E9E)
+                            )
+                        }
+                        Switch(
+                            checked = isTimetableAutoPlaceEnabled,
+                            onCheckedChange = { onToggleTimetableAutoPlace() }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    androidx.compose.foundation.layout.Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = if (isTimetableReminderEnabled) Icons.Filled.Notifications else Icons.Filled.NotificationsOff,
+                            contentDescription = null,
+                            tint = if (isTimetableReminderEnabled) Color(0xFF5140D8) else Color(0xFF9E9E9E),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.size(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.main_activity_timetable_reminder),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF10182C)
+                            )
+                            Text(
+                                text = if (isTimetableReminderEnabled) stringResource(R.string.main_activity_timetable_reminder_desc) else stringResource(R.string.main_activity_off),
+                                fontSize = 12.sp,
+                                color = Color(0xFF9E9E9E)
+                            )
+                        }
+                        Switch(
+                            checked = isTimetableReminderEnabled,
+                            onCheckedChange = { onToggleTimetableReminder() }
                         )
                     }
                     Spacer(modifier = Modifier.height(20.dp))

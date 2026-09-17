@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
+import com.example.flowlog.data.local.TimetablePlanSettingsStore
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.local.entity.DailyGoalItemEntity
 import com.google.firebase.auth.FirebaseAuth
@@ -73,6 +74,7 @@ class PlannedTodoReminderScheduler(private val context: Context) {
             return
         }
         val blockReason = when {
+            !TimetablePlanSettingsStore.isReminderEnabled(appContext) -> "reminder_disabled"
             triggerAt <= now -> "trigger_in_past"
             item.userActionStatus !in ACTIVE_STATUSES -> "status_not_active"
             item.wasCompleted -> "completed"

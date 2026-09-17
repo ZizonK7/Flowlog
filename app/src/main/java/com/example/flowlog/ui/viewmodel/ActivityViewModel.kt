@@ -32,6 +32,7 @@ import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.agent.OrganizedPetite
 import com.example.flowlog.data.local.entity.OrganizedPetiteEntity
 import com.example.flowlog.data.local.InactivityReminderStore
+import com.example.flowlog.data.local.TimetablePlanSettingsStore
 import com.example.flowlog.data.agent.PetiteSourceType
 import com.example.flowlog.data.repository.ActivityRepository
 import com.example.flowlog.data.repository.AutoButtonScheduleRepository
@@ -50,6 +51,7 @@ import com.example.flowlog.notification.FocusDndController
 import com.example.flowlog.notification.FocusModeScheduler
 import com.example.flowlog.notification.InactivityReminderReceiver
 import com.example.flowlog.notification.InactivityReminderScheduler
+import com.example.flowlog.notification.PlannedTodoReminderScheduler
 import com.example.flowlog.notification.ReminderScheduler
 import com.example.flowlog.notification.RoutineGoalAlarmScheduler
 import com.example.flowlog.widget.FlowStatusWidgetProvider
@@ -206,6 +208,10 @@ class ActivityViewModel(
     val isNotificationSoundEnabled: StateFlow<Boolean> = _isNotificationSoundEnabled.asStateFlow()
     private val _isInactivityReminderEnabled = MutableStateFlow(true)
     val isInactivityReminderEnabled: StateFlow<Boolean> = _isInactivityReminderEnabled.asStateFlow()
+    private val _isTimetableAutoPlaceEnabled = MutableStateFlow(true)
+    val isTimetableAutoPlaceEnabled: StateFlow<Boolean> = _isTimetableAutoPlaceEnabled.asStateFlow()
+    private val _isTimetableReminderEnabled = MutableStateFlow(true)
+    val isTimetableReminderEnabled: StateFlow<Boolean> = _isTimetableReminderEnabled.asStateFlow()
     data class DailyCueGoalReachedEvent(val cueId: Long, val category: String, val title: String)
     private val _dailyCueGoalReachedEvents = MutableSharedFlow<DailyCueGoalReachedEvent>(extraBufferCapacity = 8)
     val dailyCueGoalReachedEvents: SharedFlow<DailyCueGoalReachedEvent> = _dailyCueGoalReachedEvents.asSharedFlow()
@@ -223,6 +229,7 @@ class ActivityViewModel(
     private val focusModeScheduler = FocusModeScheduler(appContext)
     private val routineGoalAlarmScheduler = RoutineGoalAlarmScheduler(appContext)
     private val inactivityReminderScheduler = InactivityReminderScheduler(appContext)
+    private val plannedTodoReminderScheduler = PlannedTodoReminderScheduler(appContext)
     private val eventLogRepository = EventLogRepository(appContext)
     private val autoButtonScheduleRepository = AutoButtonScheduleRepository(appContext)
     private val calendarScheduleSyncDataSource = FirebaseCalendarScheduleSyncDataSource()
@@ -266,6 +273,7 @@ class ActivityViewModel(
         restoreSnackButtonTimerState()
         restoreFocusModeState()
         restoreInactivityReminderState()
+        restoreTimetablePlanSettings()
         inactivityReminderScheduler.rescheduleFromLastActivityIfNeeded()
         restoreActiveSession()
         seedMissingSleepRecord()
@@ -2836,6 +2844,26 @@ class ActivityViewModel(
 
     private fun restoreInactivityReminderState() {
         _isInactivityReminderEnabled.value = InactivityReminderStore.isEnabled(appContext)
+    }
+
+    private fun restoreTimetablePlanSettings() {
+        _isTimetableAutoPlaceEnabled.value = TimetablePlanSettingsStore.isAutoPlaceEnabled(appContext)
+        _isTimetableReminderEnabled.value = TimetablePlanSettingsStore.isReminderEnabled(appContext)
+    }
+
+    fun toggleTimetableAutoPlace() {
+        val next = !_isTimetableAutoPlaceEnabled.value
+        TimetablePlanSettingsStore.setAutoPlaceEnabled(appContext, next)
+        _isTimetableAutoPlaceEnabled.value = next
+    }
+
+    fun toggleTimetableReminder() {
+        val next = !_isTimetableReminderEnabled.value
+        TimetablePlanSettingsStore.setReminderEnabled(appContext, next)
+        _isTimetableReminderEnabled.value = next
+        viewModelScope.launch {
+            plannedTodoReminderScheduler.rescheduleAll()
+        }
     }
 
     private fun recordInactivityReminderResponseIfNeeded(startedAt: Long, category: String) {
