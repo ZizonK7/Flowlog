@@ -52,6 +52,9 @@ account.
   and Todo work sessions.
 - Use scheduled/repeating routine blocks and pinned school/company timers,
   including manually starting a scheduled block early from the timetable.
+- Toggle whether recommended activities are auto-placed onto today's
+  timetable and whether a reminder alarm fires when their time arrives,
+  independently, from Settings.
 - Locally promote quick-timer buttons based on recent activity patterns (a
   category becomes a quick button once you log it consistently for a few
   days), plus context-aware routine nudges (after waking, after a meal,

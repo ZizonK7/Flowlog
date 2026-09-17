@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Added independent Settings toggles (Profile > Settings > "타임테이블 추천") for
+  auto-placing recommended activities onto today's timetable and for the
+  reminder alarm that fires when their scheduled time arrives — previously
+  one bundled, always-on behavior. Backed by `TimetablePlanSettingsStore`.
+- Fixed toothbrush/meal "done" alerts, routine-goal alerts, and the
+  focus-mode-ended alert no longer auto-dismissing a few seconds after
+  firing — a notification-channel consolidation had accidentally dropped
+  their `setTimeoutAfter()` calls.
+- Fixed toothbrush/meal reminder alarms not reliably surviving a device
+  reboot or app update: boot receivers now also fire on
+  `MY_PACKAGE_REPLACED` and are `exported="true"` (required for the system
+  broadcast to reach them on Android 12+), and pending toothbrush/meal
+  reminders are persisted so they can be replayed on restart; they're now
+  armed with `setAlarmClock` so Doze/app-standby can't defer them.
 - Added a daily "today's schedule" snapshot push
   (`data/assistant/AssistantSnapshotBuilder.kt`) to
   `assistantSnapshots/{yyyy-MM-dd}` — active repeat routines and time-slotted
