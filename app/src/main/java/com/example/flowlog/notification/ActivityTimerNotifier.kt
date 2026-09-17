@@ -11,7 +11,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.os.VibrationEffect
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -163,7 +162,7 @@ class ActivityTimerNotifier(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val builder = NotificationCompat.Builder(context, ToothbrushReminderReceiver.DING_CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, FlowlogAlertChannel.ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(NOTIFICATION_ICON_COLOR)
             .setContentTitle("집중 시간이 끝났어요!")
@@ -199,7 +198,7 @@ class ActivityTimerNotifier(private val context: Context) {
         )
 
         val channelId = if (shouldSilence) SleepAlarmGuard.SILENT_CHANNEL_ID
-                        else ToothbrushReminderReceiver.DING_CHANNEL_ID
+                        else FlowlogAlertChannel.ID
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(notificationIcon(category))
             .setColor(NOTIFICATION_ICON_COLOR)
@@ -334,7 +333,7 @@ class ActivityTimerNotifier(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val channelId = if (effectivePlaySound) ToothbrushReminderReceiver.DING_CHANNEL_ID else CHANNEL_ID
+        val channelId = if (effectivePlaySound) FlowlogAlertChannel.ID else CHANNEL_ID
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(notificationIcon(category))
             .setColor(NOTIFICATION_ICON_COLOR)
@@ -430,35 +429,7 @@ class ActivityTimerNotifier(private val context: Context) {
     }
 
     private fun ensureDingNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-
-        val channel = NotificationChannel(
-            ToothbrushReminderReceiver.DING_CHANNEL_ID,
-            "Flowlog timer app sound alerts",
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "Timer alerts that play Flowlog's app sound"
-            setSound(
-                KakaoStyleAlertPlayer.soundUri(context),
-                KakaoStyleAlertPlayer.audioAttributes()
-            )
-            enableVibration(true)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-                setVibrationEffect(
-                    VibrationEffect.createWaveform(
-                        FlowlogVibrationPatterns.alert(),
-                        FlowlogVibrationPatterns.alertAmplitudes(),
-                        -1
-                    )
-                )
-            } else {
-                setVibrationPattern(FlowlogVibrationPatterns.alert())
-            }
-        }
-
-        val notificationManager =
-            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.createNotificationChannel(channel)
+        FlowlogAlertChannel.ensure(context)
     }
 
     private fun canPostNotifications(): Boolean {

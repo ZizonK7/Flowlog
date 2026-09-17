@@ -45,6 +45,8 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
             SleepAlarmGuard.shouldSilenceAlerts(context)
         if (shouldSilence) {
             SleepAlarmGuard.ensureSilentNotificationChannel(context)
+        } else {
+            FlowlogAlertChannel.ensure(context)
         }
 
         val title = when (reminderType) {
@@ -68,7 +70,7 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val channelId = if (shouldSilence) SleepAlarmGuard.SILENT_CHANNEL_ID else DING_CHANNEL_ID
+        val channelId = if (shouldSilence) SleepAlarmGuard.SILENT_CHANNEL_ID else FlowlogAlertChannel.ID
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(NOTIFICATION_ICON_COLOR)
@@ -119,7 +121,6 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
 
     companion object {
         const val CHANNEL_ID = "flowlog_timer_alerts"
-        const val DING_CHANNEL_ID = "flowlog_timer_alerts_app_sound_v9"
         const val EXTRA_CATEGORY = "extra_category"
         const val EXTRA_ACTIVITY_ID = "extra_activity_id"
         const val EXTRA_REMINDER_TYPE = "extra_reminder_type"

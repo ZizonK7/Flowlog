@@ -5,12 +5,16 @@ import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.Uri
-import com.example.flowlog.R
 import com.example.flowlog.data.local.FocusModeStore
 
 object KakaoStyleAlertPlayer {
+    /**
+     * 리소스 **이름** 기반 URI를 쓴다. `R.raw.flowlog_ding` 숫자 ID로 만들면 리소스를
+     * 추가/삭제할 때마다 값이 바뀌는데, 알림 채널은 이 URI 문자열을 OS에 영구 저장하므로
+     * 앱 업데이트 후 채널이 사라진 리소스를 가리켜 무음/기본음으로 폴백한다.
+     */
     fun soundUri(context: Context): Uri =
-        Uri.parse("android.resource://${context.packageName}/${R.raw.flowlog_ding}")
+        Uri.parse("android.resource://${context.packageName}/raw/$SOUND_RESOURCE_NAME")
 
     fun audioAttributes(): AudioAttributes =
         AudioAttributes.Builder()
@@ -39,4 +43,6 @@ object KakaoStyleAlertPlayer {
             }
         }
     }
+
+    private const val SOUND_RESOURCE_NAME = "flowlog_ding"
 }

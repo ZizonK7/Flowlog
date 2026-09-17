@@ -9,14 +9,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
+/**
+ * 부팅과 앱 업데이트 시 AlarmManager 예약이 전부 지워지므로 다시 등록한다.
+ * 시스템이 보내는 브로드캐스트라 매니페스트에서 `exported="true"` 여야 전달된다.
+ */
 class PlannedTodoReminderBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        if (intent.action !in HANDLED_ACTIONS) return
 
+        val appContext = context.applicationContext
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
-                PlannedTodoReminderScheduler(context).rescheduleAll()
+                PlannedTodoReminderScheduler(appContext).rescheduleAll()
             } catch (e: Exception) {
                 Log.e(TAG, "Error rescheduling planned todo reminders", e)
             } finally {
@@ -27,5 +32,9 @@ class PlannedTodoReminderBootReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "PlannedTodoBootReceiver"
+        private val HANDLED_ACTIONS = setOf(
+            Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_MY_PACKAGE_REPLACED
+        )
     }
 }

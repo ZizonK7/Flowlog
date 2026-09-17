@@ -9,7 +9,7 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
-import android.os.VibrationEffect
+import android.util.Log
 import com.example.flowlog.MainActivity
 import com.example.flowlog.data.model.ActivitySession
 
@@ -34,34 +34,10 @@ class ReminderScheduler(private val context: Context) {
                 )
                 enableVibration(true)
             }
-            val dingChannel = NotificationChannel(
-                ToothbrushReminderReceiver.DING_CHANNEL_ID,
-                "Flowlog timer app sound alerts",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Timer alerts that play Flowlog's app sound"
-                setSound(
-                    KakaoStyleAlertPlayer.soundUri(context),
-                    KakaoStyleAlertPlayer.audioAttributes()
-                )
-                enableVibration(true)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-                    setVibrationEffect(
-                        VibrationEffect.createWaveform(
-                            FlowlogVibrationPatterns.alert(),
-                            FlowlogVibrationPatterns.alertAmplitudes(),
-                            -1
-                        )
-                    )
-                } else {
-                    setVibrationPattern(FlowlogVibrationPatterns.alert())
-                }
-            }
             val notificationManager =
                 context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(legacyChannel)
-            notificationManager.createNotificationChannel(dingChannel)
-            notificationManager.deleteNotificationChannel(LEGACY_BRUSH_ALARM_CHANNEL_ID)
+            FlowlogAlertChannel.ensure(context)
         }
     }
 
@@ -148,6 +124,37 @@ class ReminderScheduler(private val context: Context) {
         )
     }
 
+    /**
+     * 부팅·앱 업데이트로 AlarmManager 예약이 통째로 지워진 뒤, 아직 시각이 남은
+     * 양치·식사 알람을 다시 건다. 이미 지난 기록은 정리한다.
+     */
+    fun rescheduleAll() {
+        ensureNotificationChannel()
+
+        val now = System.currentTimeMillis()
+        pendingReminderPrefs().all.forEach { (key, value) ->
+            val requestCode = key.toIntOrNull() ?: return@forEach
+            val parts = (value as? String)?.split(RECORD_SEPARATOR).orEmpty()
+            if (parts.size != RECORD_FIELD_COUNT) {
+                forgetPendingReminder(requestCode)
+                return@forEach
+            }
+            val activityId = parts[2].toLongOrNull()
+            val triggerAtMillis = parts[3].toLongOrNull()
+            if (activityId == null || triggerAtMillis == null || triggerAtMillis <= now) {
+                forgetPendingReminder(requestCode)
+                return@forEach
+            }
+            armReminder(
+                category = parts[0],
+                reminderType = parts[1],
+                requestCode = requestCode,
+                activityId = activityId,
+                triggerAtMillis = triggerAtMillis
+            )
+        }
+    }
+
     private fun scheduleBrushDoneTimer(
         requestCode: Int,
         delayMillis: Long
@@ -155,23 +162,19 @@ class ReminderScheduler(private val context: Context) {
         ensureNotificationChannel()
 
         val triggerAtMillis = System.currentTimeMillis() + delayMillis
-        val intent = Intent(context, ToothbrushReminderReceiver::class.java).apply {
-            putExtra(ToothbrushReminderReceiver.EXTRA_CATEGORY, "TOOTHBRUSH")
-            putExtra(ToothbrushReminderReceiver.EXTRA_REMINDER_TYPE, ToothbrushReminderReceiver.TYPE_BRUSH_DONE)
-            putExtra(ToothbrushReminderReceiver.EXTRA_ACTIVITY_ID, triggerAtMillis)
-        }
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            requestCode,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        armReminder(
+            category = "TOOTHBRUSH",
+            reminderType = ToothbrushReminderReceiver.TYPE_BRUSH_DONE,
+            requestCode = requestCode,
+            activityId = triggerAtMillis,
+            triggerAtMillis = triggerAtMillis
         )
-
-        scheduleAlarmClock(triggerAtMillis, pendingIntent)
         return triggerAtMillis
     }
 
     private fun cancelReminder(requestCode: Int) {
+        forgetPendingReminder(requestCode)
+
         val intent = Intent(context, ToothbrushReminderReceiver::class.java)
         val pendingIntent = PendingIntent.getBroadcast(
             context,
@@ -194,6 +197,17 @@ class ReminderScheduler(private val context: Context) {
         ensureNotificationChannel()
 
         val triggerAtMillis = System.currentTimeMillis() + reminderDelayMillis
+        armReminder(category, reminderType, requestCode, activityId, triggerAtMillis)
+        return triggerAtMillis
+    }
+
+    private fun armReminder(
+        category: String,
+        reminderType: String,
+        requestCode: Int,
+        activityId: Long,
+        triggerAtMillis: Long
+    ) {
         val intent = Intent(context, ToothbrushReminderReceiver::class.java).apply {
             putExtra(ToothbrushReminderReceiver.EXTRA_CATEGORY, category)
             putExtra(ToothbrushReminderReceiver.EXTRA_REMINDER_TYPE, reminderType)
@@ -206,8 +220,30 @@ class ReminderScheduler(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        scheduleAlarm(triggerAtMillis, pendingIntent)
-        return triggerAtMillis
+        // 사용자가 기다리는 알람이므로 Doze/앱 대기 버킷에서 완전히 면제되는
+        // setAlarmClock 을 쓴다. setExactAndAllowWhileIdle 은 권한이 없으면
+        // 부정확 알람으로 강등돼 유지보수 창까지 밀린다.
+        scheduleAlarmClock(triggerAtMillis, pendingIntent)
+        rememberPendingReminder(requestCode, category, reminderType, activityId, triggerAtMillis)
+    }
+
+    private fun pendingReminderPrefs() = context.applicationContext
+        .getSharedPreferences(PREFS_PENDING_REMINDERS, Context.MODE_PRIVATE)
+
+    private fun rememberPendingReminder(
+        requestCode: Int,
+        category: String,
+        reminderType: String,
+        activityId: Long,
+        triggerAtMillis: Long
+    ) {
+        val record = listOf(category, reminderType, activityId, triggerAtMillis)
+            .joinToString(RECORD_SEPARATOR)
+        pendingReminderPrefs().edit().putString(requestCode.toString(), record).apply()
+    }
+
+    private fun forgetPendingReminder(requestCode: Int) {
+        pendingReminderPrefs().edit().remove(requestCode.toString()).apply()
     }
 
     fun cancelMealReminder() {
@@ -265,6 +301,7 @@ class ReminderScheduler(private val context: Context) {
                 )
             }
         }.recoverCatching {
+            Log.w(TAG, "Falling back to an inexact alarm; it may be deferred in Doze")
             alarmManager.set(
                 AlarmManager.RTC_WAKEUP,
                 triggerAtMillis,
@@ -283,6 +320,7 @@ class ReminderScheduler(private val context: Context) {
                 alarmPendingIntent
             )
         }.recoverCatching {
+            Log.w(TAG, "setAlarmClock denied; falling back to a weaker alarm", it)
             scheduleAlarm(triggerAtMillis, alarmPendingIntent)
         }.getOrThrow()
     }
@@ -298,6 +336,7 @@ class ReminderScheduler(private val context: Context) {
     }
 
     companion object {
+        private const val TAG = "ReminderScheduler"
         private const val REQUEST_MEAL_TIMER = 3000
         private const val REQUEST_SNACK_TIMER = 3001
         private const val REQUEST_BRUSH_DONE_TIMER = 3002
@@ -307,6 +346,8 @@ class ReminderScheduler(private val context: Context) {
         private const val REQUEST_BRUSH_EAT_EXPERIMENT = 3013
         private const val BRUSH_DONE_DELAY_MILLIS = 3L * 60L * 1000L
         private const val EXPERIMENT_DELAY_MILLIS = 5L * 1000L
-        private const val LEGACY_BRUSH_ALARM_CHANNEL_ID = "flowlog_brush_alarm"
+        private const val PREFS_PENDING_REMINDERS = "flowlog_pending_reminders"
+        private const val RECORD_SEPARATOR = "|"
+        private const val RECORD_FIELD_COUNT = 4
     }
 }

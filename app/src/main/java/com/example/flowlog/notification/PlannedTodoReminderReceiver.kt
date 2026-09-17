@@ -97,6 +97,8 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                     !FocusModeStore.shouldPlayRegularSound(context)
                 if (shouldSilence) {
                     SleepAlarmGuard.ensureSilentNotificationChannel(context)
+                } else {
+                    FlowlogAlertChannel.ensure(context)
                 }
 
                 val title = todo?.title ?: item.titleFromSnapshot() ?: petiteTitle ?: "\uD560 \uC77C"
@@ -135,7 +137,7 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                 val channelId = if (shouldSilence) {
                     SleepAlarmGuard.SILENT_CHANNEL_ID
                 } else {
-                    ToothbrushReminderReceiver.DING_CHANNEL_ID
+                    FlowlogAlertChannel.ID
                 }
                 val builder = NotificationCompat.Builder(context, channelId)
                     .setSmallIcon(R.drawable.ic_notification)

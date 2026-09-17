@@ -55,18 +55,25 @@
         <receiver
             android:name=".notification.AutoButtonUndoReceiver"
             android:exported="false" />
+        <!--
+            시스템 브로드캐스트(BOOT_COMPLETED 등)는 시스템 UID가 보내므로,
+            exported="false" 인 리시버에는 Android 12 이상에서 전달되지 않는다.
+            부팅·앱 업데이트 시 AlarmManager 예약이 모두 지워지므로 여기서 다시 등록해야 한다.
+        -->
         <receiver
             android:name=".notification.AutoButtonBootReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
         <receiver
             android:name=".notification.PlannedTodoReminderBootReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
         <receiver
