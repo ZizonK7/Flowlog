@@ -46,6 +46,8 @@ account.
 ## Key Features
 
 - Start, stop, edit, and delete activity sessions.
+- Suggest up to five activity titles per category using completed records,
+  balancing recent use and frequency while reducing the influence of old habits.
 - View today's activity list, timetable, category totals, and yesterday
   comparison.
 - Manage Todos, today's items, light daily prompts/cues, exam-related Todos,
@@ -74,7 +76,8 @@ app/src/main/java/com/example/flowlog/
   data/             Models, repositories, local data sources, sync, and rules
   data/local/       Room database, DAOs, entities, mappers, and local stores
   data/recommendation/  Local rule-based recommendation engines (button
-                    promotion, flow/routine nudges, Todo burden scoring)
+                    promotion, activity title scoring, flow/routine nudges,
+                    Todo burden scoring)
   data/remote/      Firebase Auth and Firestore helpers
   data/sync/        Batch sync from local changes to Firestore
   data/assistant/   Builds the daily "today's schedule" snapshot pushed to
@@ -182,6 +185,36 @@ Before remote AI is enabled broadly, the backend still needs production
 hardening such as App Check enforcement and rate limiting. See
 [`functions/README.md`](functions/README.md) for deployment and safety notes.
 
+### Activity Title Suggestions
+
+Title suggestions use saved, completed sessions in the selected category.
+Applying a title to a running timer does not add it to the suggestion history;
+ending and saving the activity does. Existing record edits and deletions also
+update the history used for ranking.
+
+`ActivityTitleSuggestionRanker` computes a score from session end times:
+
+```text
+weightedUses = sum(2 ^ (-sessionAgeDays / 14))
+score = (40 + 60 * weightedUses / (weightedUses + 3))
+        * 2 ^ (-daysSinceLastCompletion / 7)
+```
+
+Frequency has diminishing returns and a bounded contribution. Older records
+contribute less, and the final score decays with inactivity. A first completion
+today scores 55; even a very frequent title unused for seven days scores at most
+50. Recently repeated activities can still outrank a new title, so a new
+completion does not guarantee a place in the top five. These are initial tuning
+values, centralized in the ranker for adjustment after usage feedback.
+
+Ranking uses exact stored titles without trimming, case folding, or merging
+similar names. Repeated identical titles contribute to one recommendation's
+score; historical records are never merged or rewritten. Blank and category
+default titles are excluded, as are invalid or future completion times. There
+is no age cutoff or minimum score. The existing maximum of five suggestions and
+wrapping chip layout are preserved. Score components are available through
+`rankedScores` for development inspection, without adding diagnostic UI.
+
 ## Project Context
 
 Long-term product and AI-collaboration context lives in
@@ -252,6 +285,25 @@ Run unit tests with:
 ```powershell
 .\gradlew.bat testDebugUnitTest
 ```
+
+The current build configuration also requires local `keystore.properties`
+(`storeFile`, `storePassword`, `keyAlias`, and `keyPassword`) and the corresponding
+keystore. Both debug and release builds reference that signing configuration;
+missing properties can stop Gradle configuration before unit tests start. Keep
+these files and credentials out of Git.
+
+Run the activity title ranking tests with:
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest --tests 'com.example.flowlog.data.recommendation.ActivityTitleSuggestionRankerTest'
+```
+
+The title scoring change was verified by compiling the production ranker and
+model sources with Kotlin 2.2.10 and running all 16 tests with JUnit 4.13.2.
+These cover recent versus stale usage, new-title competition, exact title
+preservation, completion-time ordering, filters, and the five-item limit. Full
+Android build and device verification remain unconfirmed: the verification
+checkout lacked the local signing properties required by Gradle.
 
 ### Repository Notes
 

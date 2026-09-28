@@ -169,6 +169,7 @@ import com.example.flowlog.debug.CityTimetablePreset
 import com.example.flowlog.debug.CityTimetableSamples
 import com.example.flowlog.debug.SampleTimetableData
 import com.example.flowlog.data.model.ActivitySession
+import com.example.flowlog.data.recommendation.ActivityTitleSuggestionRanker
 import com.example.flowlog.data.model.ExerciseSetRecord
 import com.example.flowlog.ui.city.CityTimetableCard
 import com.example.flowlog.data.agent.OrganizedPetite
@@ -1247,16 +1248,15 @@ internal fun TimerDialogsSection(
 internal fun buildTitleSuggestions(
     category: String,
     activities: List<ActivitySession>,
-    categoryLabels: Map<String, String>
+    categoryLabels: Map<String, String>,
+    nowMillis: Long = System.currentTimeMillis()
 ): List<String> {
-    val defaultTitle = defaultActivityTitle(category, categoryLabels)
-    return activities
-        .filter { it.category == category && it.title.isNotBlank() && it.title != defaultTitle }
-        .groupBy { it.title.trim() }
-        .map { (title, sessions) -> Triple(title, sessions.size, sessions.maxOf { it.startTime }) }
-        .sortedWith(compareByDescending<Triple<String, Int, Long>> { it.second }.thenByDescending { it.third })
-        .map { it.first }
-        .take(5)
+    return ActivityTitleSuggestionRanker.suggest(
+        category = category,
+        activities = activities,
+        defaultTitle = defaultActivityTitle(category, categoryLabels),
+        nowMillis = nowMillis
+    )
 }
 
 internal fun defaultActivityTitle(category: String, categoryLabels: Map<String, String>): String {
