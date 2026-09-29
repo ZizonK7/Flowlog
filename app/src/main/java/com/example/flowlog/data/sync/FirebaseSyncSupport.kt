@@ -115,7 +115,7 @@ class FirebaseSyncCoordinator(context: Context) {
 
     suspend fun syncAll(userId: String): SyncOutcome {
         return globalSyncMutex.withLock {
-            dataSource.syncAll(userId)
+            refreshStudy(userId, dataSource.syncAll(userId), forceRefresh = true)
         }
     }
 
@@ -125,7 +125,7 @@ class FirebaseSyncCoordinator(context: Context) {
             if (activeTimer?.status == TimerStatus.RUNNING) {
                 return@withLock SyncOutcome(deferred = true)
             }
-            dataSource.syncEligible(userId)
+            refreshStudy(userId, dataSource.syncEligible(userId))
         }
     }
 
@@ -155,5 +155,21 @@ class FirebaseSyncCoordinator(context: Context) {
 
     companion object {
         private val globalSyncMutex = Mutex()
+        private val lastRemoteRefresh = mutableMapOf<String, Long>()
+    }
+
+    private suspend fun refreshStudy(userId: String, uploaded: SyncOutcome, forceRefresh: Boolean = false): SyncOutcome {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val shouldRefresh = forceRefresh || now - (lastRemoteRefresh[userId] ?: -900_000L) >= 900_000L
+        val study = runCatching { StudySyncDataSource(appContext).sync(userId, restoreRemote = shouldRefresh) }
+            .getOrElse { SyncOutcome(attemptedCount = 1, failureCount = 1) }
+        val restored = if (shouldRefresh) runCatching { FirebaseRestoreDataSource(appContext).restoreActivities(userId) }
+            .getOrElse { RestoreSection(failed = 1) } else RestoreSection()
+        if (shouldRefresh && study.failureCount == 0 && restored.failed == 0) lastRemoteRefresh[userId] = now
+        return uploaded.copy(
+            attemptedCount = uploaded.attemptedCount + study.attemptedCount + restored.fetched,
+            successCount = uploaded.successCount + study.successCount + restored.inserted + restored.skipped,
+            failureCount = uploaded.failureCount + study.failureCount + restored.failed
+        )
     }
 }

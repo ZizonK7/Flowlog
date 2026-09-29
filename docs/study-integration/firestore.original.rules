@@ -1,0 +1,222 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.uid in [
+          "xrUHsuQ8l2WJtB6gt0Ynp0U5VkJ3"
+        ];
+    }
+
+    // Separate account from isAdmin() — used only for the /work counseling
+    // notes app. Keep in sync with public/shared/firebase.js PFKFKS_WORK_UIDS.
+    function isWorkStaff() {
+      return request.auth != null
+        && (isAdmin() || request.auth.uid in [
+          "lM7KQjaEW9fQdme6ZIqvu9jVUgx1"
+        ]);
+    }
+
+    function isValidPreviewResponse() {
+      return request.resource.data.keys().hasOnly([
+          "userId",
+          "cardId",
+          "preAnswer",
+          "postAnswer",
+          "createdAt",
+          "updatedAt"
+        ])
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.cardId is string
+        && request.resource.data.cardId.size() <= 500
+        && request.resource.data.preAnswer is string
+        && request.resource.data.preAnswer.size() <= 5000
+        && request.resource.data.postAnswer is string
+        && request.resource.data.postAnswer.size() <= 5000;
+    }
+
+    function hasUserPreviewCard(cardId) {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)/previewCards/$(cardId));
+    }
+
+    match /{path=**}/activitySessions/{activityId} {
+      allow read: if request.auth != null && isAdmin();
+    }
+
+    match /{path=**}/todos/{todoId} {
+      allow read: if request.auth != null && isAdmin();
+    }
+
+    match /{path=**}/dailyGoalRecommendations/{recId} {
+      allow read: if request.auth != null && isAdmin();
+    }
+
+    match /{path=**}/dailyGoalItems/{itemId} {
+      allow read: if request.auth != null && isAdmin();
+    }
+
+    match /{path=**}/dailyScheduleRecommendations/{docId} {
+      allow read: if request.auth != null && isAdmin();
+    }
+
+    match /{path=**}/eventLogs/{eventId} {
+      allow read: if request.auth != null && isAdmin();
+    }
+
+    match /{path=**}/petites/{petiteId} {
+      allow read: if request.auth != null && isAdmin();
+    }
+
+
+    match /users/{userId}/flowlog/data/activitySessions/{activityId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId}/flowlog/data/todos/{todoId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId}/flowlog/{document=**} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId}/previewUsage/{docId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow write: if false;
+    }
+
+    match /users/{userId}/previewCards/{cardId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow create: if false;
+      allow update, delete: if isAdmin();
+    }
+
+    // Personal university course and review tracker. No cross-account access.
+    match /users/{userId}/studyCourses/{courseId} {
+      allow read, delete: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['name', 'start', 'end', 'days', 'time', 'endTime', 'color'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.start is string && request.resource.data.end is string
+        && request.resource.data.days is list && request.resource.data.days.size() > 0
+        && request.resource.data.days.size() <= 7
+        && request.resource.data.days.hasOnly([0, 1, 2, 3, 4, 5, 6])
+        && request.resource.data.time is string && request.resource.data.endTime is string
+        && request.resource.data.color is string;
+    }
+    match /users/{userId}/studyRecords/{lessonId} {
+      allow read, delete: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['done', 'note', 'skipped'])
+        && request.resource.data.done is list && request.resource.data.done.size() == 3
+        && request.resource.data.done[0] is string && request.resource.data.done[1] is string
+        && request.resource.data.done[2] is string
+        && request.resource.data.note is string && request.resource.data.note.size() <= 300
+        && request.resource.data.skipped is bool;
+    }
+
+    match /posts/{postId} {
+      allow get, list: if resource.data.status == "published" || isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.status in ["draft", "published"];
+      allow update: if isAdmin()
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.status in ["draft", "published"];
+      allow delete: if isAdmin();
+    }
+
+    match /series/{seriesId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /flowlogSurveyResponses/{docId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /previewCards/{cardId} {
+      allow get, list: if resource.data.status == "published" || isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.status in ["draft", "reviewed", "published", "archived"];
+      allow update: if isAdmin()
+        && request.resource.data.status in ["draft", "reviewed", "published", "archived"];
+      allow delete: if isAdmin();
+    }
+
+    match /previewResponses/{responseId} {
+      allow create: if request.auth != null
+        && isValidPreviewResponse()
+        && hasUserPreviewCard(request.resource.data.cardId)
+        && responseId == request.auth.uid + "_" + request.resource.data.cardId;
+      allow update: if request.auth != null
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.cardId == resource.data.cardId
+        && isValidPreviewResponse()
+        && hasUserPreviewCard(resource.data.cardId)
+        && responseId == request.auth.uid + "_" + resource.data.cardId;
+      allow read: if request.auth != null
+        && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /previewRevisionLogs/{logId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /todoAdminMeta/{todoId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /userDistCaches/{uid} {
+      allow read: if request.auth != null && isAdmin();
+    }
+
+    match /adminStats/{docId} {
+      allow read: if request.auth != null && isAdmin();
+    }
+
+    match /students/{studentId} {
+      allow read, write: if isWorkStaff();
+    }
+
+    match /counselingSessions/{sessionId} {
+      allow read, write: if isWorkStaff();
+    }
+
+    match /counselingReservations/{reservationId} {
+      allow read, write: if isWorkStaff();
+    }
+
+    match /attendanceUploads/{docId} {
+      allow read, write: if isWorkStaff();
+    }
+
+    match /students/{studentId}/attendanceRecords/{dateId} {
+      allow read, write: if isWorkStaff();
+    }
+
+    match /students/{studentId}/counselingRecords/{recordId} {
+      allow read, write: if isWorkStaff();
+    }
+
+    match /dailyNotes/{dateId} {
+      allow read, write: if isWorkStaff();
+    }
+
+    // /fm24 — Football Manager 선수 추적기.
+    // 내 PC의 로컬 앱(SQLite)이 진실이고, 여기에는 화면용 사본만 올라온다.
+    // 읽기/쓰기 모두 관리자 본인만 (public/fm24/firebase-config.js 의
+    // ALLOWED_UIDS 와 맞춰야 함 — 한쪽만 바꾸면 깨진다).
+    match /fm24/{document=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
+

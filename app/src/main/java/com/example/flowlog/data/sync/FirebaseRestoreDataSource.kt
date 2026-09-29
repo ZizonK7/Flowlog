@@ -42,6 +42,7 @@ class FirebaseRestoreDataSource(context: Context) {
 
     private val db = FlowlogDatabase.getInstance(context)
     private val activityDao = db.activityDao()
+    private val activityRevisionDao = db.activityRevisionDao()
     private val todoDao = db.todoDao()
     private val eventLogDao = db.eventLogDao()
     private val dailyGoalDao = db.dailyGoalDao()
@@ -111,7 +112,8 @@ class FirebaseRestoreDataSource(context: Context) {
         }
     }
 
-    private suspend fun restoreActivities(userId: String): RestoreSection {
+    suspend fun restoreActivities(userId: String, resolveActivityId: String? = null, expectedRemoteRevision: Long? = null, expectedLocalUpdatedAt: Long? = null): RestoreSection {
+        check(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid == userId)
         val docs = activityCollection(userId).get().awaitResult().documents
         Log.i(TAG, "Activities fetched: ${docs.size}")
         if (docs.isEmpty()) return RestoreSection()
@@ -122,13 +124,26 @@ class FirebaseRestoreDataSource(context: Context) {
 
         docs.forEach { doc ->
             runCatching {
+                check(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid == userId)
                 // legacyId: 0L은 Room-native 데이터를 의미하므로 null 처리
                 val legacyId = doc.getLong("id")?.takeIf { it != 0L }
                 val activityId = if (legacyId != null) "legacy_activity_$legacyId" else doc.id
+                if (resolveActivityId != null && activityId != resolveActivityId) return@runCatching
 
-                if (activityDao.getActivityById(activityId) != null) {
-                    skipped++
-                    return@runCatching
+                val remoteRevision = doc.getLong("revision") ?: 0L
+                if (resolveActivityId != null) check(remoteRevision == expectedRemoteRevision) { "웹 기록이 다시 변경되었습니다. 다시 동기화해 주세요." }
+                val existing = activityDao.getActivityById(activityId)
+                if (existing != null && resolveActivityId == null) {
+                    if (existing.userId != userId || remoteRevision <= existing.remoteRevision) {
+                        skipped++
+                        return@runCatching
+                    }
+                    if (existing.syncStatus != SyncStatus.SYNCED) {
+                        // 미업로드 로컬 수정과 충돌 — 덮어쓰지 않고 실패로 보고
+                        failed++
+                        Log.w(TAG, "Activity restore conflict (local PENDING): $activityId local=${existing.remoteRevision} remote=$remoteRevision")
+                        return@runCatching
+                    }
                 }
 
                 val tags = (doc.get("tags") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
@@ -145,7 +160,7 @@ class FirebaseRestoreDataSource(context: Context) {
                 val exerciseSetsJson = if (exerciseSets.isNotEmpty()) json.encodeToString(exerciseSets) else null
                 val linkedTodoLegacyId = doc.getLong("linkedTodoId")
 
-                activityDao.insertActivity(
+                val applied = activityRevisionDao.applyRestoredActivity(
                     ActivityEntity(
                         activityId = activityId,
                         userId = userId,
@@ -164,14 +179,20 @@ class FirebaseRestoreDataSource(context: Context) {
                         exerciseSetsJson = exerciseSetsJson,
                         sourceType = doc.getString("sourceType") ?: "MANUAL",
                         sourceId = doc.getString("sourceId"),
-                        createdAt = doc.getLong("startTime") ?: System.currentTimeMillis(),
+                        createdAt = existing?.createdAt ?: doc.getLong("startTime") ?: System.currentTimeMillis(),
                         updatedAt = doc.getLong("modifiedTime") ?: System.currentTimeMillis(),
-                        isDeleted = false,
-                        deletedAt = null,
+                        isDeleted = doc.getBoolean("isDeleted") ?: false,
+                        deletedAt = doc.getLong("deletedAt"),
+                        remoteRevision = remoteRevision,
+                        originalCategory = doc.getString("originalCategory"),
                         syncStatus = SyncStatus.SYNCED
-                    )
+                    ),
+                    expectedLocalUpdatedAt = if (resolveActivityId != null) expectedLocalUpdatedAt else null
                 )
-                inserted++
+                if (applied) {
+                    inserted++
+                    activityRevisionDao.clearConflict(userId, activityId)
+                } else failed++
             }.onFailure { e ->
                 failed++
                 Log.w(TAG, "Activity restore item failed: ${doc.id} — ${e.message}")

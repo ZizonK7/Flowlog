@@ -34,18 +34,20 @@ class RoomActivityLocalDataSource(context: Context) {
      * id == 0L인 순수 Room 데이터는 아직 지원 안 함 (전환 완료 후 확장).
      */
     suspend fun update(activity: ActivitySession, userId: String) {
-        val activityId = if (activity.id != 0L) "legacy_activity_${activity.id}" else return
+        val activityId = activity.localActivityId ?: if (activity.id != 0L) "legacy_activity_${activity.id}" else return
         val existing = dao.getActivityById(activityId)
         if (existing == null) {
             // 엔티티가 Room에 없으면 (migration 미완료 등) upsert로 삽입
             dao.insertActivity(activity.toActivityEntity(userId))
             return
         }
+        require(existing.userId == userId) { "Activity belongs to another account" }
         dao.updateActivity(
             existing.copy(
                 title = activity.title,
                 category = activity.category,
                 note = activity.note,
+                startTime = activity.startTime,
                 endTime = activity.endTime,
                 durationMillis = activity.durationMillis,
                 isFavorite = activity.isFavorite,
@@ -53,7 +55,7 @@ class RoomActivityLocalDataSource(context: Context) {
                 exerciseSetsJson = activity.toActivityEntity(userId).exerciseSetsJson,
                 sourceType = activity.sourceType,
                 sourceId = activity.sourceId,
-                updatedAt = System.currentTimeMillis(),
+                updatedAt = maxOf(System.currentTimeMillis(), existing.updatedAt + 1),
                 syncStatus = SyncStatus.PENDING
             )
         )

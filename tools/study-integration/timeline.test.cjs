@@ -1,0 +1,22 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const root=process.env.STUDY_WEBSITE||'C:/Users/minii/Desktop/Folder/Website/pfkfks-main';
+test('production normalize→timeline→click preserves owned Firestore ID; sample/predicted not editable',()=>{
+const source=fs.readFileSync(path.join(root,'public-flowlog/statistics/statistics.js'),'utf8');
+const utils=fs.readFileSync(path.join(root,'public-flowlog/statistics/statistics-utils.js'),'utf8').replace(/import[^;]+;/,'const translations = {ko:{}};').replaceAll('export ','');
+const opened=[];const tip={hidden:true,style:{},getBoundingClientRect:()=>({})};
+const ctx={localStorage:{getItem:()=>null},crypto:globalThis.crypto,Date,Intl,window:{scrollX:0,scrollY:0},document:{getElementById:()=>tip,documentElement:{clientWidth:800}},requestAnimationFrame:()=>{},auth:{currentUser:{uid:'u'}},currentDataScope:'personal',lastOptions:{isSample:false},studyPanel:{open:id=>opened.push(id)}};
+vm.createContext(ctx);vm.runInContext(utils,ctx);
+const timeline=source.slice(source.indexOf('      function timelineBlock(item)'),source.indexOf('      export function setStatus'));
+vm.runInContext(timeline+'\nthis.render=timelineBlock;',ctx);
+const click=source.slice(source.indexOf('      window._showBlockTip ='),source.indexOf('      function TodayFlowPreview'));
+vm.runInContext(click,ctx);
+const raw={id:0,__path:'users/u/flowlog/data/activitySessions/uuid',title:'<b>x</b>',category:'ETC',startTime:Date.parse('2026-09-28T00:00:00Z'),endTime:Date.parse('2026-09-28T01:00:00Z'),durationMillis:3600000};
+ctx.raw=raw;const normalized=vm.runInContext('normalizeActivity(raw)',ctx);assert.equal(normalized.__path,raw.__path);
+const html=ctx.render(normalized);assert.ok(html.includes('data-activity-path="'+raw.__path+'"'));assert.ok(html.includes('&lt;b&gt;'));
+const element={dataset:{activityPath:raw.__path,tipTime:'09:00',tipTitle:'<b>x</b>'},getBoundingClientRect:()=>({left:0,width:10,top:0,bottom:10})};const event={stopPropagation(){}};
+ctx.window._showBlockTip(event,element);assert.deepEqual(opened,['uuid']);
+ctx.lastOptions.isSample=true;ctx.window._showBlockTip(event,element);assert.equal(opened.length,1);
+ctx.lastOptions.isSample=false;element.dataset.activityPath='users/other/flowlog/data/activitySessions/uuid';ctx.window._showBlockTip(event,element);assert.equal(opened.length,1);
+assert.ok(ctx.render({...normalized,isPredicted:true}).includes('data-activity-path=""'));
+ctx.raw={...raw,isDeleted:true};assert.equal(vm.runInContext('normalizeActivity(raw).start',ctx),null);
+});

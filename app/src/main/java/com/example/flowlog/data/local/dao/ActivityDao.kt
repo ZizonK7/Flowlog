@@ -111,7 +111,7 @@ interface ActivityDao {
         UPDATE activities
         SET isDeleted = 1,
             deletedAt = :deletedAt,
-            updatedAt = :updatedAt,
+            updatedAt = MAX(:updatedAt, updatedAt + 1),
             syncStatus = '${SyncStatus.PENDING}'
         WHERE activityId = :activityId
     """)
@@ -145,7 +145,7 @@ interface ActivityDao {
         UPDATE activities
         SET isDeleted = 1,
             deletedAt = :deletedAt,
-            updatedAt = :updatedAt,
+            updatedAt = MAX(:updatedAt, updatedAt + 1),
             syncStatus = '${SyncStatus.PENDING}'
         WHERE userId = :userId
           AND isDeleted = 0

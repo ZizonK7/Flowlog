@@ -40,20 +40,26 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
-            storePassword = keystoreProperties["storePassword"] as String
-            keyAlias = keystoreProperties["keyAlias"] as String
-            keyPassword = keystoreProperties["keyPassword"] as String
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+            }
         }
     }
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("release")
+            if (keystorePropertiesFile.exists()) signingConfig = signingConfigs.getByName("release")
+            // Compile/tests only on checkouts without Firebase client configuration.
+            if (providers.gradleProperty("offlineValidation").orNull == "true") {
+                resValue("string", "default_web_client_id", "offline-validation-not-a-client")
+            }
         }
         release {
-            signingConfig = signingConfigs.getByName("release")
+            if (keystorePropertiesFile.exists()) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             isShrinkResources = false
             proguardFiles(
@@ -69,7 +75,12 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        resValues = true
     }
+}
+
+if (providers.gradleProperty("offlineValidation").orNull == "true") {
+    tasks.matching { it.name == "processDebugGoogleServices" }.configureEach { enabled = false }
 }
 
 dependencies {

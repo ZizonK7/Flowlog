@@ -1,0 +1,12 @@
+const {DatabaseSync}=require('node:sqlite'),fs=require('node:fs'),assert=require('node:assert/strict'),path=require('node:path');
+const root=path.resolve(__dirname,'../..');
+const source=fs.readFileSync(path.join(root,'app/src/main/java/com/example/flowlog/data/local/db/FlowlogMigration23To24.kt'),'utf8');
+const db=new DatabaseSync(':memory:');
+db.exec('CREATE TABLE activities (activityId TEXT PRIMARY KEY NOT NULL,userId TEXT NOT NULL,title TEXT NOT NULL)');
+db.prepare('INSERT INTO activities VALUES (?,?,?)').run('a','owner','기존 기록');
+const sql=[...source.matchAll(/db\.execSQL\("([^"\n]+)"\)/g)].map(m=>m[1]);
+assert.equal(sql.length,11);sql.forEach(s=>db.exec(s));
+const row=db.prepare('SELECT * FROM activities').get();assert.equal(row.title,'기존 기록');assert.equal(row.remoteRevision,0);assert.equal(row.originalCategory,null);
+assert.deepEqual(db.prepare('PRAGMA table_info(activity_study_links)').all().filter(c=>c.pk).sort((a,b)=>a.pk-b.pk).map(c=>c.name),['userId','linkId']);
+assert.deepEqual(db.prepare('PRAGMA table_info(study_decisions)').all().filter(c=>c.pk).sort((a,b)=>a.pk-b.pk).map(c=>c.name),['userId','decisionId']);
+db.close();console.log('Actual v23→24 migration SQL executes, preserves rows, and creates account-scoped keys');

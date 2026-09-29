@@ -1,0 +1,32 @@
+const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const website=process.env.STUDY_WEBSITE || 'C:/Users/minii/Desktop/Folder/Website/pfkfks-main';
+const {chromium}=require(path.join(website,'tools/study-build/node_modules/playwright'));
+const root=path.join(website,'public-flowlog');
+const html=`<!doctype html><html lang="ko"><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/statistics/study-link-panel.css"></head><body><button id="open">기록 상세</button><script type="module">
+import {validateLinks} from '/statistics/study-link-model.js';
+import {createStudyLinkPanel} from '/statistics/study-link-panel.js';
+window.saved=[];window.fail=false;
+const start=Date.parse('2026-09-21T09:00:00.123+09:00'),end=start+7200000;
+const fixture={ownerUid:'u',activity:{id:'a',category:'ETC',title:'학교',startTime:start,endTime:end,revision:0},links:[],courses:[{id:'math',name:'수학',start:'2026-09-01',end:'2026-09-30',days:[1],time:'09:00',endTime:'10:00'},{id:'eng',name:'영어',start:'2026-09-01',end:'2026-09-30',days:[1],time:'10:00',endTime:'11:00'}],records:[{id:'math_2026-09-14',note:'이전 수업 메모',done:['2026-09-14','',''],skipped:false}]};
+window.panel=createStudyLinkPanel({store:{async load(){if(window.fail)throw Error('offline');return structuredClone(fixture)},async save(v){validateLinks(v.links,{...fixture.activity,startTime:v.patch.start,endTime:v.patch.end,category:v.patch.category});window.saved.push(structuredClone(v));},async recordDecision(v){window.saved.push(v)}}});
+document.querySelector('#open').onclick=()=>panel.open('a');window.ready=true;
+</script></body></html>`;
+const server=http.createServer((req,res)=>{const u=new URL(req.url,'http://localhost');if(u.pathname==='/'){res.setHeader('Content-Type','text/html;charset=utf-8');return res.end(html)}const file=path.resolve(root,'.'+u.pathname);if(!file.startsWith(root+path.sep)||!fs.existsSync(file)){res.writeHead(404);return res.end()}res.setHeader('Content-Type',file.endsWith('.css')?'text/css':'text/javascript');fs.createReadStream(file).pipe(res)});
+(async()=>{await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({headless:true,channel:'msedge'});const page=await browser.newPage({viewport:{width:390,height:844}});const errors=[];page.on('pageerror',e=>errors.push(e.message));try{
+await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>window.ready);
+await page.click('#open');await page.locator('.slp-form').waitFor({state:'visible'});
+assert.equal(await page.locator('.slp-cand-check:checked').count(),2);
+assert.equal(await page.locator('.slp-consent-label input').isChecked(),false);
+await page.click('.slp-save-btn');assert.equal(await page.evaluate(()=>saved[0].links.length),0,'title-only does not accept lessons');assert.equal(await page.evaluate(()=>saved[0].patch.start % 1000),123,'unchanged times preserve milliseconds');
+await page.click('#open');await page.locator('.slp-form').waitFor({state:'visible'});
+await page.locator('.slp-consent-label input').check();await page.locator('.slp-cand-check').nth(1).uncheck();await page.locator('input[name="slp-cat-radio"][value="SCHOOL"]').check();
+await page.click('.slp-save-btn');assert.equal(await page.evaluate(()=>saved[1].links.length),1);assert.equal(await page.evaluate(()=>saved[1].patch.category),'SCHOOL');
+await page.click('#open');await page.locator('.slp-form').waitFor({state:'visible'});await page.selectOption('.slp-add-course','math');await page.selectOption('.slp-add-lesson','math_2026-09-14');assert.equal(await page.locator('.slp-add-phase').count(),0);await page.click('.slp-btn-add');
+assert.ok((await page.locator('.slp-linked-list').innerText()).includes('이전 수업 메모'));
+await page.click('.slp-save-btn');assert.equal(await page.evaluate(()=>saved[2].links[0].phase),'RECORD');assert.deepEqual(await page.evaluate(()=>saved[2].links[0].snapshot.done),['2026-09-14','','']);await page.click('#open');await page.locator('.slp-form').waitFor({state:'visible'});
+fs.writeFileSync(path.join(__dirname,'../../app/build/study-validation/panel-record.json'),JSON.stringify(await page.evaluate(()=>saved[2])));
+const overflow=await page.locator('.slp-dialog').evaluate(e=>e.scrollWidth>e.clientWidth+2);assert.equal(overflow,false,'mobile no horizontal overflow');
+await page.screenshot({path:path.join(__dirname,'../../app/build/study-panel-mobile.png')});
+await page.evaluate(()=>panel.close());await page.evaluate(()=>window.fail=true);await page.click('#open');await page.locator('.slp-error-banner').waitFor({state:'visible'});assert.equal(await page.locator('.slp-save-btn').isDisabled(),true);
+assert.deepEqual(errors,[]);console.log('Browser: default selection, separate consent, one-course exclusion, phase/date/source, mobile layout and load-failure checks passed');
+}finally{await browser.close();server.close()}})().catch(e=>{console.error(e);server.close();process.exitCode=1});

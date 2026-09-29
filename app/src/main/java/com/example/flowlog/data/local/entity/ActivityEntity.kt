@@ -41,6 +41,11 @@ data class ActivityEntity(
     val deletedAt: Long? = null,
     val isDeleted: Boolean = false,
     // TODO: 스키마 변경 시 version 올리고 Room Migration 추가 필요
-    //   현재 version = 1, 개발 단계에서는 앱 데이터 초기화로 처리
-    val syncStatus: String = SyncStatus.PENDING
+    //   현재 DB version = 24 (FlowlogMigration23To24)
+    val syncStatus: String = SyncStatus.PENDING,
+    // v24: 마지막으로 확인된 원격 문서 revision (문서/필드 없음 = 0)
+    @ColumnInfo(defaultValue = "0")
+    val remoteRevision: Long = 0L,
+    // v24: 첫 회고 재분류 이전 category (한 번 기록되면 유지)
+    val originalCategory: String? = null
 )

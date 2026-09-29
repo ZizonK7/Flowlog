@@ -26,6 +26,12 @@ import com.example.flowlog.data.recommendation.FlowRecommendationEngine
 import com.example.flowlog.data.recommendation.FlowRecommendationSource
 import com.example.flowlog.data.recommendation.ReviewRecommendationPolicy
 import com.example.flowlog.data.recommendation.TimetableProgress
+import com.example.flowlog.data.recommendation.ExistingButtonNow
+import com.example.flowlog.data.recommendation.ExistingButtonRecommendationEngine
+import com.example.flowlog.data.recommendation.MainButtonEditRejection
+import com.example.flowlog.data.local.dao.StudyDao
+import com.example.flowlog.data.local.entity.StudyDecisionEntity
+import com.example.flowlog.data.study.StudyIds
 import com.example.flowlog.data.constants.EntityType
 import com.example.flowlog.data.constants.EventSource
 import com.example.flowlog.data.constants.EventType
@@ -2028,13 +2034,20 @@ class ActivityViewModel(
         val json = mainButtonPrefs.getString(KEY_MAIN_BUTTON_CONFIG, null)
             ?: return MainButtonConfig.EMPTY
         return try {
-            undoJson.decodeFromString(json)
+            undoJson.decodeFromString<MainButtonConfig>(json).takeIf {
+                ExistingButtonRecommendationEngine.isWithinCap(it.buttons)
+            } ?: MainButtonConfig.EMPTY
         } catch (_: Exception) {
             MainButtonConfig.EMPTY
         }
     }
 
     private fun persistMainButtonConfig(config: MainButtonConfig) {
+        // 메인 버튼 최대 10개는 저장 단계에서도 강제
+        if (!ExistingButtonRecommendationEngine.isWithinCap(config.buttons)) {
+            Log.w("MainButtonConfig", "rejected config over max ${MainButtonConfig.MAX_BUTTONS}")
+            return
+        }
         mainButtonPrefs.edit()
             .putString(KEY_MAIN_BUTTON_CONFIG, undoJson.encodeToString(config))
             .apply()
@@ -2042,6 +2055,7 @@ class ActivityViewModel(
     }
 
     private fun persistAndSyncMainButtonConfig(config: MainButtonConfig) {
+        if (!ExistingButtonRecommendationEngine.isWithinCap(config.buttons)) return
         persistMainButtonConfig(config)
         val currentUid = FirebaseAuth.getInstance().currentUser?.uid
         mainButtonPrefs.edit().apply {
@@ -2183,6 +2197,7 @@ class ActivityViewModel(
     fun openAiMessenger() {
         _aiMessengerUiState.update { it.copy(showSheet = true, hasUnread = false) }
         maybeGenerateMainButtonRecommendationMessage()
+        maybeGenerateExistingButtonRecommendations()
     }
 
     fun debugInjectMainButtonRecommendation() {
@@ -2277,6 +2292,225 @@ class ActivityViewModel(
             })
         }
     }
+
+    // region existing button recommendations (SCHOOL / MOVE)
+
+    private var existingButtonStudyDao: StudyDao? = null
+
+    /** MainActivity 에서 db.studyDao() 를 연결한다. 연결 전에는 추천/결정 기록이 모두 비활성. */
+    fun attachStudyDao(dao: StudyDao) {
+        existingButtonStudyDao = dao
+    }
+
+    private fun existingButtonNow(uid: String, nowMillis: Long): ExistingButtonNow {
+        val cal = Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Seoul")).apply { timeInMillis = nowMillis }
+        val localDate = existingButtonLocalDate(cal)
+        val weekday = cal.get(Calendar.DAY_OF_WEEK) - Calendar.SUNDAY
+        val minuteOfDay = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+        cal.add(Calendar.DAY_OF_YEAR, -ExistingButtonRecommendationEngine.WINDOW_DAYS)
+        return ExistingButtonNow(uid, localDate, existingButtonLocalDate(cal), weekday, minuteOfDay)
+    }
+
+    private fun existingButtonLocalDate(cal: Calendar): String = String.format(
+        java.util.Locale.US, "%04d-%02d-%02d",
+        cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH)
+    )
+
+    /** 메신저를 열 때만 생성. 자동 타이머 전환 없음. */
+    fun maybeGenerateExistingButtonRecommendations() {
+        val dao = existingButtonStudyDao ?: return
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val decisions = runCatching { dao.observeDecisionsSince(uid, 0L).first() }
+                .getOrElse { return@launch }
+            if (FirebaseAuth.getInstance().currentUser?.uid != uid) return@launch
+            val state = _uiState.value
+            val proposals = ExistingButtonRecommendationEngine.propose(
+                decisions = decisions,
+                now = existingButtonNow(uid, System.currentTimeMillis()),
+                mainButtons = state.mainButtonConfig.buttons,
+                isRunning = state.isRunning
+            )
+            _aiMessengerUiState.update { s ->
+                val validIds = proposals.map { "$uid~${it.proposalId}" }.toSet()
+                val retained = s.messages.filter { it !is AiMessage.ExistingButtonRecommendation ||
+                    (it.userId == uid && it.id in validIds) }
+                val known = retained
+                    .filterIsInstance<AiMessage.ExistingButtonRecommendation>()
+                    .map { it.proposalId }
+                    .toSet()
+                val fresh = proposals
+                    .filter { it.proposalId !in known }
+                    .map { p ->
+                        AiMessage.ExistingButtonRecommendation(
+                            id = "$uid~${p.proposalId}",
+                            userId = uid,
+                            proposalId = p.proposalId,
+                            category = p.category,
+                            evidenceDays = p.evidenceDays
+                        )
+                    }
+                s.copy(messages = retained + fresh, hasUnread = s.hasUnread || (!s.showSheet && fresh.isNotEmpty()))
+            }
+        }
+    }
+
+    private fun findExistingButtonRecommendation(messageId: String): AiMessage.ExistingButtonRecommendation? {
+        val message = _aiMessengerUiState.value.messages
+            .filterIsInstance<AiMessage.ExistingButtonRecommendation>()
+            .find { it.id == messageId } ?: return null
+        // 다른 계정에서 생성된 제안은 무시
+        if (FirebaseAuth.getInstance().currentUser?.uid != message.userId) return null
+        if (message.status != RecommendationStatus.PENDING) return null
+        val now = existingButtonNow(message.userId, System.currentTimeMillis())
+        if (message.proposalId != ExistingButtonRecommendationEngine.proposalId(message.category, now.localDate, now.minuteOfDay)) return null
+        return message
+    }
+
+    private fun setExistingButtonRecommendationStatus(messageId: String, status: RecommendationStatus) {
+        _aiMessengerUiState.update { s ->
+            s.copy(messages = s.messages.map { msg ->
+                if (msg.id == messageId && msg is AiMessage.ExistingButtonRecommendation) msg.copy(status = status)
+                else msg
+            })
+        }
+    }
+
+    /** 불변 결정 기록. mutationId = proposalId 이므로 같은 제안의 같은 kind 재시도는 중복 없이 무시된다. */
+    private suspend fun recordExistingButtonDecision(
+        message: AiMessage.ExistingButtonRecommendation,
+        kind: String,
+        outcome: String,
+        payload: JSONObject = JSONObject()
+    ): Boolean {
+        val dao = existingButtonStudyDao ?: return false
+        if (FirebaseAuth.getInstance().currentUser?.uid != message.userId) return false
+        val nowMillis = System.currentTimeMillis()
+        val now = existingButtonNow(message.userId, nowMillis)
+        return runCatching {
+            dao.recordDecision(
+                StudyDecisionEntity(
+                    decisionId = StudyIds.decisionId(message.proposalId, kind).value,
+                    userId = message.userId,
+                    proposalId = message.proposalId,
+                    kind = kind,
+                    category = message.category,
+                    localDate = now.localDate,
+                    minuteOfDay = now.minuteOfDay,
+                    weekday = now.weekday,
+                    outcome = outcome,
+                    createdAt = nowMillis,
+                    payloadJson = payload.toString()
+                )
+            )
+        }.onFailure { Log.w("ExistingButtonRec", "decision record failed: $kind", it) }
+            .getOrDefault(false)
+    }
+
+    /** 카드가 실제로 렌더링됐을 때만 호출 (노출 기록). */
+    fun onExistingButtonRecommendationShown(messageId: String) {
+        val message = findExistingButtonRecommendation(messageId) ?: return
+        if (message.status != RecommendationStatus.PENDING) return
+        viewModelScope.launch(Dispatchers.IO) {
+            recordExistingButtonDecision(
+                message,
+                ExistingButtonRecommendationEngine.KIND_RECOMMENDATION_SHOWN,
+                ExistingButtonRecommendationEngine.OUTCOME_SHOWN
+            )
+        }
+    }
+
+    /** 이번 한 번만 시작. 메인 버튼 슬롯은 추가하지 않는다. 진행 중 활동이 있으면 시작하지 않는다. */
+    fun useExistingButtonRecommendation(messageId: String, startCategory: (String) -> Unit) {
+        val message = findExistingButtonRecommendation(messageId) ?: return
+        if (_uiState.value.isRunning) {
+            _uiState.update { it.copy(statusMessage = "진행 중인 활동을 먼저 종료한 후 시작해 주세요.") }
+            return
+        }
+        startCategory(message.category)
+        if (!_uiState.value.isRunning || _uiState.value.currentCategory != message.category) return
+        setExistingButtonRecommendationStatus(messageId, RecommendationStatus.ACCEPTED)
+        viewModelScope.launch(Dispatchers.IO) {
+            recordExistingButtonDecision(
+                message,
+                ExistingButtonRecommendationEngine.KIND_BUTTON_USE,
+                ExistingButtonRecommendationEngine.OUTCOME_APPLIED,
+                JSONObject().put("toCategory", message.category)
+            )
+        }
+    }
+
+    fun addExistingButtonRecommendation(messageId: String) {
+        val message = findExistingButtonRecommendation(messageId) ?: return
+        val config = _uiState.value.mainButtonConfig
+        when (ExistingButtonRecommendationEngine.checkAdd(config.buttons, message.category)) {
+            null -> Unit
+            MainButtonEditRejection.AT_CAPACITY -> {
+                _uiState.update { it.copy(statusMessage = "버튼이 10개예요. 카드에서 교체할 버튼을 선택해 주세요.") }
+                return
+            }
+            else -> return
+        }
+        persistAndSyncMainButtonConfig(
+            config.copy(buttons = ExistingButtonRecommendationEngine.applyAdd(config.buttons, message.category))
+        )
+        setExistingButtonRecommendationStatus(messageId, RecommendationStatus.ACCEPTED)
+        viewModelScope.launch(Dispatchers.IO) {
+            recordExistingButtonDecision(
+                message,
+                ExistingButtonRecommendationEngine.KIND_BUTTON_ADD,
+                ExistingButtonRecommendationEngine.OUTCOME_APPLIED,
+                JSONObject().put("toCategory", message.category)
+            )
+        }
+    }
+
+    /** 10개 상태에서 카드 안 선택기로 사용자가 명시적으로 고른 버튼만 교체. */
+    fun replaceWithExistingButtonRecommendation(messageId: String, oldCategory: String) {
+        val message = findExistingButtonRecommendation(messageId) ?: return
+        val config = _uiState.value.mainButtonConfig
+        if (ExistingButtonRecommendationEngine.checkReplace(config.buttons, oldCategory, message.category) != null) return
+        persistAndSyncMainButtonConfig(
+            config.copy(
+                buttons = ExistingButtonRecommendationEngine.applyReplace(config.buttons, oldCategory, message.category)
+            )
+        )
+        setExistingButtonRecommendationStatus(messageId, RecommendationStatus.ACCEPTED)
+        viewModelScope.launch(Dispatchers.IO) {
+            recordExistingButtonDecision(
+                message,
+                ExistingButtonRecommendationEngine.KIND_BUTTON_REPLACE,
+                ExistingButtonRecommendationEngine.OUTCOME_APPLIED,
+                JSONObject().put("fromCategory", oldCategory).put("toCategory", message.category)
+            )
+        }
+    }
+
+    fun dismissExistingButtonRecommendation(messageId: String) {
+        val message = findExistingButtonRecommendation(messageId) ?: return
+        setExistingButtonRecommendationStatus(messageId, RecommendationStatus.DISMISSED)
+        viewModelScope.launch(Dispatchers.IO) {
+            recordExistingButtonDecision(
+                message,
+                ExistingButtonRecommendationEngine.KIND_RECOMMENDATION_SNOOZE,
+                ExistingButtonRecommendationEngine.OUTCOME_SNOOZED
+            )
+        }
+    }
+
+    fun disableExistingButtonRecommendation(messageId: String) {
+        val message = findExistingButtonRecommendation(messageId) ?: return
+        setExistingButtonRecommendationStatus(messageId, RecommendationStatus.DISMISSED)
+        viewModelScope.launch(Dispatchers.IO) {
+            recordExistingButtonDecision(
+                message,
+                ExistingButtonRecommendationEngine.KIND_RECOMMENDATION_DISABLE,
+                ExistingButtonRecommendationEngine.OUTCOME_DECLINED
+            )
+        }
+    }
+
+    // endregion existing button recommendations
 
     private fun loadDismissedCategories(): Map<String, Long> {
         val json = aiMessengerPrefs.getString(KEY_DISMISSED_CATEGORIES, null) ?: return emptyMap()

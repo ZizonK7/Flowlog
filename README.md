@@ -71,6 +71,33 @@ account.
 
 ## Architecture
 
+### Study–Flowlog integration (2026-09-29)
+
+- On the web statistics page, open an owned activity block to edit its details
+  and link a whole study record by course and lesson date. There is no separate
+  study/review stage selector: title, notes and study/review dates come from the
+  source record. The original link snapshot remains available.
+- Android uses Room v24 to retain study links, decision history and activity
+  revision conflicts. Web edits sync back; conflicting edits require a choice.
+- Confirming school/travel classifications can inform suggestions in the existing
+  messenger UI. Main buttons remain capped at ten; starting once adds no button.
+- Native Android study-link editing and GPS collection are not implemented.
+
+The matching web implementation and authoritative Firestore rules live in
+[pfkfks-main](https://github.com/ZizonK7/pfkfks-main). New rules reject legacy
+unversioned activity writes, so install the updated Android build when applying
+the rules and web changes. A Git push does not install the app or deploy rules.
+The coordinated web commit uses `[skip ci]` to avoid Hosting-only deployment.
+
+Validation: Android compilation and 98 unit tests, 13 web model/store tests,
+Edge browser checks, and 15 Firestore emulator assertions passed. Real Firebase
+login, an existing-device database upgrade, and cross-device sync still need
+the owner's trial. Check app-to-web upload, web-to-app detail changes, record
+linking, and conflict resolution after updating. Local compile/tests used
+`-PofflineValidation=true`; use real Firebase configuration for the trial build.
+See [implementation status](docs/study-integration/IMPLEMENTATION_STATUS.md)
+for storage details and test commands.
+
 ```text
 app/src/main/java/com/example/flowlog/
   data/             Models, repositories, local data sources, sync, and rules
@@ -100,9 +127,10 @@ stays focused on one part of the home experience.
 
 ## Data & Sync
 
-Flowlog treats Android local data as the source of truth. Activity and Todo
-writes happen locally first through Room-backed repositories, so basic logging
-continues to work without network access.
+Activity and Todo creation happens locally first through Room-backed
+repositories, so basic logging continues without network access. Synced activity
+details can also be edited on the web; revisions and explicit conflict handling
+protect pending local edits when those changes return to Android.
 
 When a user signs in with Google, supported local changes are uploaded to
 Firestore:

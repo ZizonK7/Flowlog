@@ -1,0 +1,10 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('C:/Users/minii/Desktop/Folder/Website/pfkfks-main/functions/index.js','utf8');
+const block=source.slice(source.indexOf('const SUMMARY_RATE_LIMIT_MS'),source.indexOf('exports.updateActivitySummary ='));
+const context={};vm.createContext(context);vm.runInContext(block+'\nthis.compute=computeActivitySummary;this.dist=computeDistCache;',context);
+const row={startTime:Date.parse('2026-09-21T00:00:00Z'),endTime:Date.parse('2026-09-21T01:00:00Z'),durationMillis:3600000,category:'SCHOOL'};
+const doc=data=>({data:()=>data});
+const live=context.compute([doc(row)]);assert.equal(live.totalMinutes,60);
+const deleted=context.compute([doc(row),doc({...row,isDeleted:true}),doc({...row,deletedAt:123})]);assert.equal(deleted.totalMinutes,60);
+const dist1=context.dist([doc(row)]),dist2=context.dist([doc(row),doc({...row,isDeleted:true})]);assert.equal(JSON.stringify(dist1),JSON.stringify(dist2));
+console.log('Actual backend summary and distribution ignore activity tombstones');

@@ -20,7 +20,7 @@ private val mapperJson = Json { ignoreUnknownKeys = true }
  * TODO(Room 전환 완료 후): "anonymous" 데이터를 실제 uid로 reassign하는 단계 필요.
  */
 fun ActivitySession.toActivityEntity(userId: String): ActivityEntity {
-    val activityId = if (id != 0L) "legacy_activity_$id" else UUID.randomUUID().toString()
+    val activityId = localActivityId ?: if (id != 0L) "legacy_activity_$id" else UUID.randomUUID().toString()
     return ActivityEntity(
         activityId = activityId,
         userId = userId,
@@ -43,6 +43,8 @@ fun ActivitySession.toActivityEntity(userId: String): ActivityEntity {
         updatedAt = modifiedTime,
         isDeleted = false,
         deletedAt = null,
+        remoteRevision = remoteRevision,
+        originalCategory = originalCategory,
         syncStatus = SyncStatus.PENDING
     )
 }
@@ -82,6 +84,9 @@ fun ActivityEntity.toActivitySession(): ActivitySession {
         linkedPetiteId = linkedPetiteId,
         sourceType = sourceType,
         sourceId = sourceId,
-        modifiedTime = updatedAt
+        modifiedTime = updatedAt,
+        remoteRevision = remoteRevision,
+        originalCategory = originalCategory,
+        localActivityId = activityId
     )
 }

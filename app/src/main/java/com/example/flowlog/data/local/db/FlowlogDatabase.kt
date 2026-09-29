@@ -7,6 +7,11 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.flowlog.data.local.dao.ActivityDao
+import com.example.flowlog.data.local.dao.ActivityRevisionDao
+import com.example.flowlog.data.local.dao.StudyDao
+import com.example.flowlog.data.local.entity.StudyLinkEntity
+import com.example.flowlog.data.local.entity.StudyDecisionEntity
+import com.example.flowlog.data.local.entity.ActivityConflictEntity
 import com.example.flowlog.data.local.dao.AutoButtonScheduleDao
 import com.example.flowlog.data.local.dao.CalendarEventDao
 import com.example.flowlog.data.local.dao.DailyCueDao
@@ -43,6 +48,9 @@ import com.example.flowlog.data.local.entity.UserEntity
     entities = [
         // Phase 1 — 핵심
         ActivityEntity::class,
+        StudyLinkEntity::class,
+        StudyDecisionEntity::class,
+        ActivityConflictEntity::class,
         AutoButtonScheduleEntity::class,
         AutoButtonSkipDateEntity::class,
         AutoButtonUndoSnapshotEntity::class,
@@ -71,7 +79,7 @@ import com.example.flowlog.data.local.entity.UserEntity
         LectureCalendarInfoEntity::class,
         DailyCueEntity::class,
     ],
-    version = 23,
+    version = 24,
     // 장기적으로는 schema export + Migration 검증을 붙이는 것이 바람직하지만,
     // 현재 단계에서는 개발 편의상 schema 파일 생성을 보류한다.
     exportSchema = false
@@ -80,6 +88,8 @@ abstract class FlowlogDatabase : RoomDatabase() {
 
     // Phase 1 DAOs
     abstract fun activityDao(): ActivityDao
+    abstract fun activityRevisionDao(): ActivityRevisionDao
+    abstract fun studyDao(): StudyDao
     abstract fun autoButtonScheduleDao(): AutoButtonScheduleDao
     abstract fun todoDao(): TodoDao
     abstract fun eventLogDao(): EventLogDao
@@ -111,7 +121,7 @@ abstract class FlowlogDatabase : RoomDatabase() {
                     FlowlogDatabase::class.java,
                     "flowlog.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, FlowlogMigration23To24)
                     .build().also { INSTANCE = it }
             }
         }

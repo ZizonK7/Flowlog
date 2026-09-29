@@ -192,6 +192,9 @@ class MainActivity : ComponentActivity() {
                     ).get(TodoViewModel::class.java)
                 }
                 val activityUiState by activityViewModel.uiState.collectAsState()
+                LaunchedEffect(activityViewModel) {
+                    activityViewModel.attachStudyDao(FlowlogDatabase.getInstance(applicationContext).studyDao())
+                }
                 val isFocusFireActive = activityUiState.isRunning && activityUiState.isFocusModeActive
                 val promotedButtons by activityViewModel.promotedButtons.collectAsState()
                 val isNotificationSoundEnabled by activityViewModel.isNotificationSoundEnabled.collectAsState()
@@ -228,6 +231,48 @@ class MainActivity : ComponentActivity() {
                 }
                 val auth = remember { FirebaseAuth.getInstance() }
                 var signedInUser by remember { mutableStateOf(auth.currentUser) }
+                val conflictDao = remember { FlowlogDatabase.getInstance(applicationContext).activityRevisionDao() }
+                val conflictScope = rememberCoroutineScope()
+                var syncConflicts by remember(signedInUser?.uid) { mutableStateOf(emptyList<com.example.flowlog.data.local.entity.ActivityConflictEntity>()) }
+                var dismissedConflicts by remember(signedInUser?.uid) { mutableStateOf(emptySet<String>()) }
+                var resolvingConflict by remember { mutableStateOf(false) }
+                var conflictError by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(signedInUser?.uid) {
+                    val owner = signedInUser?.uid ?: return@LaunchedEffect
+                    conflictDao.observeConflicts(owner).collect { syncConflicts = it }
+                }
+                val conflict = syncConflicts.firstOrNull { it.activityId !in dismissedConflicts }
+                if (conflict != null) {
+                    fun resolveConflict(useRemote: Boolean) {
+                        if (resolvingConflict || auth.currentUser?.uid != conflict.userId) return
+                        resolvingConflict = true
+                        conflictError = null
+                        conflictScope.launch {
+                            runCatching {
+                                if (useRemote) {
+                                    val result = FirebaseRestoreDataSource(applicationContext).restoreActivities(
+                                        conflict.userId, conflict.activityId, conflict.remoteRevision, conflict.localUpdatedAt
+                                    )
+                                    check(result.inserted == 1 && result.failed == 0) { "기록이 다시 변경되었거나 불러오지 못했습니다. 동기화 후 다시 선택해 주세요." }
+                                } else {
+                                    check(conflictDao.rebaseLocal(conflict.userId, conflict.activityId, conflict.localUpdatedAt, conflict.remoteRevision) == 1) {
+                                        "앱 기록이 다시 변경되었습니다. 동기화 후 다시 선택해 주세요."
+                                    }
+                                    conflictDao.clearConflict(conflict.userId, conflict.activityId)
+                                    FirebaseSyncCoordinator(applicationContext).syncAll(conflict.userId)
+                                }
+                            }.onFailure { conflictError = it.message }
+                            resolvingConflict = false
+                        }
+                    }
+                    AlertDialog(
+                        onDismissRequest = { if (!resolvingConflict) dismissedConflicts = dismissedConflicts + conflict.activityId },
+                        title = { Text("기록 수정 충돌") },
+                        text = { Text("앱 기록\n${conflict.localDescription}\n\n웹 기록\n${conflict.remoteDescription}\n\n${conflict.reason}\n\n수업 연결 구간 변경은 웹의 기록 상세에서 조정할 수 있어요." + (conflictError?.let { "\n\n$it" } ?: "")) },
+                        confirmButton = { TextButton(enabled = !resolvingConflict, onClick = { resolveConflict(false) }) { Text("앱 기록 유지") } },
+                        dismissButton = { TextButton(enabled = !resolvingConflict, onClick = { resolveConflict(true) }) { Text("웹 기록 사용") } }
+                    )
+                }
                 var syncStatus by remember { mutableStateOf<String?>(null) }
                 val scope = rememberCoroutineScope()
                 val aiMessengerUiState by activityViewModel.aiMessengerUiState.collectAsState()
@@ -506,6 +551,15 @@ class MainActivity : ComponentActivity() {
                         onAccept = { id -> activityViewModel.acceptMainButtonRecommendation(id) },
                         onDismiss = { id -> activityViewModel.dismissMainButtonRecommendation(id) },
                         onClose = { activityViewModel.closeAiMessenger() },
+                        mainButtons = activityUiState.mainButtonConfig.buttons,
+                        existingButtonCallbacks = ExistingButtonCardCallbacks(
+                            onShown = activityViewModel::onExistingButtonRecommendationShown,
+                            onUse = { id -> activityViewModel.useExistingButtonRecommendation(id, activityViewModel::startActivity) },
+                            onAdd = activityViewModel::addExistingButtonRecommendation,
+                            onReplace = activityViewModel::replaceWithExistingButtonRecommendation,
+                            onDismiss = activityViewModel::dismissExistingButtonRecommendation,
+                            onDisable = activityViewModel::disableExistingButtonRecommendation
+                        ),
                     )
                 }
                 }
@@ -1198,10 +1252,15 @@ private fun AiMessengerSheet(
     onAccept: (messageId: String) -> Unit,
     onDismiss: (messageId: String) -> Unit,
     onClose: () -> Unit,
+    mainButtons: List<com.example.flowlog.data.model.MainButtonItem> = emptyList(),
+    existingButtonCallbacks: ExistingButtonCardCallbacks = ExistingButtonCardCallbacks(),
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val pendingRecommendations = uiState.messages
         .filterIsInstance<AiMessage.MainButtonRecommendation>()
+        .filter { it.status == RecommendationStatus.PENDING }
+    val pendingExistingButtons = uiState.messages
+        .filterIsInstance<AiMessage.ExistingButtonRecommendation>()
         .filter { it.status == RecommendationStatus.PENDING }
 
     ModalBottomSheet(
@@ -1251,7 +1310,16 @@ private fun AiMessengerSheet(
                 }
             }
 
-            if (pendingRecommendations.isEmpty()) {
+            pendingExistingButtons.forEach { recommendation ->
+                ExistingButtonSuggestionCard(
+                    recommendation = recommendation,
+                    mainButtons = mainButtons,
+                    callbacks = existingButtonCallbacks,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+            }
+
+            if (pendingRecommendations.isEmpty() && pendingExistingButtons.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1276,6 +1344,126 @@ private fun AiMessengerSheet(
                         modifier = Modifier.padding(bottom = 12.dp)
                     )
                 }
+            }
+        }
+    }
+}
+
+private data class ExistingButtonCardCallbacks(
+    val onShown: (messageId: String) -> Unit = {},
+    val onUse: (messageId: String) -> Unit = {},
+    val onAdd: (messageId: String) -> Unit = {},
+    val onReplace: (messageId: String, oldCategory: String) -> Unit = { _, _ -> },
+    val onDismiss: (messageId: String) -> Unit = {},
+    val onDisable: (messageId: String) -> Unit = {}
+)
+
+@Composable
+private fun ExistingButtonSuggestionCard(
+    recommendation: AiMessage.ExistingButtonRecommendation,
+    mainButtons: List<com.example.flowlog.data.model.MainButtonItem>,
+    callbacks: ExistingButtonCardCallbacks,
+    modifier: Modifier = Modifier
+) {
+    // 실제로 렌더링된 카드만 노출(SHOWN)로 기록
+    androidx.compose.runtime.LaunchedEffect(recommendation.id) {
+        callbacks.onShown(recommendation.id)
+    }
+    val selectedOld = androidx.compose.runtime.remember(recommendation.id) {
+        androidx.compose.runtime.mutableStateOf<String?>(null)
+    }
+    val name = displayCategory(recommendation.category)
+    val isOnMain = mainButtons.any { it.category == recommendation.category }
+    val needsReplacement = !isOnMain &&
+        mainButtons.size >= com.example.flowlog.data.model.MainButtonConfig.MAX_BUTTONS
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F9)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, Color(0xFFE8E8EE))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "최근 4주 중 ${recommendation.evidenceDays}일, 이 요일·시간대에 '$name'(으)로 기록했어요.",
+                fontSize = 14.sp,
+                color = Color(0xFF10182C)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { callbacks.onDismiss(recommendation.id) },
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE8E8EE)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF697386))
+                ) {
+                    Text(stringResource(R.string.main_activity_later), fontSize = 13.sp)
+                }
+                Button(
+                    onClick = { callbacks.onUse(recommendation.id) },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF5140D8),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text(if (isOnMain) "지금 시작" else "이번만 시작", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            if (!isOnMain && !needsReplacement) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { callbacks.onAdd(recommendation.id) },
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, Color(0xFF5140D8)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF5140D8))
+                ) {
+                    Text(stringResource(R.string.main_activity_add_button), fontSize = 13.sp)
+                }
+            }
+            if (needsReplacement) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "메인 버튼이 10개예요. 교체할 버튼을 직접 선택하세요.",
+                    fontSize = 12.sp,
+                    color = Color(0xFF697386)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                mainButtons.filter { !it.isPinned }.sortedBy { it.order }.forEach { button ->
+                    val isSelected = selectedOld.value == button.category
+                    OutlinedButton(
+                        onClick = { selectedOld.value = if (isSelected) null else button.category },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, if (isSelected) Color(0xFF5140D8) else Color(0xFFE8E8EE)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (isSelected) Color(0xFF5140D8) else Color(0xFF697386)
+                        )
+                    ) {
+                        Text(displayCategory(button.category), fontSize = 13.sp)
+                    }
+                }
+                Button(
+                    onClick = { selectedOld.value?.let { callbacks.onReplace(recommendation.id, it) } },
+                    enabled = selectedOld.value != null,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF5140D8),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text("선택한 버튼을 '$name'(으)로 교체", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { callbacks.onDisable(recommendation.id) },
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, Color(0xFFE8E8EE)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF697386))
+            ) {
+                Text("이 추천 받지 않기", fontSize = 12.sp)
             }
         }
     }

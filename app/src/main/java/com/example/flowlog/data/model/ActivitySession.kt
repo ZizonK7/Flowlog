@@ -28,6 +28,9 @@ data class ActivitySession(
     val linkedPetiteId: String? = null,
     val sourceType: String = ActivitySourceType.MANUAL,
     val sourceId: String? = null,
-    val modifiedTime: Long = System.currentTimeMillis()
+    val modifiedTime: Long = System.currentTimeMillis(),
+    val remoteRevision: Long = 0L,
+    val originalCategory: String? = null,
+    val localActivityId: String? = null
 )
 

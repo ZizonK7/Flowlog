@@ -9,6 +9,8 @@ import com.example.flowlog.data.local.entity.SyncBatchEntity
 import com.example.flowlog.data.local.mapper.toActivitySession
 import com.example.flowlog.data.local.mapper.toTodoItem
 import com.example.flowlog.data.remote.FirestoreSyncRepository
+import com.example.flowlog.data.remote.awaitResult
+import com.example.flowlog.data.local.entity.ActivityConflictEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -26,6 +28,7 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
 
     private val db = FlowlogDatabase.getInstance(context)
     private val activityDao = db.activityDao()
+    private val activityRevisionDao = db.activityRevisionDao()
     private val todoDao = db.todoDao()
     private val eventLogDao = db.eventLogDao()
     private val dailyGoalDao = db.dailyGoalDao()
@@ -135,15 +138,34 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
             pending.forEach { entity ->
                 runCatching {
                     val docId = entity.legacyId?.toString() ?: entity.activityId
-                    if (entity.isDeleted) {
-                        firestoreSync.deleteActivityByDocId(docId)
-                    } else {
-                        firestoreSync.syncActivityByDocId(docId, entity.toActivitySession())
-                    }
-                    activityDao.markActivitySynced(entity.activityId)
+                    val newRevision = firestoreSync.commitActivityRevision(
+                        ownerUid = userId,
+                        docId = docId,
+                        activity = entity.toActivitySession(),
+                        baseRevision = entity.remoteRevision,
+                        deletedAt = if (entity.isDeleted) entity.deletedAt ?: entity.updatedAt else null
+                    ) ?: error("Not signed in; activity left PENDING")
+                    // 업로드 중 로컬 수정이 있었다면 PENDING 유지 (updatedAt 조건부 ACK)
+                    activityRevisionDao.ackActivityUpload(userId, entity.activityId, entity.updatedAt, newRevision)
+                    activityRevisionDao.clearConflict(userId, entity.activityId)
                     successCount++
                 }.onFailure { e ->
                     errors.add("${entity.activityId}: ${e.message}")
+                    if (e is com.example.flowlog.data.remote.ActivityRevisionConflictException || e is IllegalArgumentException) {
+                        runCatching {
+                            val remote = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                                .document("users/$userId/flowlog/data/activitySessions/${entity.legacyId ?: entity.activityId}")
+                                .get().awaitResult()
+                            fun description(title: String?, category: String?, start: Long?, end: Long?) =
+                                "${title.orEmpty()} · ${category.orEmpty()}\n${java.util.Date(start ?: 0)} – ${java.util.Date(end ?: 0)}"
+                            activityRevisionDao.saveConflict(ActivityConflictEntity(
+                                userId, entity.activityId, remote.getLong("revision") ?: 0L, entity.updatedAt,
+                                description(entity.title, entity.category, entity.startTime, entity.endTime),
+                                description(remote.getString("title"), remote.getString("category"), remote.getLong("startTime"), remote.getLong("endTime")),
+                                e.message ?: "다른 기기에서 수정된 기록입니다."
+                            ))
+                        }
+                    }
                     Log.w(TAG, "Activity sync failed: ${entity.activityId} — ${e.message}")
                 }
             }

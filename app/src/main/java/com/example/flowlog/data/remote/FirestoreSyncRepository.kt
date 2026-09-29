@@ -138,6 +138,65 @@ class FirestoreSyncRepository(
         markSynced(userId)
     }
 
+    /**
+     * Optimistic revision commit (activitySessions/{docId}).
+     * 원격 revision(없으면 0) != [baseRevision] 이면 ActivityRevisionConflictException 으로 실패.
+     * 성공 시 revision+1 기록 후 반환. 삭제는 hard delete 대신 isDeleted/deletedAt tombstone.
+     */
+    suspend fun commitActivityRevision(
+        ownerUid: String,
+        docId: String,
+        activity: ActivitySession,
+        baseRevision: Long,
+        deletedAt: Long?
+    ): Long? {
+        require(uid == ownerUid) { "Account changed" }
+        val userId = ownerUid
+        val mutationId = java.security.MessageDigest.getInstance("SHA-256")
+            .digest((docId + activity.toString() + deletedAt).toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val ref = activityCollection(userId).document(docId)
+        val links = firestore.collection("users").document(userId).collection("activityStudyLinks")
+            .whereEqualTo("activityId", docId).get().awaitResult().documents
+        val newRevision = firestore.runTransaction<Long> { tx ->
+            require(uid == ownerUid) { "Account changed" }
+            val snapshot = tx.get(ref)
+            val remoteRevision = if (snapshot.exists()) snapshot.getLong("revision") ?: 0L else 0L
+            val next = ActivityRevisionPolicy.next(docId, baseRevision, remoteRevision, mutationId, snapshot.getString("lastMutationId"))
+            if (next == remoteRevision) return@runTransaction remoteRevision
+            val checkedLinks = links.map { tx.get(it.reference) }
+            if (deletedAt == null) {
+                checkedLinks.filter { it.exists() && it.get("deletedAt") == null }.forEach { link ->
+                    require(activity.category != "MOVE" || link.getString("phase") != "COURSE_SESSION") {
+                        "연결된 수업을 먼저 해제해 주세요."
+                    }
+                    val segments = link.get("segments") as? List<*> ?: emptyList<Any>()
+                    segments.forEach { raw ->
+                        val segment = raw as? Map<*, *> ?: error("Invalid study segment")
+                        require((segment["startTime"] as Number).toLong() >= activity.startTime &&
+                            (segment["endTime"] as Number).toLong() <= activity.endTime) {
+                            "수업 연결 구간을 먼저 수정해 주세요."
+                        }
+                    }
+                }
+            }
+            val data = activity.toRemoteMap().toMutableMap()
+            data["start_time"] = activity.startTime
+            data["end_time"] = activity.endTime
+            data["durationMinutes"] = activity.durationMillis / 60000.0
+            data["durationMillis"] = activity.durationMillis
+            data["lastMutationId"] = mutationId
+            snapshot.getString("originalCategory")?.let { data["originalCategory"] = it }
+            data["revision"] = next
+            data["isDeleted"] = deletedAt != null
+            data["deletedAt"] = deletedAt
+            tx.set(ref, data, SetOptions.merge())
+            next
+        }.awaitResult()
+        runCatching { markSynced(userId) }
+        return newRevision
+    }
+
     suspend fun syncTodoByDocId(docId: String, todo: TodoItem) {
         val userId = uid ?: return
         todoCollection(userId).document(docId)
@@ -276,6 +335,7 @@ class FirestoreSyncRepository(
     // 비교 기준 필드만 저장: category, order, isPinned. source/updatedAt 등 제외.
 
     suspend fun uploadMainButtonConfig(config: MainButtonConfig) {
+        require(com.example.flowlog.data.recommendation.ExistingButtonRecommendationEngine.isWithinCap(config.buttons))
         val userId = uid ?: return
         val buttonsData = config.buttons.map { btn ->
             mapOf("category" to btn.category, "order" to btn.order, "isPinned" to btn.isPinned)
@@ -314,7 +374,7 @@ class FirestoreSyncRepository(
             val isPinned = btnMap["isPinned"] as? Boolean ?: false
             MainButtonItem(category = category, order = order, isPinned = isPinned)
         }
-        if (buttons.isEmpty()) return null
+        if (buttons.isEmpty() || !com.example.flowlog.data.recommendation.ExistingButtonRecommendationEngine.isWithinCap(buttons)) return null
         return MainButtonConfig(buttons = buttons, configured = true, version = version)
     }
 
@@ -400,7 +460,8 @@ class FirestoreSyncRepository(
         "linkedPetiteId" to linkedPetiteId,
         "sourceType" to sourceType,
         "sourceId" to sourceId,
-        "modifiedTime" to modifiedTime
+        "modifiedTime" to modifiedTime,
+        "originalCategory" to originalCategory
     )
 
     private fun TodoItem.toRemoteMap(): Map<String, Any?> = mapOf(
