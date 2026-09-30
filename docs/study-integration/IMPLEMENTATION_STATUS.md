@@ -33,6 +33,3 @@
 Flowlog에서 먼저 `node tools/study-integration/browser-test.cjs`로 실제 화면 저장 입력을 생성하고, 이어서 `node --test --test-isolation=none tools/study-integration/model-store.test.cjs`로 그 입력을 실제 store에 저장해 검증한다. 마이그레이션은 `node tools/study-integration/migration-test.cjs`.
 웹 경로가 다르면 `STUDY_WEBSITE` 환경 변수를 사용한다.
 권한 검증: 먼저 `node tools/study-integration/prepare-rules.cjs`, 이어서 생성된 `app/build/study-validation`에서 Firebase CLI의 `emulators:exec --only firestore --project demo-flowlog-study --config firebase.json "node rules-test.cjs"`. 운영 프로젝트를 사용하지 않는다.
-
-## 담당 실행
-Sol은 설정 모델 접근 오류로 실행 실패하여 Opus로 변경했다. Opus는 저장 구조·Android 추천을, Flash는 웹 화면을 작성했다. Codex가 저장 경로·단위·재시도·원본 연결 문제를 수정하고 실제 파일 반영/검증을 수행했다. Flash 추가 테스트 요청은 서비스 503으로 실패해 Codex가 실제 모듈 테스트를 작성했다. company 요청 ID: `3a345f52-dbdd-4d42-b2e1-f17f73fe66f7`.
