@@ -227,6 +227,15 @@ Decisions:
 - After the cleanup, remove "Exam-specific study cards and strategy helpers"
   and the other exam mentions from this document, and add a CHANGELOG entry.
 
+### Decide on the developer-mode Todo restore
+
+`TodoRepository.restoreTodosFromBackup` (developer mode → "Todo 복원") expects
+a JSON file shaped as `{"todos": [...]}`, but nothing currently produces that
+file. The web admin export (`/api/exportMyFirestoreData`) writes
+`{"documents": [...]}`, which the restore silently reads as zero Todos. Either
+remove the menu item or make it accept the admin export; until then, treat it
+as unused.
+
 ## Future Review Questions
 
 - Which features are stable enough to be shown in public product copy?

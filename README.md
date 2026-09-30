@@ -78,7 +78,9 @@ on completed, confirmed records rather than in-progress activity.
 - `/statistics/` — recent activity history and category totals. Longer-range
   trend views unlock once enough days are logged. You can open your own
   activity blocks to edit their details and link them to a study record by
-  course and lesson date.
+  course and lesson date. An experimental once-a-day check-in asks three
+  quick questions (motivation, energy, sleepiness) with an optional note; it
+  can be hidden for a day or a week.
 - `/statistics/exercise/` — per-exercise set/rep trends.
 - `/calendar/` — study calendar: pasted syllabus text becomes a per-lecture
   schedule, with recurring Todos ("Petites") and export to Google/Apple
@@ -319,7 +321,8 @@ the commands.
 - Developer mode is available only to the maintainer's account (checked in
   `UserRoleStore`). It adds tools to the home header menu: manual Firebase
   upload, regenerating the recommended time plan, and restoring Todos from a
-  JSON file shaped as `{"todos": [...]}`.
+  JSON file shaped as `{"todos": [...]}`. No current tool produces that file
+  (the admin data export on the web uses a different format).
 - User-facing strings in the most-used screens (`TodoScreen.kt`, `MainActivity.kt`,
   and the larger `ui/screen/home/` sections) live in `res/values/strings.xml`
   rather than as inline literals, so those screens are ready for a future
