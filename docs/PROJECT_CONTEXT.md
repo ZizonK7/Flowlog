@@ -136,7 +136,7 @@ schedules.
 
 Firestore is used as a synced copy for web reporting, analysis, and restore.
 The full path list is maintained in README ("Data & Sync"); some paths
-(study links, interaction decisions, exam strategy checks) live directly under
+(study links, interaction decisions) live directly under
 `users/{uid}`, outside `flowlog/`.
 
 Upload is pending-row based. Local writes happen first, and supported rows are
@@ -189,6 +189,43 @@ Prefer:
 - "기록 기반 회고"
 - "최근 리듬 확인"
 - "확정된 기록 기반 통계"
+
+## Planned Cleanup
+
+### Remove the university exam Todo feature (decided 2026-09-30)
+
+The owner decided to drop exam Todos. README no longer describes them; the
+code still contains the feature until this cleanup is done.
+
+Current state of the code:
+
+- `TodoCategory.UNIVERSITY_EXAM` Todos cannot be created in the app; they only
+  arrive through Firestore sync/restore. They are hidden from the normal Todo
+  lists.
+- `TodayOrganizerAgent` turns an exam within 7 days into a "시험 공부 D-n"
+  Petite with study-deficit comments; tapping it starts a study timer
+  (`ActivityViewModel.startExamStudyActivity`).
+- The strategy-check path is already dead code: `ExamRepository` and
+  `ExamStrategyCard` have no callers, so `exam_strategy_checks` stays empty and
+  its upload never sends anything. (The proposed Firestore rules have no match
+  for `users/{uid}/exam_strategy_checks`; irrelevant once this is removed.)
+
+Decisions:
+
+- Remove the logic and UI: exam organizer and its tests, exam Petite display
+  and study-start action, strategy-check repository/model/sync, `EXAM_*` event
+  constants, and the exam inputs to remote AI (`RemoteAiDecisionProvider` and
+  `examSummary` in `functions/src/index.ts`).
+- Keep the Room schema (the `exam_strategy_checks` table and the exam columns
+  on `OrganizedPetiteEntity`) so no v25 migration is needed; the v24 upgrade
+  is not yet verified on a real device.
+- Existing exam Todos are downgraded to normal Todos (the owner has none, but
+  this keeps any stray record visible instead of hidden or lost). Removing the
+  enum value is enough on the read side: `TodoMapper` and
+  `DailyGoalRepository` already fall back to `NORMAL` for an unknown stored
+  category. Also rewrite the stored value so the next sync uploads `NORMAL`.
+- After the cleanup, remove "Exam-specific study cards and strategy helpers"
+  and the other exam mentions from this document, and add a CHANGELOG entry.
 
 ## Future Review Questions
 

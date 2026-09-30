@@ -50,8 +50,8 @@ keeps supported records in Firestore for the same signed-in Google account.
   balancing recent use and frequency while reducing the influence of old habits.
 - View today's activity list, timetable, category totals, yesterday
   comparison, and recent 7-day averages; fill empty timetable gaps as sleep.
-- Manage Todos, today's items, light daily prompts/cues, exam-related Todos,
-  and Todo work sessions.
+- Manage Todos, today's items, light daily prompts/cues, and Todo work
+  sessions.
 - Use scheduled/repeating routine blocks and pinned school/company timers,
   including manually starting a scheduled block early from the timetable.
 - Toggle whether recommended activities are auto-placed onto today's
@@ -175,10 +175,9 @@ users/{uid}/flowlog/metadata        (last sync time)
 users/{uid}/flowlog/calendar        (syllabus data from the web)
 users/{uid}/activityStudyLinks
 users/{uid}/interactionDecisions
-users/{uid}/exam_strategy_checks
 ```
 
-The last three live directly under `users/{uid}`, outside `flowlog/`.
+The last two live directly under `users/{uid}`, outside `flowlog/`.
 
 ## Statistics / Web Dashboard
 
