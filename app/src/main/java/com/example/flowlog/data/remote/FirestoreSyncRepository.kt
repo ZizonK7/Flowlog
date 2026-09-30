@@ -52,12 +52,6 @@ class FirestoreSyncRepository(
         markSynced(userId)
     }
 
-    suspend fun deleteActivity(id: Long) {
-        val userId = uid ?: return
-        activityCollection(userId).document(id.toString()).delete().awaitResult()
-        markSynced(userId)
-    }
-
     suspend fun syncTodos(todos: List<TodoItem>) {
         val userId = uid ?: return
         todos.forEach { todo ->
@@ -129,12 +123,6 @@ class FirestoreSyncRepository(
         activityCollection(userId).document(docId)
             .set(activity.toRemoteMap(), SetOptions.merge())
             .awaitResult()
-        markSynced(userId)
-    }
-
-    suspend fun deleteActivityByDocId(docId: String) {
-        val userId = uid ?: return
-        activityCollection(userId).document(docId).delete().awaitResult()
         markSynced(userId)
     }
 
