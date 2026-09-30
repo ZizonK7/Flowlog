@@ -94,14 +94,10 @@ The web code lives in [pfkfks-main](https://github.com/ZizonK7/pfkfks-main).
 ## Recommendations and AI
 
 Recommendations in Flowlog are local and rule-based: title suggestions,
-quick-timer button suggestions, routine nudges, and the Todo tab organizer.
-They exist to reduce choice friction while recording, not to coach habits.
-
-An optional remote AI endpoint (Firebase Functions) can rank ambiguous items or
-write short recommendation reasons. It is off by default in every build, and
-the app falls back to local rules whenever it is unavailable. It still needs
-production hardening (App Check, rate limiting) before wider use; see
-[`functions/README.md`](functions/README.md).
+quick-timer button suggestions, routine nudges, and Todo ordering by workload.
+They exist to reduce choice friction while recording, not to coach habits. The
+app does not call an AI service; the in-app "AI messenger" is a local feed of
+these suggestions.
 
 ---
 
@@ -122,7 +118,8 @@ app/src/main/java/com/example/flowlog/
                     and study pulls, delete retry)
   data/study/       Study link/decision ID helpers
   data/assistant/   Daily "today's schedule" snapshot for the web assistant
-  data/agent/       Local organizer rules and optional remote AI provider
+  data/agent/       Organized Petite model (calendar and study plan cards shown
+                    in the Todo tab)
   debug/            Sample timetable data for developer screens
   notification/     Timer, reminder, focus, alarm, and boot receiver paths
   ui/               Compose screens, components, theme, and view models
@@ -133,9 +130,6 @@ app/src/main/java/com/example/flowlog/
                     standalone files (e.g. AnalyticsActivityUtils.kt)
   util/             Calendar intent helper
   widget/           Android home-screen status widget
-app/src/debug/, app/src/release/
-                    Per-build-type AiDecisionSettings (remote AI flags)
-functions/          Optional Firebase Functions backend for AI decisions
 tools/study-integration/
                     Node scripts that validate the study integration against
                     the web project and a local Firestore emulator
@@ -242,7 +236,6 @@ rules are documented in the ranker source.
 - Firebase Authentication
 - Cloud Firestore
 - Firebase Crashlytics (collection enabled in release builds only)
-- Firebase Functions for optional AI support
 - Gradle Kotlin DSL
 
 ### Firebase Setup

@@ -35,9 +35,6 @@ Where things go:
 - This repository is public on GitHub. Keep code quality in mind and do not
   commit anything that reveals account-specific details (credentials,
   `google-services.json`, keystore files, private IDs).
-- Keep remote AI flags (`AiDecisionSettings` in `app/src/debug` and
-  `app/src/release`) off by default unless testing a configured backend
-  endpoint in a local build.
 - Avoid external product copy that promises automatic habit formation, optimal
   routines, life changes, or broad long-term pattern analysis before the feature
   and evidence exist (see "Things Not To Overpromise" below).
@@ -48,7 +45,7 @@ Flowlog is a lightweight Android time-tracking app. It helps users record daily
 activities with low friction, connect activity time to Todos when useful, and
 review completed records through Android and web statistics.
 
-Flowlog의 제품 약속은 “가볍게 기록하고, 확정된 활동 데이터를 바탕으로 하루와 최근 리듬을 선명하게 돌아보게 하는 것”이다. 핵심 기능은 Android 활동 타이머, 활동 세션 기록, Todo 기반 작업 시간 추적, 로컬 우선 Room 저장, Firebase 동기화, 웹 통계 대시보드다. 장기 패턴/Deep Insight/AI 분석은 데이터가 충분히 쌓였을 때의 확장 영역이며, 현재 외부 문구에서는 조건부 기능으로 표현해야 한다. AI는 기본 코어가 아니라 로컬 규칙 기반 추천을 보강하는 선택적 실험 기능이다.
+Flowlog의 제품 약속은 “가볍게 기록하고, 확정된 활동 데이터를 바탕으로 하루와 최근 리듬을 선명하게 돌아보게 하는 것”이다. 핵심 기능은 Android 활동 타이머, 활동 세션 기록, Todo 기반 작업 시간 추적, 로컬 우선 Room 저장, Firebase 동기화, 웹 통계 대시보드다. 장기 패턴/Deep Insight/AI 분석은 데이터가 충분히 쌓였을 때의 확장 영역이며, 현재 외부 문구에서는 조건부 기능으로 표현해야 한다. 현재 Android 앱에는 AI 기능이 없고 추천은 모두 로컬 규칙 기반이다. AI를 다시 도입하더라도 기본 코어가 아니라 로컬 규칙 기반 추천을 보강하는 선택적 실험 기능으로 둔다.
 
 ## Core Value
 
@@ -81,12 +78,10 @@ Flowlog should make it easy to answer questions like:
 These areas exist or are being explored, but should not be described as the main
 product promise:
 
-- AI organizer and remote AI decision support.
 - Long-term pattern or Deep Insight style analysis.
-- Admin-only analysis dashboards.
+- Admin-only analysis dashboards and the admin-only web assistant.
 - Calendar planning flows and calendar-derived Petites.
 - Recommendation timing experiments.
-- Exam-specific study cards and strategy helpers.
 
 These can be documented as optional, experimental, admin-only, or conditional
 features depending on the surface.
@@ -99,7 +94,8 @@ features depending on the surface.
 - Use "completed records", "confirmed activity data", and "recent rhythm" when
   describing statistics.
 - Keep Android recording central; describe the web dashboard as a companion.
-- Treat AI as optional assistance that supports local rules.
+- If AI features return, treat them as optional assistance on top of local
+  rules.
 - Preserve offline-first logging behavior as a core design constraint.
 - Avoid making long-term insights a headline promise until the feature and
   evidence are strong enough.
@@ -131,8 +127,7 @@ latest recorded day. Product copy should state that clearly when relevant.
 
 Android stores local data with Room. Core entities include activity sessions,
 Todos, event logs, daily goal recommendations, daily goal items, organized
-Petites, exam strategy checks, daily cues, calendar events, and routine
-schedules.
+Petites, daily cues, calendar events, and routine schedules.
 
 Firestore is used as a synced copy for web reporting, analysis, and restore.
 The full path list is maintained in README ("Data & Sync"); some paths
@@ -153,10 +148,10 @@ stays the source the app works from.
 Flowlog is not primarily an AI coach. Current recommendation behavior should be
 described as local, rule-based help for reducing choice friction.
 
-Remote AI support exists as an optional backend path for ranking ambiguous
-items or generating short recommendation reasons. It is disabled by default in
-Android debug and release settings. Android must keep local fallback behavior
-when remote AI is unavailable.
+The Android app has no AI integration. A remote AI decision path (organizer,
+Firebase Functions backend) existed in the repository but was never wired into
+the app and was removed on 2026-09-30. If AI is added again, keep the local
+rules as the fallback so the app works when AI is unavailable.
 
 Do not market AI as the reason Flowlog works. The recording loop and confirmed
 data review are the product foundation.
@@ -192,49 +187,16 @@ Prefer:
 
 ## Planned Cleanup
 
-### Remove the university exam Todo feature (decided 2026-09-30)
+### Drop exam leftovers at the next schema migration
 
-The owner decided to drop exam Todos. README no longer describes them; the
-code still contains the feature until this cleanup is done.
-
-Current state of the code:
-
-- `TodoCategory.UNIVERSITY_EXAM` Todos cannot be created in the app; they only
-  arrive through Firestore sync/restore. They are hidden from the normal Todo
-  lists.
-- `TodayOrganizerAgent` turns an exam within 7 days into a "시험 공부 D-n"
-  Petite with study-deficit comments; tapping it starts a study timer
-  (`ActivityViewModel.startExamStudyActivity`).
-- The strategy-check path is already dead code: `ExamRepository` and
-  `ExamStrategyCard` have no callers, so `exam_strategy_checks` stays empty and
-  its upload never sends anything. (The proposed Firestore rules have no match
-  for `users/{uid}/exam_strategy_checks`; irrelevant once this is removed.)
-
-Decisions:
-
-- Remove the logic and UI: exam organizer and its tests, exam Petite display
-  and study-start action, strategy-check repository/model/sync, `EXAM_*` event
-  constants, and the exam inputs to remote AI (`RemoteAiDecisionProvider` and
-  `examSummary` in `functions/src/index.ts`).
-- Keep the Room schema (the `exam_strategy_checks` table and the exam columns
-  on `OrganizedPetiteEntity`) so no v25 migration is needed; the v24 upgrade
-  is not yet verified on a real device.
-- Existing exam Todos are downgraded to normal Todos (the owner has none, but
-  this keeps any stray record visible instead of hidden or lost). Removing the
-  enum value is enough on the read side: `TodoMapper` and
-  `DailyGoalRepository` already fall back to `NORMAL` for an unknown stored
-  category. Also rewrite the stored value so the next sync uploads `NORMAL`.
-- After the cleanup, remove "Exam-specific study cards and strategy helpers"
-  and the other exam mentions from this document, and add a CHANGELOG entry.
-
-### Decide on the developer-mode Todo restore
-
-`TodoRepository.restoreTodosFromBackup` (developer mode → "Todo 복원") expects
-a JSON file shaped as `{"todos": [...]}`, but nothing currently produces that
-file. The web admin export (`/api/exportMyFirestoreData`) writes
-`{"documents": [...]}`, which the restore silently reads as zero Todos. Either
-remove the menu item or make it accept the admin export; until then, treat it
-as unused.
+The university exam feature was removed on 2026-09-30 without a Room version
+bump. Its storage is still in the v24 schema: the `exam_strategy_checks` table
+(`ExamStrategyCheckEntity` stays registered in `FlowlogDatabase` only for this
+reason) and the exam columns on `organized_petites` (`isSeverelyBehind`,
+`totalStudyMinutesSinceD7`, `studiedDaysSinceD7`, `missedDaysSinceD7`,
+`examDValue`), which are now written as null. Drop them in the next migration
+that changes the schema for another reason. `TodoDao.downgradeRetiredExamTodos`
+can go once no synced Todo still has `category = UNIVERSITY_EXAM`.
 
 ## Future Review Questions
 
@@ -246,7 +208,7 @@ as unused.
   ignored, or completed events?
 - Does the web dashboard clearly distinguish preview, current-day, and confirmed
   historical data?
-- Should Calendar, Daily Cues, and exam helpers be positioned as core workflows
+- Should Calendar and Daily Cues be positioned as core workflows
   or advanced/secondary tools?
 - Are Korean user-facing strings stored and rendered with clean encoding across
   Android, README, and web surfaces?

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Removed the university exam Todo feature: the `UNIVERSITY_EXAM` category,
+  exam Petites and their study-start action, and the unused exam strategy
+  check path. The Room schema stays at v24; stored exam Todos become normal
+  Todos on the next sync.
+- Removed the Todo organizer and remote AI decision support
+  (`TodayExamOrganizer`, `AiDecisionProvider` implementations,
+  `AiDecisionSettings`, and the `functions/` backend). None of it was wired
+  into the app.
+- Removed the developer-mode Todo restore menu, which expected a file format
+  that nothing produces, and unused activity hard-delete helpers.
 - Reorganized README and `docs/PROJECT_CONTEXT.md` by role: README now holds
   only current behavior, structure, and setup; test results and dated status
   moved out; maintainer guardrails moved to PROJECT_CONTEXT. Corrected README
