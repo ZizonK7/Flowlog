@@ -33,13 +33,13 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
     private val eventLogDao = db.eventLogDao()
     private val dailyGoalDao = db.dailyGoalDao()
     private val syncBatchDao = db.syncBatchDao()
-    private val examStrategyCheckDao = db.examStrategyCheckDao()
     private val firestoreSync = FirestoreSyncRepository()
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 
     override suspend fun syncAll(userId: String): SyncOutcome {
         return withContext(Dispatchers.IO) {
+            downgradeRetiredExamTodos(userId)
             val activityCount = runCatching { activityDao.getUnsyncedActivities(userId).size }.getOrDefault(0)
             val todoCount = runCatching { todoDao.getUnsyncedTodos(userId).size }.getOrDefault(0)
             val eventCount = runCatching { eventLogDao.getUnsyncedEvents(userId).size }.getOrDefault(0)
@@ -63,17 +63,15 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
             val dailyGoalItemResult = runCatching { syncPendingDailyGoalItems(userId) }
                 .onFailure { e -> Log.w(TAG, "DailyGoalItem sync section failed: ${e.message}", e) }
                 .getOrDefault(SyncOutcome())
-            val examCheckResult = runCatching { syncPendingExamChecks(userId) }
-                .onFailure { e -> Log.w(TAG, "ExamCheck sync section failed: ${e.message}", e) }
-                .getOrDefault(SyncOutcome())
 
             Log.i(TAG, "syncAll complete — userId=$userId")
-            return@withContext activityResult + todoResult + eventResult + dailyGoalRecommendationResult + dailyGoalItemResult + examCheckResult
+            return@withContext activityResult + todoResult + eventResult + dailyGoalRecommendationResult + dailyGoalItemResult
         }
     }
 
     suspend fun syncEligible(userId: String): SyncOutcome {
         return withContext(Dispatchers.IO) {
+            downgradeRetiredExamTodos(userId)
             val cutoffMillis = todayStartMillis()
             val activityCount = runCatching { activityDao.getEligibleUnsyncedActivities(userId, cutoffMillis).size }.getOrDefault(0)
             val todoCount = runCatching { todoDao.getEligibleUnsyncedTodos(userId, cutoffMillis).size }.getOrDefault(0)
@@ -449,47 +447,10 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
         }
     }
 
-    private suspend fun syncPendingExamChecks(userId: String): SyncOutcome {
-        return withContext(Dispatchers.IO) {
-            val pending = runCatching { examStrategyCheckDao.getUnsyncedChecks(userId) }.getOrDefault(emptyList())
-            if (pending.isEmpty()) return@withContext SyncOutcome()
-
-            val syncedIds = mutableListOf<String>()
-            val errors = mutableListOf<String>()
-
-            pending.forEach { check ->
-                runCatching {
-                    val data = buildMap<String, Any?> {
-                        put("checkId", check.checkId)
-                        put("userId", check.userId)
-                        put("examTodoLegacyId", check.examTodoLegacyId)
-                        put("subjectTitleSnapshot", check.subjectTitleSnapshot)
-                        put("examDateMillis", check.examDateMillis)
-                        put("strategyDValue", check.strategyDValue)
-                        put("strategyLabelSnapshot", check.strategyLabelSnapshot)
-                        put("checkedAtMillis", check.checkedAtMillis)
-                        put("checkedOnDateKey", check.checkedOnDateKey)
-                        put("checkedOnDaysUntilExam", check.checkedOnDaysUntilExam)
-                        put("undoneAtMillis", check.undoneAtMillis) // null이면 정상 체크, non-null이면 undo됨
-                    }
-                    com.google.firebase.firestore.FirebaseFirestore.getInstance()
-                        .collection("users").document(userId)
-                        .collection("exam_strategy_checks").document(check.checkId)
-                        .set(data)
-                        .addOnSuccessListener {}
-                        .addOnFailureListener { throw it }
-                    examStrategyCheckDao.markCheckSynced(check.checkId)
-                    syncedIds.add(check.checkId)
-                }.onFailure { e -> errors.add("${check.checkId}: ${e.message}") }
-            }
-
-            Log.i(TAG, "ExamChecks synced: ${syncedIds.size}/${pending.size}")
-            SyncOutcome(
-                attemptedCount = pending.size,
-                successCount = syncedIds.size,
-                failureCount = errors.size
-            )
-        }
+    private suspend fun downgradeRetiredExamTodos(userId: String) {
+        runCatching { todoDao.downgradeRetiredExamTodos(userId, System.currentTimeMillis()) }
+            .onSuccess { count -> if (count > 0) Log.i(TAG, "Downgraded $count retired exam Todo(s) to NORMAL") }
+            .onFailure { e -> Log.w(TAG, "Exam Todo downgrade failed: ${e.message}", e) }
     }
 
     override suspend fun hasPendingSync(userId: String): Boolean {

@@ -3,7 +3,7 @@ package com.example.flowlog.data.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class TodoCategory { NORMAL, TODAY, REVIEW, ASSIGNMENT, UNIVERSITY_EXAM }
+enum class TodoCategory { NORMAL, TODAY, REVIEW, ASSIGNMENT }
 
 @Serializable
 data class TodoItem(

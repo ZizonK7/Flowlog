@@ -189,7 +189,6 @@ fun TodoScreen(
     onStartTodo: (TodoItem) -> Unit,
     onStartDailyCueRoutine: (Long, String, Long, String) -> Unit,
     onStartYesterdayRoutine: (Long, String, Long, String) -> Unit = { _, _, _, _ -> },
-    onStartExamStudy: (todoId: Long, subjectTitle: String, dValue: Int) -> Unit = { _, _, _ -> },
     onStartCalendarPetite: (OrganizedPetite) -> Unit = {},
     routineTimerCategories: List<String> = DefaultDailyCueTimerCategories,
     isDeveloperMode: Boolean = false,
@@ -216,8 +215,7 @@ fun TodoScreen(
         todos.filter { todo ->
             (!todo.isCompleted ||
                 (todo.category == TodoCategory.REVIEW && todo.reviewStage == 1)) &&
-            todo.category != TodoCategory.TODAY &&
-            todo.category != TodoCategory.UNIVERSITY_EXAM
+            todo.category != TodoCategory.TODAY
         }
     }
     val tomorrowStart = todayStart + DAY_MILLIS
@@ -443,7 +441,6 @@ fun TodoScreen(
                                         ?.takeIf { it > 0L }
                                 PetiteSourceType.CALENDAR, PetiteSourceType.STUDY_PLAN ->
                                     petiteTodayMillis[item.id]?.takeIf { it > 0L }
-                                PetiteSourceType.EXAM -> null
                             },
                             onStart = {
                                 when (item.sourceType) {
@@ -460,15 +457,6 @@ fun TodoScreen(
                                                 item.title,
                                                 item.routineTimerDurationMillis ?: 0L,
                                                 item.routineTimerCategory ?: "TODO"
-                                            )
-                                        }
-                                    PetiteSourceType.EXAM -> item.sourceId
-                                        ?.toLongOrNull()
-                                        ?.let { examId ->
-                                            onStartExamStudy(
-                                                examId,
-                                                item.linkedActivityName ?: item.title,
-                                                item.examDValue ?: 0
                                             )
                                         }
                                     PetiteSourceType.CALENDAR,
@@ -973,7 +961,7 @@ private fun OrganizedPetiteCard(
     var showDetail by remember(item.id) { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val accent = organizedPetiteAccent(item.sourceType)
-    val label = organizedPetiteLabel(item.sourceType, stringResource(R.string.todo_screen_exam_label))
+    val label = organizedPetiteLabel(item.sourceType)
     val metaItems = organizedPetiteMetaItems(item)
     val dateMeta = organizedPetiteDateMeta(item)
     val timeStr = accumulatedMillis?.takeIf { it > 0L }?.let { formatCueDuration(it) }
@@ -1202,7 +1190,6 @@ private fun DetailSection(title: String, body: String) {
 }
 
 private fun organizedPetiteAccent(sourceType: PetiteSourceType): Color = when (sourceType) {
-    PetiteSourceType.EXAM -> Color(0xFF1565C0)
     PetiteSourceType.STUDY_PLAN -> Color(0xFF2E7D5B)
     PetiteSourceType.ROUTINE -> Purple
     PetiteSourceType.TODO -> Color(0xFFE35B5B)
@@ -1210,8 +1197,7 @@ private fun organizedPetiteAccent(sourceType: PetiteSourceType): Color = when (s
     PetiteSourceType.CALENDAR -> Color(0xFF00897B)
 }
 
-private fun organizedPetiteLabel(sourceType: PetiteSourceType, examLabel: String): String = when (sourceType) {
-    PetiteSourceType.EXAM -> examLabel
+private fun organizedPetiteLabel(sourceType: PetiteSourceType): String = when (sourceType) {
     PetiteSourceType.ROUTINE -> "Routine"
     PetiteSourceType.TODO -> "Todo"
     PetiteSourceType.PETITE -> "Petite"
@@ -1220,7 +1206,7 @@ private fun organizedPetiteLabel(sourceType: PetiteSourceType, examLabel: String
 }
 
 private fun organizedPetiteDateMeta(item: OrganizedPetite): String? =
-    item.dateMillis?.let { if (item.sourceType == PetiteSourceType.EXAM) examDdayLabel(item.examDValue) else fmtDate(it) }
+    item.dateMillis?.let { fmtDate(it) }
 
 private fun organizedPetiteMetaItems(item: OrganizedPetite): List<String> = buildList {
     item.activityCategory?.let { add(it) }
@@ -1230,11 +1216,6 @@ private fun organizedPetiteMetaItems(item: OrganizedPetite): List<String> = buil
         ?.let { add(it.name) }
 }
 
-private fun examDdayLabel(dValue: Int?): String = when (dValue) {
-    0 -> "D-Day"
-    null -> "Exam"
-    else -> "D-$dValue"
-}
 @Composable
 private fun DailyCuesSection(
     cues: List<DailyCueItem>,
@@ -2802,7 +2783,7 @@ private fun CategoryTag(category: TodoCategory, muted: Boolean = false) {
     val (bg, fg, label) = when (category) {
         TodoCategory.REVIEW          -> Triple(if (muted) Color(0xFFF0EEFF) else PurpleSoft, if (muted) Purple.copy(.5f) else Purple, stringResource(R.string.todo_screen_category_review_label))
         TodoCategory.ASSIGNMENT      -> Triple(if (muted) Color(0xFFFFF0F0) else Color(0xFFFFEFF0), if (muted) Color(0xFFE35B5B).copy(.5f) else Color(0xFFE35B5B), stringResource(R.string.todo_screen_category_assignment_label))
-        TodoCategory.NORMAL, TodoCategory.TODAY, TodoCategory.UNIVERSITY_EXAM -> return
+        TodoCategory.NORMAL, TodoCategory.TODAY -> return
     }
     Text(
         text = label,
@@ -2988,7 +2969,6 @@ private fun TodoCategoryBadge(category: TodoCategory) {
         TodoCategory.ASSIGNMENT      -> stringResource(R.string.todo_screen_category_assignment_short)  to Color(0xFFE35B5B)
         TodoCategory.REVIEW          -> stringResource(R.string.todo_screen_category_review_label)  to Purple
         TodoCategory.NORMAL          -> stringResource(R.string.todo_screen_category_normal_label)  to TextMuted
-        TodoCategory.UNIVERSITY_EXAM -> stringResource(R.string.todo_screen_exam_label)  to Color(0xFF1565C0)
     }
     Text(text = label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = color)
 }

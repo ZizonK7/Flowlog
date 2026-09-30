@@ -475,10 +475,6 @@ class MainActivity : ComponentActivity() {
                                         )
                                         showHomeMainTimer()
                                     },
-                                    onStartExamStudy = { todoId, subjectTitle, dValue ->
-                                        activityViewModel.startExamStudyActivity(todoId, subjectTitle, dValue)
-                                        showHomeMainTimer()
-                                    },
                                     onStartCalendarPetite = { item ->
                                         activityViewModel.startCalendarPetiteActivity(item)
                                         showHomeMainTimer()

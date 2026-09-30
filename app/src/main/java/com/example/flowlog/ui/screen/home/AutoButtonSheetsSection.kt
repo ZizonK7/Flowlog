@@ -681,7 +681,6 @@ internal fun recommendedTodoCategoryLabel(category: TodoCategory): String {
         TodoCategory.TODAY -> stringResource(R.string.auto_button_category_today)
         TodoCategory.REVIEW -> stringResource(R.string.auto_button_category_review)
         TodoCategory.ASSIGNMENT -> stringResource(R.string.auto_button_category_deadline)
-        TodoCategory.UNIVERSITY_EXAM -> stringResource(R.string.auto_button_category_deadline)
     }
 }
 

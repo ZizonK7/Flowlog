@@ -1847,7 +1847,7 @@ class ActivityViewModel(
         viewModelScope.launch {
             todoRepository.getIncompleteTodos().collect { todos ->
                 _uiState.update {
-                    it.copy(incompleteTodos = todos.filter { t -> t.category != TodoCategory.UNIVERSITY_EXAM })
+                    it.copy(incompleteTodos = todos)
                 }
             }
         }
@@ -1864,7 +1864,7 @@ class ActivityViewModel(
     }
 
     private fun isRecommendedTodoCandidate(todo: TodoItem): Boolean {
-        if (todo.category == TodoCategory.TODAY || todo.category == TodoCategory.UNIVERSITY_EXAM) return false
+        if (todo.category == TodoCategory.TODAY) return false
         if (todo.isCompleted && !(todo.category == TodoCategory.REVIEW && todo.reviewStage == 1)) return false
 
         val todayStart = startOfDayMillis(System.currentTimeMillis())
@@ -1875,8 +1875,7 @@ class ActivityViewModel(
                 val dueDay = todo.selectedDate?.let(::startOfDayMillis) ?: return false
                 daysDiff(todayStart, dueDay) in setOf(0L, 1L, 7L)
             }
-            TodoCategory.TODAY,
-            TodoCategory.UNIVERSITY_EXAM -> false
+            TodoCategory.TODAY -> false
         }
     }
 
@@ -1895,42 +1894,6 @@ class ActivityViewModel(
     }
 
     private fun daysDiff(fromMs: Long, toMs: Long): Long = (toMs - fromMs) / DAY_MILLIS
-
-    fun startExamStudyActivity(todoId: Long, subjectTitle: String, dValue: Int) {
-        if (_uiState.value.isRunning) return
-        val dLabel = if (dValue == 0) "D-Day" else "D-$dValue"
-        val title = "$subjectTitle 시험 공부 $dLabel"
-        val startTime = System.currentTimeMillis()
-        val goalMillis = defaultGoalMillisForCategory("STUDY")
-        _timerDisplayState.value = TimerDisplayState(
-            elapsedTime = 0L,
-            timerGoalMillis = goalMillis
-        )
-        _uiState.update {
-            it.copy(
-                isRunning = true,
-                currentCategory = "STUDY",
-                startTime = startTime,
-                linkedTodoId = todoId,
-                sourceType = ActivitySourceType.MANUAL,
-                sourceId = null,
-                pendingTitle = title,
-                pendingNote = null,
-                dailyCueId = null,
-                dailyCueTargetDateKey = null,
-                statusMessage = null
-            )
-        }
-        saveActiveSession(
-            category = "STUDY",
-            startTime = startTime,
-            goalMillis = goalMillis,
-            linkedTodoId = todoId,
-            linkedTodoTitle = title
-        )
-        activityTimerNotifier.showRunningTimer("STUDY", startTime)
-        startTimer()
-    }
 
     fun refreshTimerStates() {
         val now = System.currentTimeMillis()

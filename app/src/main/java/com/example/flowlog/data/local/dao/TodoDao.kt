@@ -98,6 +98,18 @@ interface TodoDao {
     """)
     suspend fun getUnsyncedTodos(userId: String): List<TodoEntity>
 
+    // The university exam category was removed; any stored exam Todo becomes a
+    // normal Todo and is re-uploaded so Firestore stops carrying the old value.
+    @Query("""
+        UPDATE todos
+        SET category = 'NORMAL',
+            updatedAt = :nowMillis,
+            syncStatus = '${SyncStatus.PENDING}'
+        WHERE userId = :userId
+          AND category = 'UNIVERSITY_EXAM'
+    """)
+    suspend fun downgradeRetiredExamTodos(userId: String, nowMillis: Long): Int
+
         @Query("""
                 SELECT * FROM todos
                 WHERE userId = :userId

@@ -321,7 +321,6 @@ class TodoViewModel(
     }
 
     fun completeTodo(todo: TodoItem) {
-        if (todo.category == TodoCategory.UNIVERSITY_EXAM) return
         viewModelScope.launch {
             if (todo.category == TodoCategory.REVIEW && todo.reviewStage < 2) {
                 repository.completeReviewTodo(todo)
@@ -333,7 +332,6 @@ class TodoViewModel(
     }
 
     fun completeFocusTodo(todo: TodoItem) {
-        if (todo.category == TodoCategory.UNIVERSITY_EXAM) return
         viewModelScope.launch {
             if (todo.category == TodoCategory.REVIEW && todo.reviewStage < 2) {
                 repository.completeReviewTodo(todo)
@@ -1040,7 +1038,6 @@ class TodoViewModel(
 
         // Step 1: TODAY 카테고리 제외
         val active = allTodos.filter {
-            it.category != TodoCategory.UNIVERSITY_EXAM &&
             it.category != TodoCategory.TODAY &&
             (!it.isCompleted || (it.category == TodoCategory.REVIEW && it.reviewStage == 1))
         }

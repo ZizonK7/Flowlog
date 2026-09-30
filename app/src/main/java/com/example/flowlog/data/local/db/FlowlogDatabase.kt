@@ -17,7 +17,6 @@ import com.example.flowlog.data.local.dao.CalendarEventDao
 import com.example.flowlog.data.local.dao.DailyCueDao
 import com.example.flowlog.data.local.dao.DailyGoalDao
 import com.example.flowlog.data.local.dao.EventLogDao
-import com.example.flowlog.data.local.dao.ExamStrategyCheckDao
 import com.example.flowlog.data.local.dao.LectureCalendarInfoDao
 import com.example.flowlog.data.local.dao.MigrationErrorDao
 import com.example.flowlog.data.local.dao.OrganizedPetiteDao
@@ -70,7 +69,7 @@ import com.example.flowlog.data.local.entity.UserEntity
         UserEntity::class,
         InstallationEntity::class,
 
-        // Phase 4 — Exam
+        // Phase 4 — Exam (feature removed; entity kept so the v24 schema is unchanged)
         ExamStrategyCheckEntity::class,
         OrganizedPetiteEntity::class,
 
@@ -102,7 +101,6 @@ abstract class FlowlogDatabase : RoomDatabase() {
     abstract fun syncBatchDao(): SyncBatchDao
 
     // Phase 4 DAOs
-    abstract fun examStrategyCheckDao(): ExamStrategyCheckDao
     abstract fun organizedPetiteDao(): OrganizedPetiteDao
 
     // Phase 5 DAOs

@@ -5,6 +5,9 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.example.flowlog.data.constants.SyncStatus
 
+// The university exam feature was removed. This entity stays registered in
+// FlowlogDatabase only so the v24 schema (and its identity hash) is unchanged;
+// nothing reads or writes the table. Drop it with the next schema migration.
 @Entity(
     tableName = "exam_strategy_checks",
     indices = [
