@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Reorganized README and `docs/PROJECT_CONTEXT.md` by role: README now holds
+  only current behavior, structure, and setup; test results and dated status
+  moved out; maintainer guardrails moved to PROJECT_CONTEXT. Corrected README
+  claims that no longer matched the code (no CSV export exists; sync also
+  restores and pulls data; full Firestore path list; keystore is optional).
+- Integrated study records with activity sync (2026-09-29): activity details
+  and study links are edited on the web statistics page and sync back to
+  Android through Room v24 (study links, decision history, activity revision
+  conflicts). Conflicting app/web edits are kept and the user chooses one.
+  Confirmed school/travel classifications feed the existing button
+  suggestions; main buttons stay capped at ten. The coordinated Firestore
+  rules reject unversioned activity writes, so the updated app must ship with
+  them. Status and verification:
+  `docs/study-integration/IMPLEMENTATION_STATUS.md`.
+- Reworked activity title suggestions to a time-decayed score
+  (`ActivityTitleSuggestionRanker`) that balances recent use and frequency so
+  stale habits fade instead of occupying the top five.
 - Added independent Settings toggles (Profile > Settings > "타임테이블 추천") for
   auto-placing recommended activities onto today's timetable and for the
   reminder alarm that fires when their scheduled time arrives — previously

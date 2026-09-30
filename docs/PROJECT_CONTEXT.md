@@ -8,10 +8,39 @@ implementation details should stay below the product overview.
 
 Document roles:
 
-- `README.md`: public-facing overview and developer entry point.
+- `README.md`: public-facing overview and developer entry point. It describes
+  the current behavior, structure, and setup only.
 - `docs/PROJECT_CONTEXT.md`: AI/maintainer context and product direction
   guardrail.
 - `CHANGELOG.md`: summarized history of notable changes.
+- `docs/study-integration/IMPLEMENTATION_STATUS.md` (and similar per-effort
+  status docs): in-progress status, deployment order, open limitations, and
+  verification results for a specific piece of work.
+
+Where things go:
+
+- Test counts, verification runs, and "not yet verified on a device" notes go
+  in the per-effort status doc or the commit message, not in README.
+- Dated "what changed" entries go in CHANGELOG. When a change alters current
+  behavior, update the matching README section in place instead of adding a
+  dated README section.
+- Rules for how to write about Flowlog and how to work in the repository go
+  here, not in README.
+- Implementation facts that other documents need (Firestore paths, sync
+  triggers, build flags) are maintained in README; link to it rather than
+  copying the list.
+
+## Maintenance Guardrails
+
+- This repository is public on GitHub. Keep code quality in mind and do not
+  commit anything that reveals account-specific details (credentials,
+  `google-services.json`, keystore files, private IDs).
+- Keep remote AI flags (`AiDecisionSettings` in `app/src/debug` and
+  `app/src/release`) off by default unless testing a configured backend
+  endpoint in a local build.
+- Avoid external product copy that promises automatic habit formation, optimal
+  routines, life changes, or broad long-term pattern analysis before the feature
+  and evidence exist (see "Things Not To Overpromise" below).
 
 ## Product Definition
 
@@ -39,8 +68,9 @@ Flowlog should make it easy to answer questions like:
 - Saved activity sessions with title, category, note, duration, favorite state,
   and source metadata.
 - Todo management and Todo-linked work time.
-- Today timeline, activity list, category totals, and comparison views.
-- Weekly/monthly statistics based on completed records.
+- Today timeline, activity list, category totals, yesterday comparison, and
+  recent 7-day averages in the app.
+- Longer-range statistics based on completed records on the web dashboard.
 - Local-first Room persistence.
 - Firebase Authentication and Firestore sync for supported records.
 - Web statistics dashboard for synced records.
@@ -104,24 +134,19 @@ Todos, event logs, daily goal recommendations, daily goal items, organized
 Petites, exam strategy checks, daily cues, calendar events, and routine
 schedules.
 
-Firestore is used as a synced copy for web reporting and analysis. Important
-paths include:
+Firestore is used as a synced copy for web reporting, analysis, and restore.
+The full path list is maintained in README ("Data & Sync"); some paths
+(study links, interaction decisions, exam strategy checks) live directly under
+`users/{uid}`, outside `flowlog/`.
 
-```text
-users/{uid}/flowlog/data/activitySessions
-users/{uid}/flowlog/data/todos
-users/{uid}/flowlog/data/eventLogs
-users/{uid}/flowlog/data/dailyGoalRecommendations
-users/{uid}/flowlog/data/dailyGoalItems
-users/{uid}/flowlog/data/dailyCues
-users/{uid}/flowlog/data/calendarEvents
-users/{uid}/flowlog/config
-users/{uid}/flowlog/metadata
-```
-
-Sync is pending-row based. Local writes happen first, and supported rows are
+Upload is pending-row based. Local writes happen first, and supported rows are
 uploaded when the user is signed in and sync is triggered by login, startup,
-network return, or supported data changes.
+network return, a daily midnight alarm, or supported data changes.
+
+Sync is not upload-only: the app restores records into an empty local database
+after login, pulls web-created calendar data, loads the main button config, and
+applies web edits to activities with revision-based conflict handling. Room
+stays the source the app works from.
 
 ## AI / Recommendation Positioning
 
