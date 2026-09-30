@@ -16,10 +16,8 @@ import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -398,25 +396,6 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(this@MainActivity, getString(R.string.main_activity_recommended_plan_regenerated), Toast.LENGTH_SHORT).show()
                 }
 
-                val restoreTodosLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.OpenDocument()
-                ) { uri ->
-                    if (uri == null) return@rememberLauncherForActivityResult
-                    scope.launch {
-                        val message = runCatching {
-                            val jsonText = withContext(Dispatchers.IO) {
-                                this@MainActivity.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                                    ?: error(getString(R.string.main_activity_restore_file_open_failed))
-                            }
-                            val restoredCount = todoViewModel.restoreTodosFromBackup(jsonText)
-                            getString(R.string.main_activity_todo_restored_count, restoredCount)
-                        }.getOrElse { error ->
-                            error.message ?: getString(R.string.main_activity_todo_restore_failed)
-                        }
-                        Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
-                    }
-                }
-
                 val pagerState = rememberPagerState(
                     initialPage = when {
                         currentScreen == "todo" -> 1
@@ -502,9 +481,6 @@ class MainActivity : ComponentActivity() {
                                             isDeveloperMode = isDeveloperMode,
                                             onFirebaseUploadClick = runFirebaseUpload,
                                             onRegenerateRecommendedTimePlanClick = regenerateRecommendedTimePlan,
-                                            onRestoreTodosClick = {
-                                                restoreTodosLauncher.launch(arrayOf("application/json", "text/plain", "text/json"))
-                                            },
                                             onToggleDevMode = {
                                                 val newMode = !isDeveloperMode
                                                 isDeveloperMode = newMode
@@ -769,7 +745,6 @@ private fun HeaderActions(
     isDeveloperMode: Boolean = false,
     onFirebaseUploadClick: () -> Unit = {},
     onRegenerateRecommendedTimePlanClick: () -> Unit = {},
-    onRestoreTodosClick: () -> Unit = {},
     onToggleDevMode: () -> Unit = {},
     isNotificationSoundEnabled: Boolean = true,
     onToggleNotificationSound: () -> Unit = {},
@@ -943,19 +918,6 @@ private fun HeaderActions(
                         onClick = {
                             menuExpanded = false
                             onRegenerateRecommendedTimePlanClick()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.main_activity_restore_todo_menu), color = Color(0xFF10182C)) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Filled.CheckBox,
-                                contentDescription = null
-                            )
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            onRestoreTodosClick()
                         }
                     )
                 }

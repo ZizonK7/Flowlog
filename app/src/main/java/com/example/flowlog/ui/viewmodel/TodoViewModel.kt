@@ -1025,10 +1025,6 @@ class TodoViewModel(
         }
     }
 
-    suspend fun restoreTodosFromBackup(jsonText: String): Int {
-        return repository.restoreTodosFromBackup(jsonText)
-    }
-
     // ── 오늘의 목표 선정 ──────────────────────────────────────────────────
     private fun selectTodayFocus(
         allTodos: List<TodoItem>,

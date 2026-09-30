@@ -27,11 +27,6 @@ class RoomTodoLocalDataSource(context: Context) {
         return entity.todoId
     }
 
-    suspend fun insertTodos(todos: List<TodoEntity>) {
-        if (todos.isEmpty()) return
-        dao.insertTodos(todos)
-    }
-
     /**
      * Todo 전체 필드 업데이트.
      * legacyId가 있으면 "legacy_todo_${id}", 캘린더 출처면 calendarSourceId로 조회.

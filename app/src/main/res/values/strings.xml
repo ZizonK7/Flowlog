@@ -15,9 +15,6 @@
     <string name="main_activity_sync_deferred">진행 중인 Activity가 있어 동기화를 보류했습니다.</string>
     <string name="main_activity_sync_failed">Firebase 동기화에 실패했습니다.</string>
     <string name="main_activity_recommended_plan_regenerated">오늘 추천 시간 계획을 다시 만들었습니다.</string>
-    <string name="main_activity_restore_file_open_failed">복원 파일을 열 수 없습니다.</string>
-    <string name="main_activity_todo_restored_count">Todo %1$d개를 복원했습니다.</string>
-    <string name="main_activity_todo_restore_failed">Todo 복원에 실패했습니다.</string>
     <string name="main_activity_upload_result">업로드 성공 %1$d건, 실패 %2$d건</string>
     <string name="main_activity_calendar_pull_failed">캘린더 불러오기 실패</string>
     <string name="main_activity_calendar_todo_count">할 일 %1$d개</string>
@@ -31,7 +28,6 @@
     <string name="main_activity_developer_blog">개발자 블로그</string>
     <string name="main_activity_firebase_sync">Firebase 동기화</string>
     <string name="main_activity_regenerate_recommended_plan_menu">오늘 추천 시간 재생성</string>
-    <string name="main_activity_restore_todo_menu">Todo 복원</string>
     <string name="main_activity_developer_mode">개발자 모드</string>
     <string name="main_activity_notification_settings">알림 설정</string>
     <string name="main_activity_notification_sound">알림 소리</string>

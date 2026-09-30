@@ -4,7 +4,6 @@ import android.content.Context
 import com.example.flowlog.data.constants.EntityType
 import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.local.RoomTodoLocalDataSource
-import com.example.flowlog.data.local.entity.TodoEntity
 import com.example.flowlog.data.model.TodoItem
 import com.example.flowlog.data.recommendation.TodoBurdenAnalysis
 import com.example.flowlog.data.sync.DeleteSyncTrigger
@@ -14,20 +13,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
 class TodoRepository(context: Context) {
     private val appContext = context.applicationContext
     private val eventLogRepository = EventLogRepository(appContext)
     private val roomDataSource = RoomTodoLocalDataSource(appContext)
-    private val restoreJson = Json {
-        ignoreUnknownKeys = true
-        coerceInputValues = true
-    }
 
     // 신규 Todo ID 생성자. currentTimeMillis로 초기화 후 세션 내 atomic increment.
     // 기존 legacyId(1, 2, 3...)와 충돌 없음 (타임스탬프 영역은 ~1.7×10¹²).
@@ -195,98 +186,6 @@ class TodoRepository(context: Context) {
             }
         }
     }
-
-    suspend fun restoreTodosFromBackup(jsonText: String): Int {
-        val envelope = runCatching {
-            restoreJson.decodeFromString<TodoRestoreEnvelope>(jsonText)
-        }.getOrElse { error ->
-            throw IllegalArgumentException("Todo 복원 파일을 읽을 수 없습니다.", error)
-        }
-
-        val restoredTodos = envelope.todos
-            .asReversed()
-            .distinctBy { it.id }
-            .asReversed()
-            .mapNotNull { it.toEntity(userId) }
-
-        roomDataSource.insertTodos(restoredTodos)
-        return restoredTodos.size
-    }
-
-    private fun TodoRestoreEntry.toEntity(currentUserId: String): TodoEntity? {
-        val cleanTitle = title.trim()
-        if (cleanTitle.isEmpty()) return null
-
-        val legacyIdValue = id.takeIf { it > 0L }
-        val todoIdValue = legacyIdValue?.let { "legacy_todo_$it" } ?: UUID.randomUUID().toString()
-        val resolvedCategory = category
-            ?.trim()
-            ?.uppercase()
-            ?.takeIf { it.isNotEmpty() }
-            ?: "NORMAL"
-        val resolvedSelectedDate = selectedDate ?: dueDate
-        val resolvedAccumulatedMillis = accumulatedMillis ?: (accumulatedSeconds * 1000L)
-
-        return TodoEntity(
-            todoId = todoIdValue,
-            userId = currentUserId,
-            title = cleanTitle,
-            description = description,
-            category = resolvedCategory,
-            selectedDate = resolvedSelectedDate,
-            isCompleted = isCompleted ?: isDone ?: false,
-            completedAt = completedAt,
-            isDeleted = isDeleted,
-            deletedAt = deletedAt,
-            scaleEstimate = scaleEstimate,
-            scaleAlgorithmVersion = scaleAlgorithmVersion,
-            accumulatedWorkMillis = resolvedAccumulatedMillis,
-            burdenLevel = burdenLevel,
-            burdenGroupKey = burdenGroupKey,
-            burdenScore = burdenScore,
-            burdenReasonJson = burdenReasonJson,
-            reviewStage = reviewStage,
-            reviewStage1CompletedAt = reviewStage1CompletedAt,
-            legacyId = legacyIdValue,
-            createdAt = createdAt,
-            updatedAt = updatedAt,
-            syncStatus = syncStatus ?: "PENDING"
-        )
-    }
-
-    @Serializable
-    private data class TodoRestoreEnvelope(
-        val todos: List<TodoRestoreEntry> = emptyList()
-    )
-
-    @Serializable
-    private data class TodoRestoreEntry(
-        val userId: String? = null,
-        val id: Long = 0L,
-        val title: String = "",
-        val description: String? = null,
-        val category: String? = null,
-        val selectedDate: Long? = null,
-        val dueDate: Long? = null,
-        val isCompleted: Boolean? = null,
-        val isDone: Boolean? = null,
-        val completedAt: Long? = null,
-        val deletedAt: Long? = null,
-        val isDeleted: Boolean = false,
-        val accumulatedSeconds: Long = 0L,
-        val accumulatedMillis: Long? = null,
-        val burdenLevel: String? = null,
-        val burdenGroupKey: String? = null,
-        val burdenScore: Int = 0,
-        val burdenReasonJson: String? = null,
-        val reviewStage: Int = 0,
-        val reviewStage1CompletedAt: Long? = null,
-        val scaleEstimate: String? = null,
-        val scaleAlgorithmVersion: String? = null,
-        val createdAt: Long = System.currentTimeMillis(),
-        val updatedAt: Long = System.currentTimeMillis(),
-        val syncStatus: String? = null
-    )
 
     suspend fun completeReviewTodo(todo: TodoItem) {
         val now = System.currentTimeMillis()
