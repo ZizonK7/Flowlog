@@ -7,6 +7,9 @@
   moved out; maintainer guardrails moved to PROJECT_CONTEXT. Corrected README
   claims that no longer matched the code (no CSV export exists; sync also
   restores and pulls data; full Firestore path list; keystore is optional).
+  Restructured README into a user-facing part (how it works, grouped features,
+  web dashboard, recommendations) followed by a developer part, and stated
+  that the app is installed by building from source.
 - Integrated study records with activity sync (2026-09-29): activity details
   and study links are edited on the web statistics page and sync back to
   Android through Room v24 (study links, decision history, activity revision

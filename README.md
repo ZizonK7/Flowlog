@@ -1,78 +1,109 @@
 # Flowlog
 
-Flowlog is a lightweight Android time-tracking app built with Kotlin and
-Jetpack Compose. It helps you quickly record what you are doing, connect work
-time with Todos, and review where your time actually went across the day and
-recent records.
+Flowlog is a lightweight Android time-tracking app. It helps you quickly record
+what you are doing, connect work time with Todos, and review where your time
+actually went across the day and recent records.
 
 Its core value is low-friction recording first, then clear review from
 confirmed activity data. Flowlog is for students, individual makers, and anyone
 who wants a lighter way to understand how their time is actually spent.
 
-The Android app is the primary place where records are created. Firebase sync
-and the web dashboard are supporting surfaces for viewing synced statistics and
-for optional planning tools (study calendar, weekly routine view) that go
-beyond what the phone app shows.
+Flowlog is not published on an app store. To use it, build the app from source
+with your own Firebase configuration; see [Development](#development).
 
-## Project Overview
-
-Flowlog is designed around a simple loop:
+## How It Works
 
 1. Start an activity timer quickly.
 2. Optionally connect the activity time to a Todo.
-3. Save completed activity sessions locally on Android.
+3. Save completed activity sessions on the phone — this works offline.
 4. Review today's totals, a comparison with yesterday, and recent averages in
    the app.
-5. Sync records to Firebase so the web dashboard can show longer-range trends
-   and optional deeper views (calendar, routines, exercise log).
+5. Sign in with Google to sync records, so the web dashboard can show
+   longer-range trends and optional planning tools.
 
-The app keeps local logging usable first, including offline use. Cloud sync
-keeps supported records in Firestore for the same signed-in Google account.
+The Android app is where records are created. The web dashboard is a companion
+for reviewing synced data, not a second place to record.
 
-## Core Experience
+## Features
 
-- Quick activity timers for common categories such as sleep, rest, study, work,
-  school, meal, exercise, and Todo work.
-- Activity sessions with title, category, note, duration, favorite state, source
-  metadata, and optional links to Todo or organized work items.
-- Todo-linked time tracking so a Todo can accumulate actual work time instead
-  of only completion state.
-- Home timeline and activity report views for the current day.
-- Statistics based on saved activity records.
-- Local-first Android storage with Firebase sync when signed in.
-- A synced web dashboard at `https://flowlog.pfkfks.org/` for statistics and a
-  few optional planning tools.
+### Recording
 
-## Key Features
+- Quick timers for common categories such as sleep, rest, study, work, school,
+  meal, exercise, and Todo work.
+- Activity sessions with title, category, note, duration, and favorite state;
+  start, stop, edit, and delete them.
+- Up to five title suggestions per category, favoring titles you used recently
+  and often; titles you stop using fade out over time.
+- Quick-timer buttons that are suggested once you log a category consistently
+  for a few days.
+- Exercise set and rep logging while the exercise timer runs.
 
-- Start, stop, edit, and delete activity sessions.
-- Suggest up to five activity titles per category using completed records,
-  balancing recent use and frequency while reducing the influence of old habits.
-- View today's activity list, timetable, category totals, yesterday
-  comparison, and recent 7-day averages; fill empty timetable gaps as sleep.
-- Manage Todos, today's items, light daily prompts/cues, and Todo work
-  sessions.
-- Use scheduled/repeating routine blocks and pinned school/company timers,
-  including manually starting a scheduled block early from the timetable.
-- Toggle whether recommended activities are auto-placed onto today's
-  timetable and whether a reminder alarm fires when their time arrives,
-  independently, from Settings.
-- Locally promote quick-timer buttons based on recent activity patterns (a
-  category becomes a quick button once you log it consistently for a few
-  days; at most ten main buttons), plus context-aware routine nudges (after
-  waking, after a meal, before a usual sleep time).
-- Log exercise sets and reps while the exercise timer runs.
-- Run focus sessions, optionally turning on system Do Not Disturb.
-- Receive reminders for planned Todos, routine goals, inactivity, and
-  toothbrush/meal timers; scheduled reminders are re-armed after a reboot or
-  app update.
-- Restore Todos from a JSON backup file.
-- Sign in with Google and sync supported records with Firestore.
-- Use a compact Android home-screen widget for current timer status.
-- View synced activity, Todo, statistics, and recommendation data from the web
-  dashboard, including a study calendar (syllabus text auto-parsed into a
-  schedule), a weekly routine tracker, a per-category activity drill-down, and
-  an exercise log.
+### Todos and Routines
+
+- Todos, today's items, and light daily prompts (Daily Cues).
+- Todo-linked time tracking, so a Todo accumulates actual work time instead of
+  only a completion state.
+- Scheduled and repeating routine blocks and pinned school/company timers,
+  which can also be started early from the timetable.
+- Optional auto-placement of recommended activities onto today's timetable,
+  with a separate on/off setting for their reminder alarm.
+- Gentle nudges at common moments: after waking, after a meal, and before a
+  usual sleep time.
+
+### Review
+
+- Today's activity list, timetable, and category totals.
+- Comparison with yesterday and recent 7-day averages.
+- Filling empty timetable gaps as sleep.
+
+### Reminders and Focus
+
+- Focus sessions, optionally turning on system Do Not Disturb.
+- Reminders for planned Todos, routine goals, inactivity, and toothbrush/meal
+  timers; scheduled reminders are restored after a reboot or app update.
+- A compact home-screen widget showing the current timer.
+
+### Sync and Web
+
+- Google sign-in and sync with Firestore; records made offline upload later.
+- A web dashboard at `https://flowlog.pfkfks.org/` for synced statistics and
+  optional planning tools (see below).
+
+## Web Dashboard
+
+The web dashboard at `flowlog.pfkfks.org` shows synced Flowlog data. It focuses
+on completed, confirmed records rather than in-progress activity.
+
+- `/` — landing page.
+- `/statistics/` — recent activity history and category totals. Longer-range
+  trend views unlock once enough days are logged. You can open your own
+  activity blocks to edit their details and link them to a study record by
+  course and lesson date.
+- `/statistics/exercise/` — per-exercise set/rep trends.
+- `/calendar/` — study calendar: pasted syllabus text becomes a per-lecture
+  schedule, with recurring Todos ("Petites") and export to Google/Apple
+  calendars or ICS.
+- `/routine/` — weekly Daily Cues completion tracker.
+- `/activities/` — per-category time trends.
+- `/privacy/` — privacy policy.
+
+The web code lives in [pfkfks-main](https://github.com/ZizonK7/pfkfks-main).
+
+## Recommendations and AI
+
+Recommendations in Flowlog are local and rule-based: title suggestions,
+quick-timer button suggestions, routine nudges, and the Todo tab organizer.
+They exist to reduce choice friction while recording, not to coach habits.
+
+An optional remote AI endpoint (Firebase Functions) can rank ambiguous items or
+write short recommendation reasons. It is off by default in every build, and
+the app falls back to local rules whenever it is unavailable. It still needs
+production hardening (App Check, rate limiting) before wider use; see
+[`functions/README.md`](functions/README.md).
+
+---
+
+The sections below are for developers.
 
 ## Architecture
 
@@ -88,8 +119,7 @@ app/src/main/java/com/example/flowlog/
   data/sync/        Sync between Room and Firestore (upload, restore, calendar
                     and study pulls, delete retry)
   data/study/       Study link/decision ID helpers
-  data/assistant/   Builds the daily "today's schedule" snapshot pushed to
-                    Firestore for the web assistant (flowlog.pfkfks.org/assistant)
+  data/assistant/   Daily "today's schedule" snapshot for the web assistant
   data/agent/       Local organizer rules and optional remote AI provider
   debug/            Sample timetable data for developer screens
   notification/     Timer, reminder, focus, alarm, and boot receiver paths
@@ -149,15 +179,13 @@ Some data also flows from Firestore back to the app:
   button suggestions. Links are edited on the web only; Android has no study
   link editor.
 
-Whenever today's focus recommendation recomputes, `TodoViewModel` also
-pushes a full-overwrite "today's schedule" snapshot
-(`data/assistant/AssistantSnapshotBuilder.kt` → `FirestoreSyncRepository
-.overwriteAssistantSnapshot`) to `assistantSnapshots/{yyyy-MM-dd}` — active
-repeat routines and time-slotted todos (`placed`), today's-focus todos with
-no time slot yet (`unplaced`), and sleep anchors (last wake time, predicted
-bedtime). This is read-only input for the web assistant
-(`flowlog.pfkfks.org/assistant`) to answer scheduling questions; the app
-never reads it back.
+Whenever today's focus recommendation recomputes, `TodoViewModel` also pushes a
+full-overwrite snapshot (`data/assistant/AssistantSnapshotBuilder.kt`) to
+`assistantSnapshots/{yyyy-MM-dd}`: active repeat routines and time-slotted
+Todos (`placed`), today's-focus Todos without a time slot (`unplaced`), and
+sleep anchors (last wake time, predicted bedtime). The web assistant
+(`flowlog.pfkfks.org/assistant`) reads it to answer scheduling questions; the
+app never reads it back.
 
 Firestore paths used by the Android app:
 
@@ -179,60 +207,11 @@ users/{uid}/interactionDecisions
 
 The last two live directly under `users/{uid}`, outside `flowlog/`.
 
-## Statistics / Web Dashboard
+## Title Suggestion Scoring
 
-The web dashboard (`flowlog.pfkfks.org`, served from the `flowlog` Firebase
-Hosting target) is a companion view for synced Flowlog data. It should be
-understood as a report and light planning surface, not the main recording
-interface — recording still happens on Android.
-
-Current pages:
-
-- `/` — landing page.
-- `/statistics/` — main rhythm dashboard: recent activity history, category
-  totals, and a data-maturity indicator that gates longer-range trend views
-  until enough days are logged. Your own activity blocks can be opened to
-  edit their details and to link a study record by course and lesson date.
-- `/statistics/exercise/` — per-exercise set/rep trend log.
-- `/calendar/` — study calendar; pasted syllabus text is parsed into a
-  per-lecture schedule, with recurring Todo ("Petite") support and calendar
-  export (Google/Apple/ICS).
-- `/routine/` — weekly Daily Cues Routine completion tracker.
-- `/activities/` — per-category time trend drill-down.
-- `/privacy/` — privacy policy.
-
-The dashboard focuses on completed or confirmed records, such as recent activity
-history, category totals, and trends. Dashboard copy should clearly state
-whether it is showing today, in-progress data, or completed historical records.
-
-The web implementation and the authoritative Firestore rules live in
-[pfkfks-main](https://github.com/ZizonK7/pfkfks-main).
-
-## AI / Recommendation Status
-
-AI and recommendation features are supporting and experimental areas, not the
-core product promise.
-
-Current recommendation behavior is primarily local and rule-based (see
-`data/recommendation/`). The Todo tab organizer and related recommendation
-records are meant to reduce choice friction inside the existing logging
-workflow. Remote AI decision support exists as an optional Firebase Functions
-endpoint, but it is disabled by default in both debug and release Android
-settings. If enabled locally, Android still falls back to local rules when
-auth, network, endpoint, or OpenAI calls fail.
-
-Before remote AI is enabled broadly, the backend still needs production
-hardening such as App Check enforcement and rate limiting. See
-[`functions/README.md`](functions/README.md) for deployment and safety notes.
-
-### Activity Title Suggestions
-
-Title suggestions use saved, completed sessions in the selected category.
-Applying a title to a running timer does not add it to the suggestion history;
-ending and saving the activity does. Existing record edits and deletions also
-update the history used for ranking.
-
-`ActivityTitleSuggestionRanker` computes a score from session end times:
+`ActivityTitleSuggestionRanker` ranks titles from saved, completed sessions in
+the selected category (a title applied to a running timer counts only once the
+session is saved):
 
 ```text
 weightedUses = sum(2 ^ (-sessionAgeDays / 14))
@@ -240,22 +219,13 @@ score = (40 + 60 * weightedUses / (weightedUses + 3))
         * 2 ^ (-daysSinceLastCompletion / 7)
 ```
 
-Frequency has diminishing returns and a bounded contribution. Older records
-contribute less, and the final score decays with inactivity. A first completion
-today scores 55; even a very frequent title unused for seven days scores at most
-50. Recently repeated activities can still outrank a new title, so a new
-completion does not guarantee a place in the top five. These are initial tuning
-values, centralized in the ranker for adjustment after usage feedback.
+Frequency has diminishing returns, older sessions count less, and the score
+decays with inactivity: a first completion today scores 55, while even a very
+frequent title unused for seven days scores at most 50. The constants are
+initial tuning values kept together in the ranker. Filtering and title-matching
+rules are documented in the ranker source.
 
-Ranking uses exact stored titles without trimming, case folding, or merging
-similar names. Repeated identical titles contribute to one recommendation's
-score; historical records are never merged or rewritten. Blank and category
-default titles are excluded, as are invalid or future completion times. There
-is no age cutoff or minimum score. The existing maximum of five suggestions and
-wrapping chip layout are preserved. Score components are available through
-`rankedScores` for development inspection, without adding diagnostic UI.
-
-## Development Notes
+## Development
 
 ### Tech Stack
 
@@ -275,7 +245,8 @@ wrapping chip layout are preserved. Score components are available through
 
 ### Firebase Setup
 
-This repository expects a Firebase Android config file at:
+The app initializes Firebase at startup, so a runnable build needs a Firebase
+Android config file at:
 
 ```text
 app/google-services.json
@@ -283,7 +254,9 @@ app/google-services.json
 
 To create it:
 
-1. Open the Firebase project used by the website (project ID `pfkfks`).
+1. Open a Firebase project. The hosted web dashboard reads the maintainer's
+   project (`pfkfks`); a build connected to your own project works on its own,
+   but its data will not appear on `flowlog.pfkfks.org`.
 2. Add an Android app with package name `org.pfkfks.flowlog` (this is the
    Gradle `applicationId`; the Kotlin/Java namespace is `com.example.flowlog`,
    which does not need to match).
@@ -306,27 +279,28 @@ upload activities once they are deployed.
 
 Open the project in Android Studio, or build from the command line:
 
-```powershell
-.\gradlew.bat assembleDebug
+```sh
+./gradlew assembleDebug        # macOS / Linux
+.\gradlew.bat assembleDebug    # Windows
 ```
 
 If Java is not configured in your shell, point `JAVA_HOME` to Android Studio's
-bundled runtime before building:
+bundled runtime first. On Windows:
 
 ```powershell
 $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
-.\gradlew.bat assembleDebug
 ```
 
 Run unit tests with:
 
-```powershell
-.\gradlew.bat testDebugUnitTest
+```sh
+./gradlew testDebugUnitTest
 ```
 
 To compile and run unit tests on a checkout without `app/google-services.json`,
 add `-PofflineValidation=true`. It skips Google Services processing and uses a
-placeholder web client ID, so sign-in will not work in that build.
+placeholder web client ID; the resulting app is for compiling and testing only
+and does not run.
 
 Builds are signed with a local `keystore.properties` (`storeFile`,
 `storePassword`, `keyAlias`, and `keyPassword`) and its keystore when that file
@@ -342,6 +316,10 @@ the commands.
 
 - `local.properties`, build outputs, IDE settings, `keystore.properties`, and
   `app/google-services.json` stay local and are ignored by Git.
+- Developer mode is available only to the maintainer's account (checked in
+  `UserRoleStore`). It adds tools to the home header menu: manual Firebase
+  upload, regenerating the recommended time plan, and restoring Todos from a
+  JSON backup file.
 - User-facing strings in the most-used screens (`TodoScreen.kt`, `MainActivity.kt`,
   and the larger `ui/screen/home/` sections) live in `res/values/strings.xml`
   rather than as inline literals, so those screens are ready for a future
