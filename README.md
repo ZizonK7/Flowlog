@@ -183,9 +183,9 @@ Whenever today's focus recommendation recomputes, `TodoViewModel` also pushes a
 full-overwrite snapshot (`data/assistant/AssistantSnapshotBuilder.kt`) to
 `assistantSnapshots/{yyyy-MM-dd}`: active repeat routines and time-slotted
 Todos (`placed`), today's-focus Todos without a time slot (`unplaced`), and
-sleep anchors (last wake time, predicted bedtime). The web assistant
-(`flowlog.pfkfks.org/assistant`) reads it to answer scheduling questions; the
-app never reads it back.
+sleep anchors (last wake time, predicted bedtime). The admin-only web
+assistant (`flowlog.pfkfks.org/assistant`) reads it to answer scheduling
+questions; the app never reads it back.
 
 Firestore paths used by the Android app:
 
@@ -319,7 +319,7 @@ the commands.
 - Developer mode is available only to the maintainer's account (checked in
   `UserRoleStore`). It adds tools to the home header menu: manual Firebase
   upload, regenerating the recommended time plan, and restoring Todos from a
-  JSON backup file.
+  JSON file shaped as `{"todos": [...]}`.
 - User-facing strings in the most-used screens (`TodoScreen.kt`, `MainActivity.kt`,
   and the larger `ui/screen/home/` sections) live in `res/values/strings.xml`
   rather than as inline literals, so those screens are ready for a future
