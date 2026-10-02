@@ -22,7 +22,14 @@ abstract class ActivityRevisionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun saveConflict(conflict: ActivityConflictEntity)
 
-    @Query("SELECT * FROM activity_conflicts WHERE userId = :userId")
+    // A saved failure may outlive its edit (restore, deletion sync, or an in-flight failure).
+    // Observe both tables so acknowledging/editing the activity immediately removes stale UI.
+    @Query("""
+        SELECT c.* FROM activity_conflicts AS c
+        INNER JOIN activities AS a ON a.userId = c.userId AND a.activityId = c.activityId
+        WHERE c.userId = :userId AND a.syncStatus = 'PENDING'
+          AND a.updatedAt = c.localUpdatedAt
+    """)
     abstract fun observeConflicts(userId: String): Flow<List<ActivityConflictEntity>>
 
     @Query("DELETE FROM activity_conflicts WHERE userId = :userId AND activityId = :activityId")

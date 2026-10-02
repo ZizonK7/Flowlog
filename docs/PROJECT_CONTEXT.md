@@ -32,6 +32,11 @@ Where things go:
 
 ## Maintenance Guardrails
 
+- `main` is the integration branch. Before removing a task branch, verify its
+  tip is an ancestor of the successfully pushed `origin/main`; never discard
+  branch-only commits to make a working tree match main.
+- Keep companion web changes in `pfkfks-main`; preserve its course note
+  automation when integrating sync or statistics changes.
 - This repository is public on GitHub. Keep code quality in mind and do not
   commit anything that reveals account-specific details (credentials,
   `google-services.json`, keystore files, private IDs).
@@ -142,6 +147,19 @@ Sync is not upload-only: the app restores records into an empty local database
 after login, pulls web-created calendar data, loads the main button config, and
 applies web edits to activities with revision-based conflict handling. Room
 stays the source the app works from.
+
+Conflict presentation must match the current pending edit: join conflicts to
+activities by owner and activity ID, require `PENDING` and the same `updatedAt`.
+A saved conflict can outlive an acknowledged upload or a restored deletion;
+showing all conflict rows resurrects obsolete prompts. Do not hide pending
+deletes or equal-revision validation conflicts. Content-equivalent activity
+uploads may acknowledge the remote revision without rewriting the record;
+genuinely different edits still require conflict resolution.
+
+For physical-device regression checks, preserve the installed app's data and
+signature. Use an update install, never uninstall/clear-data to bypass a signing
+mismatch. Room conflict tests use an in-memory database. Keep device snapshots,
+personal exports, and credentials outside Git and model-review payloads.
 
 ## AI / Recommendation Positioning
 

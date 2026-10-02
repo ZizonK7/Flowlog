@@ -80,7 +80,8 @@ on completed, confirmed records rather than in-progress activity.
   activity blocks to edit their details and link them to a study record by
   course and lesson date. An experimental once-a-day check-in asks three
   quick questions (motivation, energy, sleepiness) with an optional note; it
-  can be hidden for a day or a week.
+  can be hidden for a day or a week. Submitting valid answers closes the popup
+  immediately and shows save progress; a failed save reopens the entered answers.
 - `/statistics/exercise/` — per-exercise set/rep trends.
 - `/calendar/` — study calendar: pasted syllabus text becomes a per-lecture
   schedule, with recurring Todos ("Petites") and export to Google/Apple
@@ -160,6 +161,12 @@ Firestore:
   app being killed and fires as soon as the device reconnects — this is on
   top of, not instead of, the triggers above.
 
+Startup, login, and network-return activity uploads use `syncEligible`: pending
+activities started before today are eligible. Saving an activity triggers a full
+pending upload when it lasts at least ten minutes or contains exercise sets.
+The developer menu's manual upload also includes today's pending records.
+Short activities therefore need not appear on the web immediately after saving.
+
 Some data also flows from Firestore back to the app:
 
 - After login on a device with no local activities or Todos (a new install or
@@ -169,7 +176,10 @@ Some data also flows from Firestore back to the app:
 - The main button configuration is kept in Firestore and loaded on sign-in.
 - Activity details edited on the web sync back. Revisions protect pending
   local edits; when both sides changed, the app keeps both versions and asks
-  which one to keep.
+  which one to keep. If the saved content already matches, the app catches up
+  to the server revision without rewriting the record or asking for a choice.
+  Conflict prompts only describe the current pending edit; completed syncs and
+  newer local edits stop showing an obsolete conflict prompt.
 - Study links (an activity linked to a course record on the web) and the
   user's classification/link decisions are restored to Room and used by the
   button suggestions. Links are edited on the web only; Android has no study
@@ -313,9 +323,8 @@ the commands.
   `app/google-services.json` stay local and are ignored by Git.
 - Developer mode is available only to the maintainer's account (checked in
   `UserRoleStore`). It adds tools to the home header menu: manual Firebase
-  upload, regenerating the recommended time plan, and restoring Todos from a
-  JSON file shaped as `{"todos": [...]}`. No current tool produces that file
-  (the admin data export on the web uses a different format).
+  upload and regenerating the recommended time plan. The old JSON Todo restore
+  menu has been removed; automatic Firestore restore remains supported.
 - User-facing strings in the most-used screens (`TodoScreen.kt`, `MainActivity.kt`,
   and the larger `ui/screen/home/` sections) live in `res/values/strings.xml`
   rather than as inline literals, so those screens are ready for a future

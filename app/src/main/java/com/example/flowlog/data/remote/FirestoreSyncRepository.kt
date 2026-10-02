@@ -140,9 +140,10 @@ class FirestoreSyncRepository(
     ): Long? {
         require(uid == ownerUid) { "Account changed" }
         val userId = ownerUid
-        val mutationId = java.security.MessageDigest.getInstance("SHA-256")
-            .digest((docId + activity.toString() + deletedAt).toByteArray())
-            .joinToString("") { "%02x".format(it) }
+        // Revision ACKs and local row identities are not new edits. Keep modifiedTime so
+        // a later edit back to the same content still represents a distinct mutation.
+        val mutationId = ActivityRevisionContent.mutationId(docId, activity, deletedAt)
+        val content = activity.toRemoteMap() + mapOf("isDeleted" to (deletedAt != null), "deletedAt" to deletedAt)
         val ref = activityCollection(userId).document(docId)
         val links = firestore.collection("users").document(userId).collection("activityStudyLinks")
             .whereEqualTo("activityId", docId).get().awaitResult().documents
@@ -150,7 +151,10 @@ class FirestoreSyncRepository(
             require(uid == ownerUid) { "Account changed" }
             val snapshot = tx.get(ref)
             val remoteRevision = if (snapshot.exists()) snapshot.getLong("revision") ?: 0L else 0L
-            val next = ActivityRevisionPolicy.next(docId, baseRevision, remoteRevision, mutationId, snapshot.getString("lastMutationId"))
+            val next = ActivityRevisionPolicy.next(
+                docId, baseRevision, remoteRevision, mutationId, snapshot.getString("lastMutationId"),
+                remoteMatchesLocal = ActivityRevisionContent.matches(snapshot.data, content)
+            )
             if (next == remoteRevision) return@runTransaction remoteRevision
             val checkedLinks = links.map { tx.get(it.reference) }
             if (deletedAt == null) {
@@ -168,7 +172,7 @@ class FirestoreSyncRepository(
                     }
                 }
             }
-            val data = activity.toRemoteMap().toMutableMap()
+            val data = content.toMutableMap()
             data["start_time"] = activity.startTime
             data["end_time"] = activity.endTime
             data["durationMinutes"] = activity.durationMillis / 60000.0

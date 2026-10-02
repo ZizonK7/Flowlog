@@ -26,3 +26,8 @@ app/google-services.json
 *.jks
 release.keystore
 keystore.properties
+
+# Local activity exports and generated remnants of the retired backend
+/flowlog_activities.csv
+/functions/lib/
+**/node_modules/

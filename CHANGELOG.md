@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed activity sync revision catch-up when the saved content already matches
+  the remote record, without overwriting genuine concurrent edits.
+- Fixed obsolete conflict prompts remaining visible after a record was synced,
+  superseded, or restored as deleted. Version 0.5.9 includes regression coverage
+  using the actual Room conflict observer.
 - Removed the university exam Todo feature: the `UNIVERSITY_EXAM` category,
   exam Petites and their study-start action, and the unused exam strategy
   check path. The Room schema stays at v24; stored exam Todos become normal
