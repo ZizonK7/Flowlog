@@ -71,6 +71,12 @@
   so the change silently never reached Firestore. All three DAO queries now
   correctly mark `PENDING` so the existing sync pass (and the new delete
   trigger above) actually pick them up.
+- Stopped the yesterday Daily Cue sheet from rewriting the `dailyCues` Firestore
+  document with yesterday's `isCompletedToday`/`completionDateKey`. That pair
+  describes one day and the web routine/statistics pages only read it for
+  today, so the write was never used and only cleared the flag of a routine
+  already completed today. Yesterday completions still sync through their
+  `DAILY_CUE_CHECK` activity record dated 23:59:59.999 of the previous day.
 - Fixed yesterday Daily Cue routine check completions not reliably reaching
   Firestore: `toggleYesterdayCue` now triggers a pending-changes sync
   immediately instead of waiting for the next app start or network
