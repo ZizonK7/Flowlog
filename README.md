@@ -167,6 +167,13 @@ pending upload when it lasts at least ten minutes or contains exercise sets.
 The developer menu's manual upload also includes today's pending records.
 Short activities therefore need not appear on the web immediately after saving.
 
+After uploading, sync pulls remote activity, study-link and study-decision
+changes. These pulls are incremental (`data/sync/RemotePullCursor.kt`): only
+documents whose client-written timestamp (`modifiedTime`, `updatedAt`,
+`createdAt`) is newer than the last successful pull minus a 24-hour overlap are
+read. The first pull per account and one pull per week read the whole
+collection; reinstall restore and conflict resolution always do.
+
 Some data also flows from Firestore back to the app:
 
 - After login on a device with no local activities or Todos (a new install or

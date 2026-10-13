@@ -16,6 +16,7 @@ import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.Image
@@ -170,9 +171,23 @@ class MainActivity : ComponentActivity() {
         }
         requestNotificationPermission()
         requestExactAlarmPermission()
-        enableEdgeToEdge()
+        // The UI is designed for a light palette only (hard-coded surface colors), so keep
+        // dark status/navigation icons even when the system is in dark mode.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            ),
+            navigationBarStyle = SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            )
+        )
         setContent {
-            FlowlogTheme {
+            // Light palette without dynamic color: most surfaces use fixed light colors, and a
+            // system dark or dynamic scheme only recolored Material defaults (switches, chips),
+            // producing a mixed light/dark screen.
+            FlowlogTheme(darkTheme = false, dynamicColor = false) {
                 var currentScreen by remember { mutableStateOf(requestedScreen) }
                 LaunchedEffect(requestedScreen) {
                     currentScreen = requestedScreen
@@ -713,6 +728,13 @@ class MainActivity : ComponentActivity() {
         val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
         if (alarmManager.canScheduleExactAlarms()) return
 
+        // Open the system "Alarms & reminders" screen at most once per install. Every
+        // scheduler falls back to an inexact alarm without the permission, so a user who
+        // declines should not be sent to Settings again on every launch.
+        val prefs = getSharedPreferences(PERMISSION_PROMPT_PREFS, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_EXACT_ALARM_PROMPTED, false)) return
+        prefs.edit().putBoolean(KEY_EXACT_ALARM_PROMPTED, true).apply()
+
         runCatching {
             startActivity(
                 Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
@@ -727,6 +749,8 @@ class MainActivity : ComponentActivity() {
         const val SCREEN_HOME = "home"
         const val SCREEN_TODO = "todo"
         private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 1001
+        private const val PERMISSION_PROMPT_PREFS = "flowlog_permission_prompts"
+        private const val KEY_EXACT_ALARM_PROMPTED = "exact_alarm_prompted"
     }
 }
 

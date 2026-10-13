@@ -1,21 +1,20 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
+# Flowlog release (R8) rules.
 #
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# The app reads Firestore documents through Map access (no toObject/POJO reflection),
+# Room/WorkManager/Compose/kotlinx.serialization/Firebase ship their own consumer
+# rules, and manifest components are kept automatically, so no broad -keep rules
+# are needed here.
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Keep file/line info so Crashlytics stack traces stay readable after obfuscation.
+# The Crashlytics Gradle plugin uploads the mapping file for release builds.
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
-
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Strip verbose/debug/info logging from release builds. Several of these lines
+# include Todo/activity titles or the Firebase uid, which must not reach logcat.
+# Log.w/e stay for diagnostics and must not contain user content.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}

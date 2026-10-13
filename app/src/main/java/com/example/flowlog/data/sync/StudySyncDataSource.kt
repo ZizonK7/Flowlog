@@ -13,13 +13,14 @@ import org.json.JSONObject
 
 /** Private collections are outside the legacy admin-readable flowlog subtree. */
 class StudySyncDataSource(context: Context) {
+    private val appContext = context.applicationContext
     private val dao = FlowlogDatabase.getInstance(context).studyDao()
     private val auth = FirebaseAuth.getInstance()
     private val remote = FirebaseFirestore.getInstance()
     private fun checkOwner(uid: String) = check(auth.currentUser?.uid == uid) { "Account changed" }
     private fun collection(uid: String, name: String) = remote.collection("users").document(uid).collection(name)
 
-    suspend fun sync(uid: String, restoreRemote: Boolean = true): SyncOutcome {
+    suspend fun sync(uid: String, restoreRemote: Boolean = true, incremental: Boolean = false): SyncOutcome {
         checkOwner(uid)
         var ok = 0
         var failed = 0
@@ -46,14 +47,25 @@ class StudySyncDataSource(context: Context) {
             }.onFailure { failed++ }
         }
         // Rebuild recommendations and historical lesson details after reinstall or web edits.
-        if (restoreRemote) runCatching { restore(uid) }.onFailure { failed++ }
+        if (restoreRemote) runCatching { restore(uid, incremental) }.onFailure { failed++ }
         return SyncOutcome(attemptedCount = ok + failed, successCount = ok, failureCount = failed)
     }
 
-    suspend fun restore(uid: String) {
+    /**
+     * @param incremental when true, only links updated / decisions created since the stored
+     * [RemotePullCursor] are fetched (both are client-written epoch millis). A full read
+     * still happens on first use, weekly, and whenever [incremental] is false.
+     */
+    suspend fun restore(uid: String, incremental: Boolean = false) {
         checkOwner(uid)
         var malformed = 0
-        val links = collection(uid, "activityStudyLinks").get().awaitResult()
+        val pullStartedAt = System.currentTimeMillis()
+        val linksSince = if (incremental) RemotePullCursor.since(appContext, uid, RemotePullCursor.STUDY_LINKS, pullStartedAt) else null
+        val decisionsSince = if (incremental) RemotePullCursor.since(appContext, uid, RemotePullCursor.STUDY_DECISIONS, pullStartedAt) else null
+        val linksQuery = collection(uid, "activityStudyLinks").let { c ->
+            if (linksSince != null) c.whereGreaterThanOrEqualTo("updatedAt", linksSince) else c
+        }
+        val links = linksQuery.get().awaitResult()
         checkOwner(uid)
         for (doc in links.documents) {
             val d = doc.data ?: continue
@@ -71,7 +83,10 @@ class StudySyncDataSource(context: Context) {
             ))
             }.onFailure { malformed++ }
         }
-        val decisions = collection(uid, "interactionDecisions").get().awaitResult()
+        val decisionsQuery = collection(uid, "interactionDecisions").let { c ->
+            if (decisionsSince != null) c.whereGreaterThanOrEqualTo("createdAt", decisionsSince) else c
+        }
+        val decisions = decisionsQuery.get().awaitResult()
         checkOwner(uid)
         for (doc in decisions.documents) {
             val d = doc.data ?: continue
@@ -87,6 +102,10 @@ class StudySyncDataSource(context: Context) {
             }.onFailure { malformed++ }
         }
         check(malformed == 0) { "$malformed study documents could not be restored; valid documents were retained" }
+        if (incremental) {
+            RemotePullCursor.recordSuccess(appContext, uid, RemotePullCursor.STUDY_LINKS, pullStartedAt, wasFullPull = linksSince == null)
+            RemotePullCursor.recordSuccess(appContext, uid, RemotePullCursor.STUDY_DECISIONS, pullStartedAt, wasFullPull = decisionsSince == null)
+        }
     }
 
     private fun jsonObject(o: JSONObject): Map<String, Any?> = o.keys().asSequence().associateWith { key -> jsonValue(o.get(key)) }

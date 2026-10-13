@@ -9,6 +9,7 @@ import com.example.flowlog.data.model.MainButtonItem
 import com.example.flowlog.data.model.TodoItem
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.SetOptions
 
 /**
@@ -41,7 +42,6 @@ class FirestoreSyncRepository(
                 .set(activity.toRemoteMap(), SetOptions.merge())
                 .awaitResult()
         }
-        markSynced(userId)
     }
 
     suspend fun syncActivity(activity: ActivitySession) {
@@ -49,7 +49,6 @@ class FirestoreSyncRepository(
         activityCollection(userId).document(activity.id.toString())
             .set(activity.toRemoteMap(), SetOptions.merge())
             .awaitResult()
-        markSynced(userId)
     }
 
     suspend fun syncTodos(todos: List<TodoItem>) {
@@ -59,7 +58,6 @@ class FirestoreSyncRepository(
                 .set(todo.toRemoteMap(), SetOptions.merge())
                 .awaitResult()
         }
-        markSynced(userId)
     }
 
     suspend fun syncTodo(todo: TodoItem) {
@@ -67,13 +65,11 @@ class FirestoreSyncRepository(
         todoCollection(userId).document(todo.id.toString())
             .set(todo.toRemoteMap(), SetOptions.merge())
             .awaitResult()
-        markSynced(userId)
     }
 
     suspend fun deleteTodo(id: Long) {
         val userId = uid ?: return
         todoCollection(userId).document(id.toString()).delete().awaitResult()
-        markSynced(userId)
     }
 
     suspend fun syncDailyCue(
@@ -112,7 +108,6 @@ class FirestoreSyncRepository(
                 SetOptions.merge()
             )
             .awaitResult()
-        markSynced(userId)
     }
 
     // ── batch sync용 명시적 docId 메서드 ─────────────────────────────────
@@ -123,7 +118,6 @@ class FirestoreSyncRepository(
         activityCollection(userId).document(docId)
             .set(activity.toRemoteMap(), SetOptions.merge())
             .awaitResult()
-        markSynced(userId)
     }
 
     /**
@@ -185,7 +179,6 @@ class FirestoreSyncRepository(
             tx.set(ref, data, SetOptions.merge())
             next
         }.awaitResult()
-        runCatching { markSynced(userId) }
         return newRevision
     }
 
@@ -194,19 +187,16 @@ class FirestoreSyncRepository(
         todoCollection(userId).document(docId)
             .set(todo.toRemoteMap(), SetOptions.merge())
             .awaitResult()
-        markSynced(userId)
     }
 
     suspend fun deleteTodoByDocId(docId: String) {
         val userId = uid ?: return
         todoCollection(userId).document(docId).delete().awaitResult()
-        markSynced(userId)
     }
 
     // ── EventLog batch sync ──────────────────────────────────────────────
     // 저장 경로: users/{uid}/flowlog/data/eventLogs/{eventId}
     // syncStatus는 서버에 저장하지 않음 (로컬 Room에서만 관리).
-    // markSynced(metadata) 호출 없음 — 이벤트 로그는 audit trail이므로 metadata 갱신 불필요.
 
     suspend fun syncEventLog(eventId: String, event: EventLogEntity) {
         val userId = uid ?: return
@@ -397,9 +387,15 @@ class FirestoreSyncRepository(
             put("updatedAt", updatedAt)
             if (deletedAt != null) put("deletedAt", deletedAt)
         }
-        calendarEventCollection(userId).document(docId)
-            .set(data, SetOptions.merge())
-            .awaitResult()
+        // Only web-calendar Todos have a mirror document. update() (instead of a merge set)
+        // keeps legacy app-only Todos from creating empty, typeless calendarEvents docs.
+        try {
+            calendarEventCollection(userId).document(docId)
+                .update(data)
+                .awaitResult()
+        } catch (e: FirebaseFirestoreException) {
+            if (e.code != FirebaseFirestoreException.Code.NOT_FOUND) throw e
+        }
     }
 
     private fun calendarEventCollection(userId: String) =
@@ -421,13 +417,6 @@ class FirestoreSyncRepository(
         firestore.collection("users").document(userId)
             .collection("flowlog").document("data")
             .collection("dailyCues")
-
-    private suspend fun markSynced(userId: String) {
-        firestore.collection("users").document(userId)
-            .collection("flowlog").document("metadata")
-            .set(mapOf("updatedAt" to System.currentTimeMillis()), SetOptions.merge())
-            .awaitResult()
-    }
 
     private fun ActivitySession.toRemoteMap(): Map<String, Any?> = mapOf(
         "id" to id,

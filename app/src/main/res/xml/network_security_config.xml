@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    All Flowlog traffic is HTTPS (Firebase). Block cleartext explicitly so that
+    API 24-27 devices, where cleartext is otherwise allowed by default, behave
+    the same as newer ones.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>
