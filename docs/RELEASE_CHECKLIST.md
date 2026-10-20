@@ -2,6 +2,21 @@
 
 Play 스토어 출시를 앞두고 **결정한 것**과 **남은 할 일**을 한곳에 둔다. 결정은 저장소 주인이 했고, 조사·정리는 2026-10-20 점검 세션이 했다. 보안 점검의 구체 내용은 공개 저장소에 두지 않으므로 여기에는 항목 이름만 적는다. 항목이 끝나면 체크하고, 결정이 바뀌면 이 파일을 고친다(시간순 기록이 아니라 현재 기준).
 
+## 주인이 콘솔에서 직접 할 일 (2026-10-20 저녁 기준, 급한 순)
+
+세션(Claude)은 콘솔에 들어갈 수 없어서 아래는 주인만 할 수 있다. 끝나면 체크.
+
+- [ ] **1. 배포 서비스 계정에 권한 주기 → 워크플로 다시 돌리기 (5분).** 웹 저장소에 `main` 푸시 때 인덱스 → 규칙 → 함수를 자동 배포하는 워크플로(`.github/workflows/firebase-backend-deploy.yml`)를 넣었는데, 첫 실행이 `firebaserules … 403`으로 실패했다(Hosting용 계정이라 권한이 없음).
+  1. Google Cloud 콘솔 → 프로젝트 pfkfks → IAM 및 관리자 → IAM.
+  2. `github-action-…@pfkfks.iam.gserviceaccount.com` 모양의 계정(Hosting 배포용) → 연필 → 역할 추가: **편집자(Editor)** + **서비스 계정 사용자(Service Account User)** → 저장.
+  3. GitHub pfkfks-main → Actions → "Deploy Firestore and Functions on merge" → Run workflow. 인덱스·규칙·함수(`updateActivitySummary`, `flushDirtyActivitySummaries`, `reconcileActivitySummaries`, `purgeDeletedFlowlogAccounts`)가 순서대로 배포된다. 실패하면 로그에 빠진 역할 이름이 나온다.
+- [ ] **2. (선택) 기존 사용자 요약 만들기.** 1번 뒤 Google Cloud 콘솔 → Cloud Scheduler → `reconcileActivitySummaries` 작업 → "지금 실행". 안 하면 각 사용자가 다음에 기록을 저장할 때 자동으로 만들어진다.
+- [ ] **3. 서비스 계정 키 폐기 확인.** 웹 저장소 `docs/flowlog-release-plan.md` 1절. 콘솔 → IAM 및 관리자 → 서비스 계정 → `firebase-adminsdk-…` → 키 탭에서 2026-05-28 이전 키가 남아 있으면 삭제. PC의 웹 저장소 클론에서 `git show d93f3cf:serviceAccountKey.json | python -c "import json,sys; print(json.load(sys.stdin)['private_key_id'])"`로 키 ID를 뽑아 목록과 대조하면 확실하다(값은 출력하지 않는다). 폐기 뒤 이력 정리는 같은 문서 2절.
+- [ ] **4. Firebase 예산 알림.** Google Cloud 콘솔 → 결제 → 예산 및 알림 → 월 5,000원, 50·90·100% 이메일. 잔액 -13,000원의 정체는 결제 → 보고서를 "서비스"별로 묶어 확인(Firestore 읽기인지, Functions·Artifact Registry인지).
+- [ ] **5. App Check 콘솔 등록(적용은 나중에).** Firebase 콘솔 → App Check: Android 앱을 Play Integrity로, 웹 앱을 reCAPTCHA v3로 등록하고 사이트 키를 웹 `shared/appcheck.js`의 상수에 넣는다. 디버그 토큰(앱 로그캣에 찍힘)도 등록. **적용(enforce)은 축구판·FM24 페이지까지 덮인 뒤에** 켠다.
+- [ ] **6. 비공개 테스트 12명 모으기 (14일 걸림, 아래 정책 항목).**
+- [ ] **7. 폰에서 이번 세션 변경 한 번 돌려 보기.** 브랜치 `ccr-2a22e640-e8dn8n`(하드닝 브랜치 병합 포함). 특히 정확 알람 다이얼로그, 직접 추가, 가져오기 파일 창, 계정 삭제 → 재로그인 복원, 릴리즈 빌드에서 R8·리소스 축소가 알림 소리·App Check를 깨지 않는지. 확인되면 main 병합.
+
 ## 결정 (2026-10-20)
 
 - **결제 모델**: 평소에는 무료 앱. 기록, 오늘·최근 통계, 내보내기는 계속 무료. **서버에 저장(동기화)하고 웹 대시보드(PC)에서 보려면 구독.** 명분은 서버 유지 비용. 가격은 월 1,000원대. 상세 통계 화면(예: 경기 기록 사이트처럼 자세한 정리)이나 AI 연결은 구독 명분의 후보로 두되 아직 정하지 않았다.
