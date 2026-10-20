@@ -149,6 +149,8 @@ import androidx.compose.material.icons.filled.DoNotDisturb
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.AlarmOff
 import com.example.flowlog.appcheck.FlowlogAppCheck
+import com.example.flowlog.data.sync.RemoteTimerSync
+import com.google.firebase.firestore.ListenerRegistration
 import com.example.flowlog.notification.ExactAlarmPermission
 import com.example.flowlog.notification.ExactAlarmStatus
 import com.example.flowlog.notification.FocusDndController
@@ -182,6 +184,10 @@ class MainActivity : ComponentActivity() {
     private var calendarSubscription: FirebaseCalendarPullDataSource.CalendarSubscription? = null
     private var calendarSubscriptionUserId: String? = null
     private var calendarRolloverJob: Job? = null
+    // Shared running timer with the PC web app (users/{uid}/flowlog/timer), followed while
+    // the app is in the foreground and signed in, on the same lifecycle as the calendar.
+    private var remoteTimerRegistration: ListenerRegistration? = null
+    private var remoteTimerUserId: String? = null
     // 로그인·네트워크 복구 시 uploadLocalFlowlogSnapshot이 동시에 여러 번 호출되는 것을 방지
     private val syncMutex = Mutex()
 
@@ -816,6 +822,7 @@ class MainActivity : ComponentActivity() {
 
     private fun startCalendarSubscription(userId: String) {
         if (accountDeletionGate) return
+        startRemoteTimerSync(userId)
         if (calendarSubscription != null && calendarSubscriptionUserId == userId) return
         stopCalendarSubscription()
 
@@ -843,7 +850,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun startRemoteTimerSync(userId: String) {
+        if (remoteTimerRegistration != null && remoteTimerUserId == userId) return
+        stopRemoteTimerSync()
+        remoteTimerUserId = userId
+        remoteTimerRegistration = runCatching { RemoteTimerSync.listen(applicationContext, userId) }.getOrNull()
+    }
+
+    private fun stopRemoteTimerSync() {
+        remoteTimerRegistration?.remove()
+        remoteTimerRegistration = null
+        remoteTimerUserId = null
+    }
+
     private fun stopCalendarSubscription() {
+        stopRemoteTimerSync()
         calendarRolloverJob?.cancel()
         calendarRolloverJob = null
         calendarSubscription?.remove()

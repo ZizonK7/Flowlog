@@ -1759,7 +1759,9 @@ class ActivityViewModel(
             state.linkedTodoCalendarSourceId != activeTimer.linkedTodoCalendarSourceId ||
             state.linkedPetiteId != activeTimer.linkedPetiteId ||
             state.sourceType != activeTimer.sourceType ||
-            state.sourceId != activeTimer.sourceId
+            state.sourceId != activeTimer.sourceId ||
+            // A title changed in the PC web app reaches the store through RemoteTimerSync.
+            state.pendingTitle != (activeTimer.pendingTitle ?: activeTimer.linkedTodoTitle)
 
         if (shouldUpdate) {
             _timerDisplayState.value = TimerDisplayState(

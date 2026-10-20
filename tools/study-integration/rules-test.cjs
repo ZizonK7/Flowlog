@@ -52,5 +52,17 @@ await expect('u','users/u/flowlog/metadata',{updatedAt:1},200);
 await expect('u','users/u/flowlog/metadata',wide,403);
 await expect('u','users/u/flowlog/data/eventLogs/e1',{eventId:'e1',eventType:'X'},200);
 await expect('u','users/u/flowlog/data/eventLogs/e2',wide,403);
-console.log('33 Firestore authorization/revision assertions passed');
+// Shared running timer (users/{uid}/flowlog/timer): owner only, fixed fields, server time.
+const timer={status:'running',category:'STUDY',title:'t',startTime:100,pausedElapsedMs:0,linkedTodoId:null,updatedBy:'app',deviceId:'d1'};
+await expectCommit('u','users/u/flowlog/timer',timer,['updatedAt'],200);
+await expectCommit('u','users/u/flowlog/timer',{...timer,status:'stopped',updatedBy:'web'},['updatedAt'],200);
+await expectCommit('u','users/u/flowlog/timer',{...timer,note:'x'},['updatedAt'],403); // unknown field
+await expectCommit('u','users/u/flowlog/timer',{...timer,status:'done'},['updatedAt'],403); // unknown status
+await expectCommit('u','users/u/flowlog/timer',{...timer,updatedAt:5},[],403); // client clock instead of server time
+await expectCommit('other','users/u/flowlog/timer',timer,['updatedAt'],403); // someone else's timer
+await expect('u','users/u/flowlog/timer',undefined,200);
+await expect('other','users/u/flowlog/timer',undefined,403);
+await expect(adminUid,'users/u/flowlog/timer',undefined,403); // owner only, no admin read
+await expect(adminUid,'users/u/flowlog/config',undefined,200); // admin read of other flowlog documents unchanged
+console.log('43 Firestore authorization/revision assertions passed');
 })().catch(e=>{console.error(e);process.exitCode=1});

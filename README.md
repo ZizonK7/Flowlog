@@ -80,6 +80,8 @@ for reviewing synced data, not a second place to record.
 ### Sync and Web
 
 - Google sign-in and sync with Firestore; records made offline upload later.
+- The running timer is shared with the PC web app: a timer started or stopped
+  on one side shows up on the other.
 - A web dashboard at `https://flowlog.pfkfks.org/` for synced statistics and
   optional planning tools (see below).
 
@@ -207,6 +209,22 @@ Some data also flows from Firestore back to the app:
   button suggestions. Links are edited on the web only; Android has no study
   link editor.
 
+The running timer is shared with the PC web app (`flowlog.pfkfks.org/app/`)
+through one document, `users/{uid}/flowlog/timer` (`status` running/paused/
+stopped, `category`, `title`, `startTime`, `pausedElapsedMs`, `linkedTodoId`,
+server-time `updatedAt`, `updatedBy` app/web, and a random per-install
+`deviceId`). The phone's `TimerStateStore` stays the source of truth: every
+start, title change, stop, or cancel there also writes the document (merge
+write left to Firestore's offline queue), and while the app is open and signed
+in it follows web changes (`data/sync/RemoteTimerSync.kt`, decisions in
+`TimerSyncPolicy.kt`). The later action wins: a web start made after the
+phone's timer started replaces it without saving a record, an older one is
+overwritten by the phone's state, and a web stop of the same timer (same
+`startTime`) ends it on the phone without a record because the web saved it.
+The phone ignores its own writes, cached snapshots, and other phones. The
+pinned SCHOOL/COMPANY timer is not shared, and the phone has no pause, so a
+paused web timer is followed as running. Account deletion deletes the document.
+
 Records can also come back from a file: Settings > 기록 가져오기(JSON) reads a
 file written by "export as JSON", skips records already on the device (same
 record id, or same category and start/end) and broken entries, shows the counts,
@@ -243,6 +261,7 @@ users/{uid}/flowlog/data/dailyCues
 users/{uid}/flowlog/data/calendarEvents
 users/{uid}/flowlog/data/assistantSnapshots
 users/{uid}/flowlog/config          (main button configuration)
+users/{uid}/flowlog/timer           (running timer shared with the PC web app)
 users/{uid}/flowlog/metadata        (last sync time; older builds only, no longer written)
 users/{uid}/flowlog/calendar        (syllabus data from the web)
 users/{uid}/activityStudyLinks

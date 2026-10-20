@@ -32,4 +32,4 @@
 ## 실행 방법
 Flowlog에서 먼저 `node tools/study-integration/browser-test.cjs`로 실제 화면 저장 입력을 생성하고, 이어서 `node --test --test-isolation=none tools/study-integration/model-store.test.cjs`로 그 입력을 실제 store에 저장해 검증한다. 마이그레이션은 `node tools/study-integration/migration-test.cjs`.
 웹 경로가 다르면 `STUDY_WEBSITE` 환경 변수를 사용한다.
-권한 검증: 먼저 `node tools/study-integration/prepare-rules.cjs`, 이어서 생성된 `app/build/study-validation`에서 Firebase CLI의 `emulators:exec --only firestore --project demo-flowlog-study --config firebase.json "node rules-test.cjs"`. 운영 프로젝트를 사용하지 않는다. 규칙 사본의 관리자·직원 uid는 자리표시자이며 `prepare-rules.cjs`가 `FLOWLOG_ADMIN_UID`/`FLOWLOG_WORK_STAFF_UID`(없으면 시험용 값)로 채운다. 2026-10-20 기준 검사 33개(설문 응답, 계정 삭제 예약 문서, 문서 크기 상한, 내용 없는 삭제 표시 포함).
+권한 검증: 먼저 `node tools/study-integration/prepare-rules.cjs`, 이어서 생성된 `app/build/study-validation`에서 Firebase CLI의 `emulators:exec --only firestore --project demo-flowlog-study --config firebase.json "node rules-test.cjs"`. 운영 프로젝트를 사용하지 않는다. 규칙 사본의 관리자·직원 uid는 자리표시자이며 `prepare-rules.cjs`가 `FLOWLOG_ADMIN_UID`/`FLOWLOG_WORK_STAFF_UID`(없으면 시험용 값)로 채운다. 2026-10-20 기준 검사 43개(설문 응답, 계정 삭제 예약 문서, 문서 크기 상한, 내용 없는 삭제 표시, PC 앱과 공유하는 타이머 문서 포함).

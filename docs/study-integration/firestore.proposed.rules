@@ -87,7 +87,8 @@ service cloud.firestore {
     }
 
     match /users/{userId}/flowlog/{document=**} {
-      allow read: if owns(userId) || isAdmin();
+      // The shared running timer is owner-only (no admin read).
+      allow read: if owns(userId) || (isAdmin() && document != path('timer'));
     }
     match /users/{userId}/flowlog/{documentId} {
       allow write: if owns(userId) && (documentId != 'config'
@@ -96,7 +97,9 @@ service cloud.firestore {
         // Size cap on any one document: the app writes at most a few top-level fields here.
         && (request.resource == null || request.resource.data.size() <= 100)
         // The deletion reservation may hold only its two fields (app: AccountDeletionRemote).
-        && (documentId != 'account' || request.resource == null || validAccountReservation(request.resource.data));
+        && (documentId != 'account' || request.resource == null || validAccountReservation(request.resource.data))
+        // Shared running timer between the phone and the PC web app (app: RemoteTimerSync).
+        && (documentId != 'timer' || request.resource == null || validSharedTimer(request.resource.data));
     }
     match /users/{userId}/flowlog/{documentId}/{collectionId}/{recordId}/{nested=**} {
       allow write: if owns(userId) && !(documentId == 'data' && collectionId == 'activitySessions')
@@ -108,6 +111,20 @@ service cloud.firestore {
       return d.keys().hasOnly(['deletionRequestedAt', 'deletionRequestedBy'])
         && (!('deletionRequestedAt' in d) || d.deletionRequestedAt == request.time)
         && (!('deletionRequestedBy' in d) || d.deletionRequestedBy in ['app', 'web']);
+    }
+    // users/{uid}/flowlog/timer: fixed fields, server time on every write, three states.
+    function validSharedTimer(d) {
+      return d.keys().hasOnly(['status', 'category', 'title', 'startTime', 'pausedElapsedMs',
+          'linkedTodoId', 'updatedAt', 'updatedBy', 'deviceId'])
+        && d.status in ['running', 'paused', 'stopped']
+        && d.updatedAt == request.time
+        && (!('category' in d) || (d.category is string && d.category.size() <= 40))
+        && (!('title' in d) || (d.title is string && d.title.size() <= 500))
+        && (!('startTime' in d) || d.startTime is number)
+        && (!('pausedElapsedMs' in d) || d.pausedElapsedMs is number)
+        && (!('linkedTodoId' in d) || d.linkedTodoId == null || (d.linkedTodoId is string && d.linkedTodoId.size() <= 200))
+        && (!('updatedBy' in d) || d.updatedBy in ['app', 'web'])
+        && (!('deviceId' in d) || (d.deviceId is string && d.deviceId.size() <= 100));
     }
     function owns(uid) { return request.auth != null && request.auth.uid == uid; }
     function validActivity(d) {

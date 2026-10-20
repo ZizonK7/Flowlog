@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.core.app.NotificationManagerCompat
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.sync.FirebaseSyncAlarmScheduler
+import com.example.flowlog.data.sync.RemoteTimerSync
 import com.example.flowlog.notification.AlarmRescheduler
 import com.example.flowlog.widget.FlowStatusWidgetProvider
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +27,9 @@ object DeviceDataWiper {
     /** Call while still signed in: alarm lookups read the current account's rows. */
     suspend fun wipe(context: Context) {
         val appContext = context.applicationContext
+        // The shared timer (users/{uid}/flowlog/timer) goes first, while still signed in,
+        // so the PC web app stops showing a timer from a wiped phone.
+        RemoteTimerSync.deleteForWipe(appContext)
         AlarmRescheduler.cancelAll(appContext)
         FirebaseSyncAlarmScheduler.cancelMidnightSync(appContext)
         runCatching { NotificationManagerCompat.from(appContext).cancelAll() }

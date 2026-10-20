@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Added a shared running timer with the PC web app: `users/{uid}/flowlog/timer`
+  is written on every local timer change (`TimerStateStore` calls
+  `RemoteTimerSync`, so screens, alarm receivers, and undo all share it) and
+  followed while the app is open and signed in. The later action wins; a web
+  stop of the same timer ends it on the phone without a record; the phone's own
+  echoes, cached snapshots, and other phones are ignored (`TimerSyncPolicy`,
+  17 unit tests). The rules copy gains the timer document (owner only, fixed
+  fields, server-time `updatedAt`; emulator checks 33 → 43). Account deletion
+  deletes the timer document. Titles changed on the web now reach a running
+  timer on the home screen.
 - Added Firebase App Check: Play Integrity in release builds and the debug
   provider in debug builds (`appcheck/`, chosen by source set), installed at
   startup and never fatal. It has no effect until enforcement is turned on in
