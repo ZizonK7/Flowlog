@@ -383,7 +383,6 @@ internal fun TimerPage(
         StopActionSection(
             currentCategory = currentCategory,
             isFocusFireActive = isFocusFireActive,
-            isRoutineActive = isRoutineActive,
             linkedTodoId = linkedTodoId,
             linkedPetiteId = linkedPetiteId,
             dailyCueId = dailyCueId,
@@ -880,7 +879,6 @@ internal fun FocusDurationPickerSheet(
 internal fun StopActionSection(
     currentCategory: String,
     isFocusFireActive: Boolean,
-    isRoutineActive: Boolean,
     linkedTodoId: Long?,
     linkedPetiteId: String?,
     dailyCueId: Long?,
@@ -891,7 +889,7 @@ internal fun StopActionSection(
     onStopAndComplete: (String, String?, List<ExerciseSetRecord>) -> Unit,
     onShowExerciseSummary: () -> Unit
 ) {
-    val hasLinkedCompletion = linkedTodoId != null || linkedPetiteId != null || dailyCueId != null || isRoutineActive
+    val hasLinkedCompletion = linkedTodoId != null || linkedPetiteId != null || dailyCueId != null
     if (!hasLinkedCompletion) return
 
     Box(

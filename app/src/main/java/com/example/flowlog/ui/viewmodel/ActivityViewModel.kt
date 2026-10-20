@@ -569,6 +569,8 @@ class ActivityViewModel(
             it.copy(
                 isRunning = true,
                 currentCategory = category,
+                isRoutineActive = false,
+                routineGoalMillis = 0L,
                 startTime = startTime,
                 linkedTodoId = null,
                 linkedTodoCalendarSourceId = null,
@@ -622,6 +624,8 @@ class ActivityViewModel(
             it.copy(
                 isRunning = true,
                 currentCategory = block.category,
+                isRoutineActive = false,
+                routineGoalMillis = 0L,
                 startTime = startTime,
                 linkedTodoId = null,
                 linkedTodoCalendarSourceId = null,
@@ -891,6 +895,8 @@ class ActivityViewModel(
             it.copy(
                 isRunning = true,
                 currentCategory = "TODO",
+                isRoutineActive = false,
+                routineGoalMillis = 0L,
                 startTime = startTime,
                 linkedTodoId = todoId,
                 linkedTodoCalendarSourceId = calendarSourceId,
@@ -998,6 +1004,8 @@ class ActivityViewModel(
             it.copy(
                 isRunning = true,
                 currentCategory = category,
+                isRoutineActive = false,
+                routineGoalMillis = 0L,
                 startTime = startTime,
                 linkedTodoId = null,
                 linkedTodoCalendarSourceId = null,
@@ -1085,6 +1093,8 @@ class ActivityViewModel(
             it.copy(
                 isRunning = true,
                 currentCategory = "TODO",
+                isRoutineActive = false,
+                routineGoalMillis = 0L,
                 startTime = startTime,
                 linkedTodoId = linkedTodoId,
                 linkedTodoCalendarSourceId = linkedTodoCalendarSourceId,
@@ -1264,6 +1274,8 @@ class ActivityViewModel(
             it.copy(
                 isRunning = false,
                 currentCategory = "",
+                isRoutineActive = false,
+                routineGoalMillis = 0L,
                 startTime = 0L,
                 linkedTodoId = null,
                 linkedTodoCalendarSourceId = null,
@@ -1716,6 +1728,8 @@ class ActivityViewModel(
                     it.copy(
                         isRunning = false,
                         currentCategory = "",
+                        isRoutineActive = false,
+                        routineGoalMillis = 0L,
                         startTime = 0L,
                         linkedTodoId = null,
                         linkedTodoCalendarSourceId = null,
@@ -2872,6 +2886,8 @@ class ActivityViewModel(
             it.copy(
                 isRunning = false,
                 currentCategory = "",
+                isRoutineActive = false,
+                routineGoalMillis = 0L,
                 startTime = 0L,
                 linkedTodoId = null,
                 linkedTodoCalendarSourceId = null,
