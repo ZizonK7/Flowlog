@@ -207,7 +207,16 @@ class ActivityTimerNotifier(private val context: Context) {
             .setContentIntent(openPendingIntent)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            // Lock screen hides the routine title.
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(
+                NotificationCompat.Builder(context, channelId)
+                    .setSmallIcon(notificationIcon(category))
+                    .setColor(NOTIFICATION_ICON_COLOR)
+                    .setContentTitle("루틴 완료")
+                    .setContentText("목표 시간에 도달했어요.")
+                    .build()
+            )
             .setAutoCancel(true)
             .setTimeoutAfter(ALERT_NOTIFICATION_TIMEOUT_MILLIS * 3)
 

@@ -59,6 +59,31 @@
   buttons (`shortcut/`). `MainActivity` accepts only the
   `com.example.flowlog.action.START_TIMER` action with a known category and does
   not start a second timer while one is running.
+- Release hardening for a Play Store build: R8 minification and resource
+  shrinking are on for release, debug/info/verbose logs are stripped there, and
+  the remaining warning logs no longer include Todo titles (they log ids, see
+  the sensitive-log entry above). Cleartext traffic is
+  blocked through a network security config, and the widget no longer exports
+  its internal refresh action.
+- Removed 11 unreferenced timetable/island drawables (about 8.4 MB) and 177
+  unused tile assets. The four widget character images are now 256 px WebP in
+  `drawable-nodpi`, so launchers no longer decode a 1254 px image scaled up by
+  screen density.
+- Periodic sync now pulls only activities, study links and study decisions
+  changed since the previous pull (`RemotePullCursor`, 24 h overlap for clock
+  skew, full pull on first use and weekly). Reinstall restore and conflict
+  resolution still read the whole collection.
+- Stopped writing `flowlog/metadata.updatedAt` after every upload (nothing reads
+  it) and stopped creating empty `calendarEvents` documents for Todos that
+  have no web calendar mirror.
+- The midnight sync alarm is inexact (it no longer needs the exact alarm
+  permission), and the widget redraws its fill once a minute instead of every
+  15 seconds (the elapsed text is a Chronometer).
+- Routine-complete and planned-Todo notifications hide their titles on the
+  lock screen.
+- The app always uses its light palette without dynamic color, with dark
+  system bar icons, so system dark mode no longer produces a mixed light/dark
+  screen.
 - Fixed activity sync revision catch-up when the saved content already matches
   the remote record, without overwriting genuine concurrent edits.
 - Fixed obsolete conflict prompts remaining visible after a record was synced,

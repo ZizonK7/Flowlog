@@ -14,6 +14,7 @@ import android.os.Bundle
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.Image
@@ -202,9 +203,23 @@ class MainActivity : ComponentActivity() {
         requestNotificationPermission()
         exactAlarmStatus = ExactAlarmPermission.status(this)
         showExactAlarmPrompt = ExactAlarmPermission.shouldPrompt(this)
-        enableEdgeToEdge()
+        // The UI is designed for a light palette only (hard-coded surface colors), so keep
+        // dark status/navigation icons even when the system is in dark mode.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            ),
+            navigationBarStyle = SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            )
+        )
         setContent {
-            FlowlogTheme {
+            // Light palette without dynamic color: most surfaces use fixed light colors, and a
+            // system dark or dynamic scheme only recolored Material defaults (switches, chips),
+            // producing a mixed light/dark screen.
+            FlowlogTheme(darkTheme = false, dynamicColor = false) {
                 var currentScreen by remember { mutableStateOf(requestedScreen) }
                 LaunchedEffect(requestedScreen) {
                     currentScreen = requestedScreen

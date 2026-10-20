@@ -147,7 +147,15 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                     .setContentIntent(clickPendingIntent)
                     .setCategory(NotificationCompat.CATEGORY_REMINDER)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
-                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                    // Lock screen shows only the generic heading; the Todo title stays private.
+                    .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                    .setPublicVersion(
+                        NotificationCompat.Builder(context, channelId)
+                            .setSmallIcon(R.drawable.ic_notification)
+                            .setColor(NOTIFICATION_ICON_COLOR)
+                            .setContentTitle("\uC9C0\uAE08 \uC2DC\uC791\uD560 \uD560 \uC77C")
+                            .build()
+                    )
                     .setAutoCancel(true)
 
                 if (shouldSilence) {

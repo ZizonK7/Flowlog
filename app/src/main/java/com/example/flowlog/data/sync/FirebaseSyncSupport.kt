@@ -4,7 +4,6 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
 import com.example.flowlog.notification.StudyPlanAutoStartScheduler
@@ -37,42 +36,14 @@ object FirebaseSyncAlarmScheduler {
         val pendingIntent = midnightSyncIntent(appContext)
         val triggerAtMillis = nextMidnightMillis()
 
-        // Android 12(S) 이상에서 SCHEDULE_EXACT_ALARM 권한이 없으면 SecurityException 발생.
-        // 미드나이트 sync는 정확성보다 안정성이 우선이므로 권한 없을 때 inexact로 폴백.
-        val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            alarmManager.canScheduleExactAlarms()
-
+        // Midnight upload is not time-critical, so use an inexact alarm: the OS may batch it
+        // with other wakeups, and it never needs the SCHEDULE_EXACT_ALARM permission.
         runCatching {
-            when {
-                canExact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> {
-                    alarmManager.setExactAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
-                        pendingIntent
-                    )
-                }
-                canExact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT -> {
-                    alarmManager.setExact(
-                        AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
-                        pendingIntent
-                    )
-                }
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> {
-                    alarmManager.setAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
-                        pendingIntent
-                    )
-                }
-                else -> {
-                    alarmManager.set(
-                        AlarmManager.RTC_WAKEUP,
-                        triggerAtMillis,
-                        pendingIntent
-                    )
-                }
-            }
+            alarmManager.setAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                triggerAtMillis,
+                pendingIntent
+            )
         }
     }
 
@@ -115,6 +86,8 @@ class FirebaseSyncCoordinator(context: Context) {
 
     suspend fun syncAll(userId: String): SyncOutcome {
         return globalSyncMutex.withLock {
+            // Remote pulls are incremental (RemotePullCursor), so forcing them here costs
+            // only the documents changed since the last pull, not the whole history.
             refreshStudy(userId, dataSource.syncAll(userId), forceRefresh = true)
         }
     }
@@ -161,9 +134,9 @@ class FirebaseSyncCoordinator(context: Context) {
     private suspend fun refreshStudy(userId: String, uploaded: SyncOutcome, forceRefresh: Boolean = false): SyncOutcome {
         val now = android.os.SystemClock.elapsedRealtime()
         val shouldRefresh = forceRefresh || now - (lastRemoteRefresh[userId] ?: -900_000L) >= 900_000L
-        val study = runCatching { StudySyncDataSource(appContext).sync(userId, restoreRemote = shouldRefresh) }
+        val study = runCatching { StudySyncDataSource(appContext).sync(userId, restoreRemote = shouldRefresh, incremental = true) }
             .getOrElse { SyncOutcome(attemptedCount = 1, failureCount = 1) }
-        val restored = if (shouldRefresh) runCatching { FirebaseRestoreDataSource(appContext).restoreActivities(userId) }
+        val restored = if (shouldRefresh) runCatching { FirebaseRestoreDataSource(appContext).restoreActivities(userId, incremental = true) }
             .getOrElse { RestoreSection(failed = 1) } else RestoreSection()
         if (shouldRefresh && study.failureCount == 0 && restored.failed == 0) lastRemoteRefresh[userId] = now
         return uploaded.copy(

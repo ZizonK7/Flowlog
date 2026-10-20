@@ -40,6 +40,7 @@ data class RestoreOutcome(
  */
 class FirebaseRestoreDataSource(context: Context) {
 
+    private val appContext = context.applicationContext
     private val db = FlowlogDatabase.getInstance(context)
     private val activityDao = db.activityDao()
     private val activityRevisionDao = db.activityRevisionDao()
@@ -112,11 +113,30 @@ class FirebaseRestoreDataSource(context: Context) {
         }
     }
 
-    suspend fun restoreActivities(userId: String, resolveActivityId: String? = null, expectedRemoteRevision: Long? = null, expectedLocalUpdatedAt: Long? = null): RestoreSection {
+    /**
+     * @param incremental when true (periodic sync), only documents whose `modifiedTime` is
+     * newer than the stored [RemotePullCursor] are fetched. Reinstall restore and conflict
+     * resolution keep reading the whole collection.
+     */
+    suspend fun restoreActivities(userId: String, resolveActivityId: String? = null, expectedRemoteRevision: Long? = null, expectedLocalUpdatedAt: Long? = null, incremental: Boolean = false): RestoreSection {
         check(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid == userId)
-        val docs = activityCollection(userId).get().awaitResult().documents
-        Log.i(TAG, "Activities fetched: ${docs.size}")
-        if (docs.isEmpty()) return RestoreSection()
+        val pullStartedAt = System.currentTimeMillis()
+        val since = if (incremental && resolveActivityId == null) {
+            RemotePullCursor.since(appContext, userId, RemotePullCursor.ACTIVITIES, pullStartedAt)
+        } else null
+        val query = if (since != null) {
+            activityCollection(userId).whereGreaterThanOrEqualTo("modifiedTime", since)
+        } else {
+            activityCollection(userId)
+        }
+        val docs = query.get().awaitResult().documents
+        Log.i(TAG, "Activities fetched: ${docs.size} (incremental=${since != null})")
+        if (docs.isEmpty()) {
+            if (incremental && resolveActivityId == null) {
+                RemotePullCursor.recordSuccess(appContext, userId, RemotePullCursor.ACTIVITIES, pullStartedAt, wasFullPull = since == null)
+            }
+            return RestoreSection()
+        }
 
         var inserted = 0
         var skipped = 0
@@ -200,6 +220,9 @@ class FirebaseRestoreDataSource(context: Context) {
         }
 
         Log.i(TAG, "Activities — fetched=${docs.size} inserted=$inserted skipped=$skipped failed=$failed")
+        if (incremental && resolveActivityId == null && failed == 0) {
+            RemotePullCursor.recordSuccess(appContext, userId, RemotePullCursor.ACTIVITIES, pullStartedAt, wasFullPull = since == null)
+        }
         return RestoreSection(fetched = docs.size, inserted = inserted, skipped = skipped, failed = failed)
     }
 
