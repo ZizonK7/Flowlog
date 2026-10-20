@@ -1,3 +1,5 @@
+> 배포본은 pfkfks-main의 `functions/flowlog-account-deletion.js`
+
 # Account deletion job (Cloud Functions v2)
 
 Permanently deletes Flowlog accounts 14 days after the user chose
