@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added pulling Todos changed on the web (PC app): after each sync that pulls
+  activities, Todos with a newer `updatedAt` (incremental, `RemotePullCursor`
+  key `todos`) and the open Todos are merged into Room; documents deleted on
+  the web soft-delete SYNCED rows, never rows still waiting to upload. The
+  Todo upload now reads the server copy first so a newer web change, above all
+  a completion, is not overwritten (`TodoMergePolicy`, 15 unit tests). Web-made
+  Todos (`id: 0`) are moved once to a numeric id so the app can complete, edit,
+  and delete them, and two of them no longer share list key `0`.
 - Added a shared running timer with the PC web app: `users/{uid}/flowlog/timer`
   is written on every local timer change (`TimerStateStore` calls
   `RemoteTimerSync`, so screens, alarm receivers, and undo all share it) and

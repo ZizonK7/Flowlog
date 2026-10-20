@@ -198,6 +198,16 @@ Some data also flows from Firestore back to the app:
 - Calendar events and syllabus data created on the web are pulled into the
   app's calendar and routines.
 - The main button configuration is kept in Firestore and loaded on sign-in.
+- Todos added, completed, edited, or deleted on the web (the PC app at
+  `/app/`) come back with every sync that pulls activities
+  (`data/sync/TodoRemotePull.kt`): incremental on `updatedAt` with the same
+  cursor rules, plus a read of the open Todos to notice deletions (the web and
+  the app both delete the document). The later `updatedAt` wins; a completion
+  is not undone by a side that never saw it, and Todos not uploaded yet are
+  never removed (`TodoMergePolicy.kt`). Before uploading a changed Todo the app
+  reads the server copy and does not overwrite a newer one. A Todo made on the
+  web (document `id: 0` with a random document id) is moved once to a numeric
+  id, because the app keys every Todo action on one.
 - Activity details edited on the web sync back. Revisions protect pending
   local edits; when both sides changed, the app keeps both versions and asks
   which one to keep. If the saved content already matches, the app catches up

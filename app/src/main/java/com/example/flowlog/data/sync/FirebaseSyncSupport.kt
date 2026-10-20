@@ -138,11 +138,15 @@ class FirebaseSyncCoordinator(context: Context) {
             .getOrElse { SyncOutcome(attemptedCount = 1, failureCount = 1) }
         val restored = if (shouldRefresh) runCatching { FirebaseRestoreDataSource(appContext).restoreActivities(userId, incremental = true) }
             .getOrElse { RestoreSection(failed = 1) } else RestoreSection()
-        if (shouldRefresh && study.failureCount == 0 && restored.failed == 0) lastRemoteRefresh[userId] = now
+        // Todos changed on the PC web app (added, completed, edited, deleted), same timing as activities.
+        val todos = if (shouldRefresh) runCatching { TodoRemotePull(appContext).pull(userId) }
+            .getOrElse { RestoreSection(failed = 1) } else RestoreSection()
+        if (shouldRefresh && study.failureCount == 0 && restored.failed == 0 && todos.failed == 0) lastRemoteRefresh[userId] = now
         return uploaded.copy(
-            attemptedCount = uploaded.attemptedCount + study.attemptedCount + restored.fetched,
-            successCount = uploaded.successCount + study.successCount + restored.inserted + restored.skipped,
-            failureCount = uploaded.failureCount + study.failureCount + restored.failed
+            attemptedCount = uploaded.attemptedCount + study.attemptedCount + restored.fetched + todos.fetched,
+            successCount = uploaded.successCount + study.successCount + restored.inserted + restored.skipped +
+                todos.inserted + todos.skipped,
+            failureCount = uploaded.failureCount + study.failureCount + restored.failed + todos.failed
         )
     }
 }
