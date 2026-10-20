@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Added manual entry of past activities from the recent records card
+  ("직접 추가"), saved with source type `MANUAL` through the same insert, event
+  log, undo, and conditional sync path as timer saves. Checks
+  (`ManualActivityValidator`) refuse end-before-start, over-24-hour, and future
+  ranges, and warn without blocking when the range overlaps existing records.
+- Added activity export to CSV and JSON from Settings (`ActivityExportFormatter`),
+  written through the system file picker. Soft-deleted records are excluded;
+  CSV starts with a UTF-8 BOM so spreadsheet apps read Korean text correctly.
+  Signed-out users reach Settings from a new gear button next to the login
+  button, so offline-only records can be exported too.
+- Added dynamic home-screen shortcuts that start a timer for the first four main
+  buttons (`shortcut/`). `MainActivity` accepts only the
+  `com.example.flowlog.action.START_TIMER` action with a known category and does
+  not start a second timer while one is running.
 - Fixed activity sync revision catch-up when the saved content already matches
   the remote record, without overwriting genuine concurrent edits.
 - Fixed obsolete conflict prompts remaining visible after a record was synced,

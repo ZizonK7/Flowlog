@@ -37,6 +37,13 @@ for reviewing synced data, not a second place to record.
 - Quick-timer buttons that are suggested once you log a category consistently
   for a few days.
 - Exercise set and rep logging while the exercise timer runs.
+- Adding a past activity by hand ("직접 추가" on the recent records card) when
+  the timer was not started: pick a category, day, start and end time, and an
+  optional title and note. Future times and records over 24 hours are refused;
+  overlaps with existing records are shown as a warning, not blocked.
+- Home-screen shortcuts: long-press the app icon to start a timer for one of
+  the first four main buttons; if a timer is already running, nothing new
+  starts.
 
 ### Todos and Routines
 
@@ -55,6 +62,9 @@ for reviewing synced data, not a second place to record.
 - Today's activity list, timetable, and category totals.
 - Comparison with yesterday and recent 7-day averages.
 - Filling empty timetable gaps as sleep.
+- Exporting all saved activity records (deleted ones excluded) as a CSV or
+  JSON file to a location you choose, from Settings (the profile menu when
+  signed in, or the gear button next to "login" when signed out).
 
 ### Reminders and Focus
 
@@ -129,6 +139,7 @@ app/src/main/java/com/example/flowlog/
                     recommendation, timetable/routine, analytics, etc.)
   ui/viewmodel/     View models; pure/testable helpers live in small
                     standalone files (e.g. AnalyticsActivityUtils.kt)
+  shortcut/         Home-screen "start timer" launcher shortcuts
   util/             Calendar intent helper
   widget/           Android home-screen status widget
 tools/study-integration/

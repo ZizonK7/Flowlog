@@ -716,7 +716,7 @@ private fun ActivityEditSummary(activity: ActivitySession) {
 }
 
 @Composable
-private fun EditCategoryPicker(
+internal fun EditCategoryPicker(
     categories: List<String>,
     selectedCategory: String,
     onSelect: (String) -> Unit
@@ -782,7 +782,7 @@ private fun CategoryChoiceChip(
 }
 
 @Composable
-private fun editTextFieldColors(
+internal fun editTextFieldColors(
     violet: Color,
     strongText: Color,
     readableMuted: Color

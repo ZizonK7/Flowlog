@@ -146,10 +146,20 @@ import com.example.flowlog.data.model.AiMessage
 import com.example.flowlog.data.model.MainButtonConfig
 import com.example.flowlog.data.model.RecommendationStatus
 import com.example.flowlog.ui.component.displayCategory
+import com.example.flowlog.shortcut.TimerShortcutPublisher
+import com.example.flowlog.shortcut.TimerShortcutRules
+import com.example.flowlog.ui.viewmodel.ActivityExportFormat
+import com.example.flowlog.ui.viewmodel.ActivityExportFormatter
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.FileDownload
+import java.util.TimeZone
 import com.example.flowlog.ui.viewmodel.AiMessengerUiState
 
 class MainActivity : ComponentActivity() {
     private var requestedScreen by mutableStateOf(SCREEN_HOME)
+    // Category from a home-screen "start timer" shortcut, consumed once by the UI.
+    private var pendingShortcutCategory by mutableStateOf<String?>(null)
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var calendarDataSource: FirebaseCalendarPullDataSource? = null
     private var calendarSubscription: FirebaseCalendarPullDataSource.CalendarSubscription? = null
@@ -162,6 +172,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         FirebaseCrashlytics.getInstance().setCrashlyticsCollectionEnabled(!BuildConfig.DEBUG)
         requestedScreen = intent.getStringExtra(EXTRA_OPEN_SCREEN) ?: SCREEN_HOME
+        if (savedInstanceState == null) {
+            pendingShortcutCategory = shortcutCategoryFrom(intent)
+        }
         ReminderScheduler(applicationContext).ensureNotificationChannel()
         FirebaseSyncAlarmScheduler.scheduleNextMidnightSync(applicationContext)
         lifecycleScope.launch {
@@ -203,6 +216,28 @@ class MainActivity : ComponentActivity() {
                 fun showHomeMainTimer() {
                     currentScreen = "home"
                     homeMainTimerScrollRequest += 1
+                }
+                LaunchedEffect(pendingShortcutCategory) {
+                    val category = pendingShortcutCategory ?: return@LaunchedEffect
+                    pendingShortcutCategory = null
+                    if (activityViewModel.uiState.value.isRunning) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            getString(R.string.shortcut_timer_already_running),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        activityViewModel.startActivity(category)
+                    }
+                    showHomeMainTimer()
+                }
+                val shortcutCategories = remember(activityUiState.mainButtonConfig) {
+                    TimerShortcutRules.shortcutCategories(activityUiState.mainButtonConfig)
+                }
+                LaunchedEffect(shortcutCategories) {
+                    withContext(Dispatchers.Default) {
+                        TimerShortcutPublisher.publish(applicationContext, shortcutCategories)
+                    }
                 }
                 val routineTimerCategories = remember(promotedButtons) {
                     val base = MainButtonConfig.ALL_SELECTABLE_CATEGORIES
@@ -391,6 +426,16 @@ class MainActivity : ComponentActivity() {
                         Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
                     }
                 }
+                val exportActivities: (ActivityExportFormat, Uri) -> Unit = { format, uri ->
+                    activityViewModel.exportActivities(uri, format) { count ->
+                        val message = if (count != null) {
+                            getString(R.string.export_activities_success, count)
+                        } else {
+                            getString(R.string.export_activities_failed)
+                        }
+                        Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+                    }
+                }
                 val regenerateRecommendedTimePlan: () -> Unit = {
                     todoViewModel.refreshSort()
                     Toast.makeText(this@MainActivity, getString(R.string.main_activity_recommended_plan_regenerated), Toast.LENGTH_SHORT).show()
@@ -501,7 +546,8 @@ class MainActivity : ComponentActivity() {
                                             isTimetableReminderEnabled = isTimetableReminderEnabled,
                                             onToggleTimetableReminder = {
                                                 activityViewModel.toggleTimetableReminder()
-                                            }
+                                            },
+                                            onExportActivities = exportActivities
                                         )
                                     },
                                     scrollToMainTimerRequest = homeMainTimerScrollRequest,
@@ -689,6 +735,16 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         requestedScreen = intent.getStringExtra(EXTRA_OPEN_SCREEN) ?: requestedScreen
+        shortcutCategoryFrom(intent)?.let { pendingShortcutCategory = it }
+    }
+
+    private fun shortcutCategoryFrom(intent: Intent?): String? {
+        if (intent == null) return null
+        return TimerShortcutRules.parseStartCategory(
+            action = intent.action,
+            category = runCatching { intent.getStringExtra(TimerShortcutRules.EXTRA_CATEGORY) }.getOrNull(),
+            launchedFromHistory = (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+        )
     }
 
     private fun requestNotificationPermission() {
@@ -753,10 +809,26 @@ private fun HeaderActions(
     isTimetableAutoPlaceEnabled: Boolean = true,
     onToggleTimetableAutoPlace: () -> Unit = {},
     isTimetableReminderEnabled: Boolean = true,
-    onToggleTimetableReminder: () -> Unit = {}
+    onToggleTimetableReminder: () -> Unit = {},
+    onExportActivities: (ActivityExportFormat, Uri) -> Unit = { _, _ -> }
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    val csvExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(ActivityExportFormat.CSV.mimeType)
+    ) { uri -> uri?.let { onExportActivities(ActivityExportFormat.CSV, it) } }
+    val jsonExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(ActivityExportFormat.JSON.mimeType)
+    ) { uri -> uri?.let { onExportActivities(ActivityExportFormat.JSON, it) } }
+    val launchExport: (ActivityExportFormat) -> Unit = { format ->
+        val fileName = ActivityExportFormatter.defaultFileName(
+            nowMillis = System.currentTimeMillis(),
+            format = format,
+            timeZone = TimeZone.getDefault()
+        )
+        val launcher = if (format == ActivityExportFormat.CSV) csvExportLauncher else jsonExportLauncher
+        runCatching { launcher.launch(fileName) }
+    }
     val context = LocalContext.current
     val signingInLabel = stringResource(R.string.main_activity_signing_in_status)
     val logoutLabel = stringResource(R.string.main_activity_logout_label)
@@ -835,15 +907,30 @@ private fun HeaderActions(
                     )
                 }
             } else {
-                Button(
-                    onClick = onAccountClick,
-                    modifier = Modifier.height(44.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF5140D8),
-                        contentColor = Color.White
-                    )
-                ) {
-                    Text(accountActionLabel(isSignedIn, syncStatus, signingInLabel, logoutLabel, loginLabel))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Signed-out users have no profile menu, so Settings (notifications,
+                    // export) gets its own entry point; the app works offline without login.
+                    IconButton(
+                        onClick = { showSettingsDialog = true },
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = stringResource(R.string.main_activity_settings),
+                            tint = if (isFocusFireActive) Color(0xFFFF7A2F) else Color(0xFF5140D8),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Button(
+                        onClick = onAccountClick,
+                        modifier = Modifier.height(44.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF5140D8),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Text(accountActionLabel(isSignedIn, syncStatus, signingInLabel, logoutLabel, loginLabel))
+                    }
                 }
             }
             DropdownMenu(
@@ -960,7 +1047,7 @@ private fun HeaderActions(
                 )
             },
             text = {
-                Column {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     Text(
                         text = stringResource(R.string.main_activity_notification_settings),
                         fontSize = 12.sp,
@@ -1134,6 +1221,59 @@ private fun HeaderActions(
                                 FocusDndController.openPolicyAccessSettings(context)
                             }
                         )
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Text(
+                        text = stringResource(R.string.export_activities_section),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF5140D8)
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    androidx.compose.foundation.layout.Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.FileDownload,
+                            contentDescription = null,
+                            tint = Color(0xFF5140D8),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.size(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.export_activities_title),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF10182C)
+                            )
+                            Text(
+                                text = stringResource(R.string.export_activities_desc),
+                                fontSize = 12.sp,
+                                color = Color(0xFF9E9E9E)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    androidx.compose.foundation.layout.Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedButton(
+                            onClick = { launchExport(ActivityExportFormat.CSV) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(stringResource(R.string.export_activities_csv), color = Color(0xFF5140D8), fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = { launchExport(ActivityExportFormat.JSON) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(stringResource(R.string.export_activities_json), color = Color(0xFF5140D8), fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             },
