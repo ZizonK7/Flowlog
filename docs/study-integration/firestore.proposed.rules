@@ -1,10 +1,15 @@
 rules_version = '2';
+// Repository copy of the Firestore rules; the deployed original lives in the web repository.
+// "__FLOWLOG_ADMIN_UID__" / "__FLOWLOG_WORK_STAFF_UID__" are placeholders so no account id
+// is published here: tools/study-integration/prepare-rules.cjs fills them from
+// FLOWLOG_ADMIN_UID / FLOWLOG_WORK_STAFF_UID (test values by default). Fill the real
+// values in the web repository before deploying.
 service cloud.firestore {
   match /databases/{database}/documents {
     function isAdmin() {
       return request.auth != null
         && request.auth.uid in [
-          "xrUHsuQ8l2WJtB6gt0Ynp0U5VkJ3"
+          "__FLOWLOG_ADMIN_UID__" // placeholder: keeps the admin uid out of the public copy
         ];
     }
 
@@ -13,7 +18,7 @@ service cloud.firestore {
     function isWorkStaff() {
       return request.auth != null
         && (isAdmin() || request.auth.uid in [
-          "lM7KQjaEW9fQdme6ZIqvu9jVUgx1"
+          "__FLOWLOG_WORK_STAFF_UID__" // placeholder: keeps the staff uid out of the public copy
         ]);
     }
 
@@ -87,10 +92,22 @@ service cloud.firestore {
     match /users/{userId}/flowlog/{documentId} {
       allow write: if owns(userId) && (documentId != 'config'
         || !('mainButton' in request.resource.data)
-        || request.resource.data.mainButton.buttons.size() <= 10);
+        || request.resource.data.mainButton.buttons.size() <= 10)
+        // Size cap on any one document: the app writes at most a few top-level fields here.
+        && (request.resource == null || request.resource.data.size() <= 100)
+        // The deletion reservation may hold only its two fields (app: AccountDeletionRemote).
+        && (documentId != 'account' || request.resource == null || validAccountReservation(request.resource.data));
     }
     match /users/{userId}/flowlog/{documentId}/{collectionId}/{recordId}/{nested=**} {
-      allow write: if owns(userId) && !(documentId == 'data' && collectionId == 'activitySessions');
+      allow write: if owns(userId) && !(documentId == 'data' && collectionId == 'activitySessions')
+        // Size cap per record: activity/Todo-like records have about 25 fields.
+        && (request.resource == null || request.resource.data.size() <= 100);
+    }
+    // Only deletionRequestedAt (server time) and deletionRequestedBy; cancelling removes both.
+    function validAccountReservation(d) {
+      return d.keys().hasOnly(['deletionRequestedAt', 'deletionRequestedBy'])
+        && (!('deletionRequestedAt' in d) || d.deletionRequestedAt == request.time)
+        && (!('deletionRequestedBy' in d) || d.deletionRequestedBy in ['app', 'web']);
     }
     function owns(uid) { return request.auth != null && request.auth.uid == uid; }
     function validActivity(d) {
@@ -215,9 +232,30 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Signed-in only, one response per account (document id = uid), fixed fields, bounded text.
+    // If the web form accepts answers without Google sign-in, it must sign in anonymously
+    // (Firebase anonymous auth) first, or these rules reject the write.
+    // The field list must match the web form before this is deployed (not checked here).
     match /flowlogSurveyResponses/{docId} {
-      allow create: if true;
+      allow create: if request.auth != null
+        && docId == request.auth.uid
+        && validSurveyResponse(request.resource.data);
       allow read, update, delete: if isAdmin();
+    }
+    function validSurveyAnswer(answers, i) {
+      return answers.size() <= i || (answers[i] is string && answers[i].size() <= 2000);
+    }
+    function validSurveyResponse(d) {
+      return d.keys().hasOnly(['userId', 'answers', 'note', 'createdAt'])
+        && d.userId == request.auth.uid
+        && d.answers is list && d.answers.size() <= 10
+        && validSurveyAnswer(d.answers, 0) && validSurveyAnswer(d.answers, 1)
+        && validSurveyAnswer(d.answers, 2) && validSurveyAnswer(d.answers, 3)
+        && validSurveyAnswer(d.answers, 4) && validSurveyAnswer(d.answers, 5)
+        && validSurveyAnswer(d.answers, 6) && validSurveyAnswer(d.answers, 7)
+        && validSurveyAnswer(d.answers, 8) && validSurveyAnswer(d.answers, 9)
+        && (!('note' in d) || (d.note is string && d.note.size() <= 2000))
+        && d.createdAt == request.time;
     }
 
     match /previewCards/{cardId} {

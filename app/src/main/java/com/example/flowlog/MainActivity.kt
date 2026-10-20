@@ -147,6 +147,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.DoNotDisturb
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.AlarmOff
+import com.example.flowlog.appcheck.FlowlogAppCheck
 import com.example.flowlog.notification.ExactAlarmPermission
 import com.example.flowlog.notification.ExactAlarmStatus
 import com.example.flowlog.notification.FocusDndController
@@ -185,6 +186,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // FirebaseApp is initialized by FirebaseInitProvider before any Activity starts.
+        FlowlogAppCheck.install()
         FirebaseCrashlytics.getInstance().setCrashlyticsCollectionEnabled(!BuildConfig.DEBUG)
         requestedScreen = intent.getStringExtra(EXTRA_OPEN_SCREEN) ?: SCREEN_HOME
         if (savedInstanceState == null) {

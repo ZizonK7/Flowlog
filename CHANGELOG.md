@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Added Firebase App Check: Play Integrity in release builds and the debug
+  provider in debug builds (`appcheck/`, chosen by source set), installed at
+  startup and never fatal. It has no effect until enforcement is turned on in
+  the Firebase console.
+- Tightened the repository copy of the Firestore rules
+  (`docs/study-integration/firestore.proposed.rules`): survey responses need
+  sign-in, one per account, fixed fields and 2,000-character text; the account
+  deletion reservation accepts only its two fields with server time; generic
+  Flowlog documents and records are capped at 100 fields. Admin and staff uids
+  are placeholders filled by `prepare-rules.cjs`. Emulator checks grew from 15
+  to 33.
 - Added account deletion with a 14-day grace period (Settings, signed in only):
   two confirmations (the second needs "삭제" typed), then the app marks
   `users/{uid}/flowlog/account` with `deletionRequestedAt`, clears Room,

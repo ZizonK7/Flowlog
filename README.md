@@ -304,6 +304,17 @@ To create it:
 8. To receive crash reports, open the Crashlytics section in the Firebase
    console once; it activates automatically after a release build with the
    SDK runs and reports in.
+9. App Check: register the Android app under App Check with the Play
+   Integrity provider, and for debug builds add the debug token that the app
+   prints to logcat (`DebugAppCheckProviderFactory`) under "Manage debug
+   tokens". The app installs the provider at startup (`appcheck/`), but
+   nothing changes until enforcement is turned on in the console.
+
+Firestore security rules are deployed from the web repository, which holds the
+original. This repository keeps a copy for review and emulator tests at
+`docs/study-integration/firestore.proposed.rules` (account ids replaced by
+placeholders; `tools/study-integration/prepare-rules.cjs` fills them for the
+emulator).
 
 Firestore rules must let each signed-in user access only their own data, at
 every path listed under [Data & Sync](#data--sync) — including the collections
