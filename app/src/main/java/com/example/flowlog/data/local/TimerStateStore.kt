@@ -3,6 +3,7 @@ package com.example.flowlog.data.local
 import android.content.Context
 import android.os.SystemClock
 import com.example.flowlog.data.constants.ActivitySourceType
+import com.example.flowlog.data.sync.RemoteTimerSync
 
 data class ActiveTimerState(
     val category: String,
@@ -38,6 +39,15 @@ enum class TimerStatus {
     PAUSED
 }
 
+/**
+ * The phone's timer state (single source of truth for the running timer).
+ *
+ * Every change to the active timer goes through [saveActiveTimer], [pauseActiveTimer] or
+ * [clearActiveTimer], whichever screen or receiver makes it, so these three also share
+ * the change with the PC web app ([RemoteTimerSync], `users/{uid}/flowlog/timer`).
+ * `publish = false` is for applying a change that came from the web, so it is not
+ * written back. The pinned (overlapping SCHOOL/COMPANY) timer is not shared.
+ */
 object TimerStateStore {
     private const val PREFS_TIMER_STATE = "timer_state"
     private const val KEY_ACTIVE_CATEGORY = "active_category"
@@ -135,7 +145,8 @@ object TimerStateStore {
         dailyCueTargetDateKey: Long? = null,
         sourceType: String = ActivitySourceType.MANUAL,
         sourceId: String? = null,
-        routineGoalMillis: Long = 0L
+        routineGoalMillis: Long = 0L,
+        publish: Boolean = true
     ) {
         context.applicationContext.getSharedPreferences(PREFS_TIMER_STATE, Context.MODE_PRIVATE)
             .edit()
@@ -156,6 +167,7 @@ object TimerStateStore {
             .putString(KEY_ACTIVE_SOURCE_ID, sourceId)
             .putLong(KEY_ACTIVE_ROUTINE_GOAL_MILLIS, routineGoalMillis.coerceAtLeast(0L))
             .apply()
+        if (publish) RemoteTimerSync.publishLocalChange(context, getActiveTimer(context), previous = null)
     }
 
     fun getPinnedTimer(context: Context): ActiveTimerState? {
@@ -209,15 +221,17 @@ object TimerStateStore {
             .apply()
     }
 
-    fun pauseActiveTimer(context: Context, elapsedMillis: Long) {
+    fun pauseActiveTimer(context: Context, elapsedMillis: Long, publish: Boolean = true) {
         context.applicationContext.getSharedPreferences(PREFS_TIMER_STATE, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_ACTIVE_STATUS, TimerStatus.PAUSED.name)
             .putLong(KEY_PAUSED_ELAPSED_MILLIS, elapsedMillis.coerceAtLeast(0L))
             .apply()
+        if (publish) RemoteTimerSync.publishLocalChange(context, getActiveTimer(context), previous = null)
     }
 
-    fun clearActiveTimer(context: Context) {
+    fun clearActiveTimer(context: Context, publish: Boolean = true) {
+        val previous = getActiveTimer(context)
         context.applicationContext.getSharedPreferences(PREFS_TIMER_STATE, Context.MODE_PRIVATE)
             .edit()
             .remove(KEY_ACTIVE_CATEGORY)
@@ -238,6 +252,8 @@ object TimerStateStore {
             .remove(KEY_ACTIVE_EXERCISE_SETS_JSON)
             .remove(KEY_ACTIVE_ROUTINE_GOAL_MILLIS)
             .apply()
+        if (previous != null) RemoteTimerSync.recordLocalEnd(context, previous.startTime)
+        if (publish) RemoteTimerSync.publishLocalChange(context, current = null, previous = previous)
     }
 
     fun clearBrushTimer(context: Context) {

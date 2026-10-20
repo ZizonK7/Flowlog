@@ -78,7 +78,7 @@ class FirebaseCalendarPullDataSource(context: Context) {
             return@withContext CalendarPullOutcome(failed = true)
         }
 
-        Log.i(TAG, "Calendar pull fetched ${docs.size} docs — userId=$userId dayStart=$dayStart")
+        Log.i(TAG, "Calendar pull fetched ${docs.size} docs — signed in dayStart=$dayStart")
         calendarApplyMutex.withLock {
             applyTodayCalendarDocuments(userId, dayStart, dayEnd, docs)
         }
@@ -604,7 +604,7 @@ class FirebaseCalendarPullDataSource(context: Context) {
         }
 
         if (!doc.exists()) {
-            Log.i(TAG, "Syllabus document not found — userId=$userId")
+            Log.i(TAG, "Syllabus document not found for the signed-in user")
             return 0
         }
 
@@ -653,7 +653,7 @@ class FirebaseCalendarPullDataSource(context: Context) {
         }
 
 
-        Log.i(TAG, "Syllabus pull complete — saved=${todayLessons.size} date=$todayDateStr course=$courseTitle")
+        Log.i(TAG, "Syllabus pull complete — saved=${todayLessons.size} date=$todayDateStr courseTitleLength=${courseTitle?.length ?: 0}")
         return todayLessons.size
     }
 

@@ -4,9 +4,20 @@ import com.example.flowlog.data.model.ActivitySession
 
 /** Compare every field written by the uploader, excluding bookkeeping and derived aliases. */
 object ActivityRevisionContent {
+    /**
+     * What the uploader writes for [activity]. A deleted record (tombstone) keeps only what
+     * the Firestore rules (`validActivity`) require plus identifiers and bookkeeping: the
+     * user's words — title, note, tags, exercise sets — are blanked. The device keeps its own
+     * copy, so undo still works locally.
+     */
+    fun forUpload(activity: ActivitySession, deletedAt: Long?): ActivitySession =
+        if (deletedAt == null) activity
+        else activity.copy(title = "", note = null, tags = emptyList(), exerciseSets = emptyList())
+
+    /** Hashes the uploaded form, so a tombstone's id carries no trace of the deleted text. */
     fun mutationId(docId: String, activity: ActivitySession, deletedAt: Long?): String =
         java.security.MessageDigest.getInstance("SHA-256")
-            .digest((docId + activity.copy(remoteRevision = 0L, localActivityId = null).toString() + deletedAt).toByteArray(Charsets.UTF_8))
+            .digest((docId + forUpload(activity, deletedAt).copy(remoteRevision = 0L, localActivityId = null).toString() + deletedAt).toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
 
     private val metadata = setOf("modifiedTime", "revision", "lastMutationId")

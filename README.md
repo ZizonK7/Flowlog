@@ -37,6 +37,13 @@ for reviewing synced data, not a second place to record.
 - Quick-timer buttons that are suggested once you log a category consistently
   for a few days.
 - Exercise set and rep logging while the exercise timer runs.
+- Adding a past activity by hand ("직접 추가" on the recent records card) when
+  the timer was not started: pick a category, day, start and end time, and an
+  optional title and note. Future times and records over 24 hours are refused;
+  overlaps with existing records are shown as a warning, not blocked.
+- Home-screen shortcuts: long-press the app icon to start a timer for one of
+  the first four main buttons; if a timer is already running, nothing new
+  starts.
 
 ### Todos and Routines
 
@@ -55,17 +62,26 @@ for reviewing synced data, not a second place to record.
 - Today's activity list, timetable, and category totals.
 - Comparison with yesterday and recent 7-day averages.
 - Filling empty timetable gaps as sleep.
+- Exporting all saved activity records (deleted ones excluded) as a CSV or
+  JSON file to a location you choose, from Settings (the profile menu when
+  signed in, or the gear button next to "login" when signed out).
 
 ### Reminders and Focus
 
 - Focus sessions, optionally turning on system Do Not Disturb.
 - Reminders for planned Todos, routine goals, inactivity, and toothbrush/meal
   timers; scheduled reminders are restored after a reboot or app update.
+- On Android 12 and later, the app explains once why reminders need the
+  "Alarms & reminders" (exact alarm) permission and asks a single time.
+  Without it reminders still fire, possibly a few minutes late; it can be
+  turned on any time from Settings ("정확한 알림").
 - A compact home-screen widget showing the current timer.
 
 ### Sync and Web
 
 - Google sign-in and sync with Firestore; records made offline upload later.
+- The running timer is shared with the PC web app: a timer started or stopped
+  on one side shows up on the other.
 - A web dashboard at `https://flowlog.pfkfks.org/` for synced statistics and
   optional planning tools (see below).
 
@@ -129,6 +145,7 @@ app/src/main/java/com/example/flowlog/
                     recommendation, timetable/routine, analytics, etc.)
   ui/viewmodel/     View models; pure/testable helpers live in small
                     standalone files (e.g. AnalyticsActivityUtils.kt)
+  shortcut/         Home-screen "start timer" launcher shortcuts
   util/             Calendar intent helper
   widget/           Android home-screen status widget
 tools/study-integration/
@@ -167,6 +184,13 @@ pending upload when it lasts at least ten minutes or contains exercise sets.
 The developer menu's manual upload also includes today's pending records.
 Short activities therefore need not appear on the web immediately after saving.
 
+After uploading, sync pulls remote activity, study-link and study-decision
+changes. These pulls are incremental (`data/sync/RemotePullCursor.kt`): only
+documents whose client-written timestamp (`modifiedTime`, `updatedAt`,
+`createdAt`) is newer than the last successful pull minus a 24-hour overlap are
+read. The first pull per account and one pull per week read the whole
+collection; reinstall restore and conflict resolution always do.
+
 Some data also flows from Firestore back to the app:
 
 - After login on a device with no local activities or Todos (a new install or
@@ -174,6 +198,16 @@ Some data also flows from Firestore back to the app:
 - Calendar events and syllabus data created on the web are pulled into the
   app's calendar and routines.
 - The main button configuration is kept in Firestore and loaded on sign-in.
+- Todos added, completed, edited, or deleted on the web (the PC app at
+  `/app/`) come back with every sync that pulls activities
+  (`data/sync/TodoRemotePull.kt`): incremental on `updatedAt` with the same
+  cursor rules, plus a read of the open Todos to notice deletions (the web and
+  the app both delete the document). The later `updatedAt` wins; a completion
+  is not undone by a side that never saw it, and Todos not uploaded yet are
+  never removed (`TodoMergePolicy.kt`). Before uploading a changed Todo the app
+  reads the server copy and does not overwrite a newer one. A Todo made on the
+  web (document `id: 0` with a random document id) is moved once to a numeric
+  id, because the app keys every Todo action on one.
 - Activity details edited on the web sync back. Revisions protect pending
   local edits; when both sides changed, the app keeps both versions and asks
   which one to keep. If the saved content already matches, the app catches up
@@ -184,6 +218,38 @@ Some data also flows from Firestore back to the app:
   user's classification/link decisions are restored to Room and used by the
   button suggestions. Links are edited on the web only; Android has no study
   link editor.
+
+The running timer is shared with the PC web app (`flowlog.pfkfks.org/app/`)
+through one document, `users/{uid}/flowlog/timer` (`status` running/paused/
+stopped, `category`, `title`, `startTime`, `pausedElapsedMs`, `linkedTodoId`,
+server-time `updatedAt`, `updatedBy` app/web, and a random per-install
+`deviceId`). The phone's `TimerStateStore` stays the source of truth: every
+start, title change, stop, or cancel there also writes the document (merge
+write left to Firestore's offline queue), and while the app is open and signed
+in it follows web changes (`data/sync/RemoteTimerSync.kt`, decisions in
+`TimerSyncPolicy.kt`). The later action wins: a web start made after the
+phone's timer started replaces it without saving a record, an older one is
+overwritten by the phone's state, and a web stop of the same timer (same
+`startTime`) ends it on the phone without a record because the web saved it.
+The phone ignores its own writes, cached snapshots, and other phones. The
+pinned SCHOOL/COMPANY timer is not shared, and the phone has no pause, so a
+paused web timer is followed as running. Account deletion deletes the document.
+
+Records can also come back from a file: Settings > 기록 가져오기(JSON) reads a
+file written by "export as JSON", skips records already on the device (same
+record id, or same category and start/end) and broken entries, shows the counts,
+and saves the rest as pending uploads. Records keep their original ids, so
+re-uploading them to the same account updates the original Firestore documents
+instead of creating copies.
+
+Deleting a single activity leaves only a tombstone on the server (ids, category,
+times, and the deleted flag; title, note, tags, and exercise sets are blanked).
+Signed-in users can delete their account from Settings ("계정과 데이터 삭제"):
+the app marks `users/{uid}/flowlog/account` with `deletionRequestedAt`, clears
+the phone, and signs out. Signing in again within 14 days offers to cancel and
+restore; after 14 days a scheduled Cloud Function
+(`tools/account-deletion/`) permanently deletes the server data and the sign-in
+account.
 
 Whenever today's focus recommendation recomputes, `TodoViewModel` also pushes a
 full-overwrite snapshot (`data/assistant/AssistantSnapshotBuilder.kt`) to
@@ -205,7 +271,8 @@ users/{uid}/flowlog/data/dailyCues
 users/{uid}/flowlog/data/calendarEvents
 users/{uid}/flowlog/data/assistantSnapshots
 users/{uid}/flowlog/config          (main button configuration)
-users/{uid}/flowlog/metadata        (last sync time)
+users/{uid}/flowlog/timer           (running timer shared with the PC web app)
+users/{uid}/flowlog/metadata        (last sync time; older builds only, no longer written)
 users/{uid}/flowlog/calendar        (syllabus data from the web)
 users/{uid}/activityStudyLinks
 users/{uid}/interactionDecisions
@@ -273,6 +340,17 @@ To create it:
 8. To receive crash reports, open the Crashlytics section in the Firebase
    console once; it activates automatically after a release build with the
    SDK runs and reports in.
+9. App Check: register the Android app under App Check with the Play
+   Integrity provider, and for debug builds add the debug token that the app
+   prints to logcat (`DebugAppCheckProviderFactory`) under "Manage debug
+   tokens". The app installs the provider at startup (`appcheck/`), but
+   nothing changes until enforcement is turned on in the console.
+
+Firestore security rules are deployed from the web repository, which holds the
+original. This repository keeps a copy for review and emulator tests at
+`docs/study-integration/firestore.proposed.rules` (account ids replaced by
+placeholders; `tools/study-integration/prepare-rules.cjs` fills them for the
+emulator).
 
 Firestore rules must let each signed-in user access only their own data, at
 every path listed under [Data & Sync](#data--sync) — including the collections

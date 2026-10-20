@@ -192,7 +192,9 @@ class FlowStatusWidgetProvider : AppWidgetProvider() {
         private const val ACTION_REFRESH = "com.example.flowlog.widget.FLOW_STATUS_REFRESH"
         private const val REQUEST_OPEN_APP = 7201
         private const val REQUEST_REFRESH = 7202
-        private val REFRESH_INTERVAL_MILLIS = TimeUnit.SECONDS.toMillis(15)
+        // The Chronometer in the layout ticks the elapsed text on its own; this alarm only
+        // redraws the fill bitmap, so once a minute is enough and saves wakeups/Binder traffic.
+        private val REFRESH_INTERVAL_MILLIS = TimeUnit.SECONDS.toMillis(60)
         private const val PREFS_WIDGET = "flowlog_widget_state"
         private const val KEY_EMPTY_SINCE = "empty_since_millis"
 

@@ -193,6 +193,7 @@ import com.example.flowlog.ui.viewmodel.FlowActivityRecommendation
 import com.example.flowlog.ui.viewmodel.TimerDisplayState
 import com.example.flowlog.ui.viewmodel.AnalyticsState
 import com.example.flowlog.ui.viewmodel.CategoryStat
+import com.example.flowlog.ui.viewmodel.ManualActivityValidator
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -261,6 +262,12 @@ fun HomeScreen(
     val editCategories = remember(uiState.mainButtonConfig) {
         uiState.mainButtonConfig.buttons.sortedBy { it.order }.map { it.category }
     }
+    val manualCategories = remember(editCategories) {
+        (editCategories + MainButtonConfig.ALL_SELECTABLE_CATEGORIES)
+            .filter { it != "SNACK" && it != "TOOTHBRUSH" }
+            .distinct()
+    }
+    var showManualActivityDialog by remember { mutableStateOf(false) }
     val selectedCategory = uiState.selectedCategory
     val isFiltered = selectedCategory != null
     val displayActivities by remember(
@@ -539,7 +546,8 @@ fun HomeScreen(
                 onUndo = { viewModel.undoLastAddedActivity() },
                 onDelete = { viewModel.deleteActivity(it) },
                 onEdit = { viewModel.startEditActivity(it) },
-                onToggleFavorite = { viewModel.toggleFavorite(it) }
+                onToggleFavorite = { viewModel.toggleFavorite(it) },
+                onAddManual = { showManualActivityDialog = true }
             )
         }
 
@@ -589,6 +597,38 @@ fun HomeScreen(
             onDismiss = {
                 viewModel.cancelEditActivity()
             }
+        )
+    }
+
+    if (showManualActivityDialog) {
+        val savedMessage = stringResource(R.string.manual_activity_saved)
+        val savedOnDateMessage = stringResource(R.string.manual_activity_saved_on_date)
+        val savedDateFormat = stringResource(R.string.manual_activity_saved_date_format)
+        val failedMessage = stringResource(R.string.manual_activity_save_failed)
+        ManualActivityDialog(
+            categories = manualCategories,
+            activities = uiState.allActivities,
+            categoryLabels = activityCategoryLabels,
+            onSave = { category, title, note, startMillis, endMillis ->
+                showManualActivityDialog = false
+                // Records before today do not appear in the recent list, so say which day got it.
+                val successMessage = if (ManualActivityValidator.isSameLocalDay(startMillis, System.currentTimeMillis())) {
+                    savedMessage
+                } else {
+                    String.format(
+                        savedOnDateMessage,
+                        SimpleDateFormat(savedDateFormat, Locale.KOREAN).format(Date(startMillis))
+                    )
+                }
+                viewModel.addManualActivity(category, title, note, startMillis, endMillis) { saved ->
+                    android.widget.Toast.makeText(
+                        context,
+                        if (saved) successMessage else failedMessage,
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            },
+            onDismiss = { showManualActivityDialog = false }
         )
     }
 

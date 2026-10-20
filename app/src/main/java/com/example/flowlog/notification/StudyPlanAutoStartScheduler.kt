@@ -34,6 +34,13 @@ class StudyPlanAutoStartScheduler(private val context: Context) {
         }
     }
 
+    /** Cancels every alarm [rescheduleAll] would arm (account data reset). */
+    suspend fun cancelAll() {
+        withContext(Dispatchers.IO) {
+            dao.getActiveBySource(userId, PetiteSourceType.STUDY_PLAN.name).forEach { cancel(it.id) }
+        }
+    }
+
     fun cancel(itemId: String) {
         cancelPendingIntent(itemId, ACTION_START)
         cancelPendingIntent(itemId, ACTION_END)

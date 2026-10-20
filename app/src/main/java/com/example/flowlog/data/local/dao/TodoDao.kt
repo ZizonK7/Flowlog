@@ -231,6 +231,24 @@ interface TodoDao {
     """)
     suspend fun getActiveTodosCount(userId: String): Int
 
+    // ── 웹에서 바뀐 할 일 가져오기 (TodoRemotePull) ─────────────────────────
+
+    // 서버와 맞춰진(SYNCED) 살아 있는 행: 웹에서 지워졌는지 볼 후보.
+    @Query("""
+        SELECT * FROM todos
+        WHERE userId = :userId
+          AND isDeleted = 0
+          AND syncStatus = '${SyncStatus.SYNCED}'
+    """)
+    suspend fun getSyncedLiveTodos(userId: String): List<TodoEntity>
+
+    @Query("SELECT MAX(legacyId) FROM todos")
+    suspend fun getMaxLegacyId(): Long?
+
+    // 웹 문서 id로 저장됐던 행을 번호 붙은 행으로 바꿀 때만 쓴다.
+    @Query("DELETE FROM todos WHERE todoId = :todoId")
+    suspend fun deleteTodoRow(todoId: String)
+
     @Query("UPDATE todos SET userId = :newUserId, syncStatus = 'PENDING' WHERE userId = 'anonymous'")
     suspend fun reassignAnonymousUser(newUserId: String): Int
 

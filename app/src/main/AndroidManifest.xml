@@ -14,6 +14,7 @@
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -76,6 +77,18 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+        <!--
+            "알람 및 리마인더"(정확 알람) 권한이 켜지면 Android 12 이상이 보내는 시스템 브로드캐스트.
+            부팅 수신기와 같은 이유로 exported="true" 여야 전달된다.
+            권한이 없을 때 부정확하게 잡아 둔 알람을 정확 알람으로 다시 잡는다.
+        -->
+        <receiver
+            android:name=".notification.ExactAlarmPermissionReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
         <receiver
             android:name=".notification.FocusModeAlarmReceiver"
             android:exported="false" />
@@ -90,7 +103,6 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.example.flowlog.widget.FLOW_STATUS_REFRESH" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"

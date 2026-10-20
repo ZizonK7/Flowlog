@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Release builds shrink unused resources (isShrinkResources = true).
+    KakaoStyleAlertPlayer and the notification channels load this sound by NAME
+    ("android.resource://<package>/raw/flowlog_ding"), never through R.raw, so keep it
+    explicitly instead of relying on the shrinker's string-constant guess.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/flowlog_ding" />

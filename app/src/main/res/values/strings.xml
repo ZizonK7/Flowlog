@@ -47,6 +47,7 @@
     <string name="main_activity_close">닫기</string>
     <string name="main_activity_google_profile_content_desc">구글 프로필</string>
     <string name="main_activity_default_profile_content_desc">기본 프로필</string>
+    <string name="main_activity_suggestion_sheet_title">Flowlog 제안</string>
     <string name="main_activity_pattern_suggestion_title">활동 패턴 기반 제안</string>
     <string name="main_activity_no_suggestion_yet">아직 제안할 내용이 없어요.\n기록이 조금 더 쌓이면 Flowlog가 도와줄게요.</string>
     <string name="main_activity_category_suggestion">최근 %1$s 기록이 자주 보여요. %1$s 버튼을 메인에 추가해볼까요?</string>
@@ -309,4 +310,88 @@
     <string name="edit_activity_delete_set_content_desc">세트 삭제</string>
     <string name="edit_activity_delete_exercise_content_desc">운동 삭제</string>
     <string name="edit_activity_add_exercise_label">운동 추가</string>
+
+    <!-- Manual past-activity entry (RecentRecordsSection / ManualActivitySection) -->
+    <string name="manual_activity_add_button">직접 추가</string>
+    <string name="manual_activity_title">지난 활동 추가</string>
+    <string name="manual_activity_subtitle">타이머를 못 켠 활동을 나중에 기록해요</string>
+    <string name="manual_activity_day_label">날짜</string>
+    <string name="manual_activity_today">오늘</string>
+    <string name="manual_activity_yesterday">어제</string>
+    <string name="manual_activity_pick_date">다른 날</string>
+    <string name="manual_activity_date_format">M월 d일 (E)</string>
+    <string name="manual_activity_time_label">시간</string>
+    <string name="manual_activity_start">시작</string>
+    <string name="manual_activity_end">끝</string>
+    <string name="manual_activity_next_day">(다음 날)</string>
+    <string name="manual_activity_pick_start_title">시작 시각</string>
+    <string name="manual_activity_pick_end_title">끝 시각</string>
+    <string name="manual_activity_duration">%1$s 동안</string>
+    <string name="manual_activity_error_end_before_start">끝 시각이 시작 시각보다 뒤여야 해요.</string>
+    <string name="manual_activity_error_too_long">24시간보다 긴 기록은 넣을 수 없어요.</string>
+    <string name="manual_activity_error_future">아직 지나지 않은 시간이 들어 있어요. 끝 시각을 지금보다 앞으로 맞춰 주세요.</string>
+    <string name="manual_activity_overlap_warning">기존 기록 %1$d개와 시간이 겹쳐요. 그래도 저장할 수 있어요.</string>
+    <string name="manual_activity_confirm">확인</string>
+    <string name="manual_activity_saved">지난 활동을 추가했어요.</string>
+    <string name="manual_activity_saved_on_date">%1$s 기록에 저장했어요.</string>
+    <string name="manual_activity_saved_date_format">M월 d일</string>
+    <string name="manual_activity_save_failed">활동을 추가하지 못했어요. 다시 시도해 주세요.</string>
+
+    <!-- Activity export (Settings dialog) -->
+    <string name="export_activities_section">기록</string>
+    <string name="export_activities_title">기록 내보내기</string>
+    <string name="export_activities_desc">이 기기에 저장된 활동 기록 전체를 파일로 저장해요</string>
+    <string name="export_activities_csv">CSV로 저장</string>
+    <string name="export_activities_json">JSON으로 저장</string>
+    <string name="export_activities_success">기록 %1$d개를 내보냈어요.</string>
+    <string name="export_activities_failed">기록을 내보내지 못했어요.</string>
+
+    <!-- Home-screen timer shortcuts -->
+    <string name="shortcut_start_timer_label">%1$s 시작</string>
+    <string name="shortcut_timer_already_running">이미 타이머가 돌고 있어요. 지금 타이머를 먼저 끝내 주세요.</string>
+    <string name="onboarding_main_buttons_desc">자주 쓰는 활동을 추려봤어요. 필요하면 바꿀 수 있어요.\n기록이 쌓이면 Flowlog가 기록을 바탕으로 더 맞는 버튼을 제안해 드려요.</string>
+    <string name="exact_alarm_prompt_title">알림을 제시간에 받으려면</string>
+    <string name="exact_alarm_prompt_message">알림이 제시간에 울리려면 \'알람 및 리마인더\' 권한이 필요합니다. 끄면 알림이 몇 분 늦을 수 있습니다.\n\n켜지 않아도 앱은 그대로 쓸 수 있고, 나중에 설정 창의 \'정확한 알림\'에서 언제든 켤 수 있어요.</string>
+    <string name="exact_alarm_prompt_open_settings">설정으로</string>
+    <string name="settings_exact_alarm_title">정확한 알림</string>
+    <string name="settings_exact_alarm_on">켜짐 · 알림이 제시간에 울려요</string>
+    <string name="settings_exact_alarm_off">꺼짐 · 알림이 몇 분 늦을 수 있어요</string>
+    <string name="settings_exact_alarm_open">설정 열기</string>
+    <string name="import_activities_button">기록 가져오기(JSON)</string>
+    <string name="import_activities_desc">내보낸 JSON 파일의 기록을 이 기기에 다시 넣어요. 이미 있는 기록은 건너뛰어요</string>
+    <string name="import_activities_title">기록 가져오기</string>
+    <string name="import_activities_confirm_message">%1$d건을 추가합니다. 중복 %2$d건은 건너뜁니다.</string>
+    <string name="import_activities_total">파일 안의 항목: %1$d건</string>
+    <string name="import_activities_invalid">읽지 못한 항목 %1$d건도 건너뜁니다.</string>
+    <string name="import_activities_period">기간: %1$s – %2$s</string>
+    <string name="import_activities_confirm">추가하기</string>
+    <string name="import_activities_cancel">취소</string>
+    <string name="import_activities_not_json">Flowlog에서 내보낸 JSON 파일이 아니에요.</string>
+    <string name="import_activities_read_failed">파일을 읽지 못했어요.</string>
+    <string name="import_activities_nothing_new">추가할 새 기록이 없어요. 중복 %1$d건, 읽지 못한 항목 %2$d건.</string>
+    <string name="import_activities_success">기록 %1$d개를 가져왔어요.</string>
+    <string name="import_activities_save_failed">기록을 저장하지 못했어요.</string>
+    <string name="account_delete_section">계정</string>
+    <string name="account_delete_title">계정과 데이터 삭제</string>
+    <string name="account_delete_desc">서버의 기록과 로그인 계정을 지워요. 14일 동안은 되돌릴 수 있어요</string>
+    <string name="account_delete_button">삭제 요청</string>
+    <string name="account_delete_confirm1_title">계정과 데이터를 삭제할까요?</string>
+    <string name="account_delete_confirm1_message">이 폰의 기록과 설정을 지우고 로그아웃합니다. 14일 안에 다시 로그인하면 되돌릴 수 있고, 14일이 지나면 서버의 기록과 계정이 영구 삭제됩니다.\n\n기록을 남겨 두려면 먼저 내보내기로 파일을 저장해 두세요.</string>
+    <string name="account_delete_continue">계속</string>
+    <string name="account_delete_cancel">취소</string>
+    <string name="account_delete_confirm2_title">마지막 확인</string>
+    <string name="account_delete_confirm2_message">계속하려면 아래 칸에 \'삭제\'를 입력하세요.</string>
+    <string name="account_delete_execute">삭제</string>
+    <string name="account_delete_in_progress">삭제를 예약하는 중…</string>
+    <string name="account_delete_failed">삭제를 예약하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.</string>
+    <string name="account_delete_scheduled">삭제를 예약했습니다. 14일 안에 다시 로그인하면 되돌릴 수 있습니다.</string>
+    <string name="account_deletion_pending_title">삭제 예약이 있는 계정</string>
+    <string name="account_deletion_pending_message">삭제 예약이 있습니다(남은 %1$d일). 취소하고 기록을 복원할까요?</string>
+    <string name="account_deletion_cancel_restore">취소하고 복원</string>
+    <string name="account_deletion_keep">그대로 둠</string>
+    <string name="account_deletion_expired_title">삭제 처리 중인 계정</string>
+    <string name="account_deletion_expired_message">삭제 처리 중인 계정입니다. 14일 유보 기간이 지나 서버의 기록과 계정이 곧 영구 삭제됩니다. 로그아웃합니다.</string>
+    <string name="account_deletion_ok">확인</string>
+    <string name="account_deletion_restored">삭제 예약을 취소하고 기록을 복원했어요.</string>
+    <string name="account_deletion_cancel_failed">삭제 예약을 취소하지 못했어요. 인터넷 연결을 확인하고 다시 로그인해 주세요.</string>
 </resources>

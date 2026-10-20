@@ -26,6 +26,7 @@ import java.util.UUID
  */
 class FirebaseSyncDataSource(context: Context) : SyncRepository {
 
+    private val appContext = context.applicationContext
     private val db = FlowlogDatabase.getInstance(context)
     private val activityDao = db.activityDao()
     private val activityRevisionDao = db.activityRevisionDao()
@@ -46,7 +47,7 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
             val dailyGoalRecommendationCount = runCatching { dailyGoalDao.getUnsyncedRecommendations(userId).size }.getOrDefault(0)
             val dailyGoalItemCount = runCatching { dailyGoalDao.getUnsyncedItems(userId).size }.getOrDefault(0)
 
-            Log.i(TAG, "syncAll start — userId=$userId | activities=$activityCount todos=$todoCount events=$eventCount dailyGoalRecommendations=$dailyGoalRecommendationCount dailyGoalItems=$dailyGoalItemCount")
+            Log.i(TAG, "syncAll start — signed in | activities=$activityCount todos=$todoCount events=$eventCount dailyGoalRecommendations=$dailyGoalRecommendationCount dailyGoalItems=$dailyGoalItemCount")
 
             val activityResult = runCatching { syncPendingActivities(userId) }
                 .onFailure { e -> Log.w(TAG, "Activity sync section failed: ${e.message}", e) }
@@ -64,7 +65,7 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
                 .onFailure { e -> Log.w(TAG, "DailyGoalItem sync section failed: ${e.message}", e) }
                 .getOrDefault(SyncOutcome())
 
-            Log.i(TAG, "syncAll complete — userId=$userId")
+            Log.i(TAG, "syncAll complete")
             return@withContext activityResult + todoResult + eventResult + dailyGoalRecommendationResult + dailyGoalItemResult
         }
     }
@@ -79,7 +80,7 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
             val dailyGoalRecommendationCount = runCatching { dailyGoalDao.getEligibleUnsyncedRecommendations(userId, cutoffMillis).size }.getOrDefault(0)
             val dailyGoalItemCount = runCatching { dailyGoalDao.getEligibleUnsyncedItems(userId, cutoffMillis).size }.getOrDefault(0)
 
-            Log.i(TAG, "syncEligible start — userId=$userId | activities=$activityCount todos=$todoCount events=$eventCount dailyGoalRecommendations=$dailyGoalRecommendationCount dailyGoalItems=$dailyGoalItemCount")
+            Log.i(TAG, "syncEligible start — signed in | activities=$activityCount todos=$todoCount events=$eventCount dailyGoalRecommendations=$dailyGoalRecommendationCount dailyGoalItems=$dailyGoalItemCount")
 
             val activityResult = runCatching { syncPendingActivities(userId, eligibleOnly = true) }
                 .onFailure { e -> Log.w(TAG, "Activity sync section failed: ${e.message}", e) }
@@ -97,7 +98,7 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
                 .onFailure { e -> Log.w(TAG, "DailyGoalItem sync section failed: ${e.message}", e) }
                 .getOrDefault(SyncOutcome())
 
-            Log.i(TAG, "syncEligible complete — userId=$userId")
+            Log.i(TAG, "syncEligible complete")
             return@withContext activityResult + todoResult + eventResult + dailyGoalRecommendationResult + dailyGoalItemResult
         }
     }
@@ -216,9 +217,26 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
             var successCount = 0
             val errors = mutableListOf<String>()
 
-            pending.forEach { entity ->
+            val todoCollection = TodoSyncSupport.collection(
+                com.google.firebase.firestore.FirebaseFirestore.getInstance(), userId
+            )
+            pending.forEach { pendingEntity ->
                 runCatching {
-                    val docId = entity.legacyId?.toString() ?: entity.todoId
+                    val docId = pendingEntity.legacyId?.toString() ?: pendingEntity.todoId
+                    // A newer server copy (for example completed or edited on the PC web app)
+                    // is not overwritten: TodoMergePolicy decides, and when the server wins
+                    // the row is updated from it instead of uploaded.
+                    val remoteDoc = if (TodoSyncSupport.toLocal(pendingEntity).calendarOnly) null
+                        else todoCollection.document(docId).get().awaitResult()
+                    val entity = if (remoteDoc != null && remoteDoc.exists()) {
+                        TodoSyncSupport.reconcileBeforeUpload(appContext, todoDao, userId, pendingEntity, remoteDoc)
+                    } else {
+                        pendingEntity
+                    }
+                    if (entity == null) {
+                        successCount++
+                        return@runCatching
+                    }
                     if (entity.isDeleted) {
                         firestoreSync.deleteTodoByDocId(docId)
                     } else {
@@ -238,10 +256,13 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
                         }
                     }
                     todoDao.markTodoSynced(entity.todoId)
+                    TodoSyncSupport.rememberServerCompletion(
+                        appContext, entity.todoId, !entity.isDeleted && entity.isCompleted, entity.completedAt
+                    )
                     successCount++
                 }.onFailure { e ->
-                    errors.add("${entity.todoId}: ${e.message}")
-                    Log.w(TAG, "Todo sync failed: ${entity.todoId} — ${e.message}")
+                    errors.add("${pendingEntity.todoId}: ${e.message}")
+                    Log.w(TAG, "Todo sync failed: ${pendingEntity.todoId} — ${e.message}")
                 }
             }
 

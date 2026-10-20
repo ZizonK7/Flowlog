@@ -125,6 +125,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.example.flowlog.R
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -218,7 +220,8 @@ internal fun RecentRecordsCard(
     onUndo: () -> Unit,
     onDelete: (ActivitySession) -> Unit,
     onEdit: (Long) -> Unit,
-    onToggleFavorite: (ActivitySession) -> Unit
+    onToggleFavorite: (ActivitySession) -> Unit,
+    onAddManual: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -238,6 +241,21 @@ internal fun RecentRecordsCard(
                 color = FlowInk,
                 modifier = Modifier.weight(1f)
             )
+            Button(
+                onClick = onAddManual,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isFocusFireActive) FocusFireSoft else FlowPurpleSoft,
+                    contentColor = if (isFocusFireActive) FocusFire else FlowPurple
+                )
+            ) {
+                Text(
+                    stringResource(R.string.manual_activity_add_button),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
             if (isFiltered) {
                 Button(
                     onClick = onClearFilter,

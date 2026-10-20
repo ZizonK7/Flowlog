@@ -2,6 +2,106 @@
 
 ## Unreleased
 
+- Added pulling Todos changed on the web (PC app): after each sync that pulls
+  activities, Todos with a newer `updatedAt` (incremental, `RemotePullCursor`
+  key `todos`) and the open Todos are merged into Room; documents deleted on
+  the web soft-delete SYNCED rows, never rows still waiting to upload. The
+  Todo upload now reads the server copy first so a newer web change, above all
+  a completion, is not overwritten (`TodoMergePolicy`, 15 unit tests). Web-made
+  Todos (`id: 0`) are moved once to a numeric id so the app can complete, edit,
+  and delete them, and two of them no longer share list key `0`.
+- Added a shared running timer with the PC web app: `users/{uid}/flowlog/timer`
+  is written on every local timer change (`TimerStateStore` calls
+  `RemoteTimerSync`, so screens, alarm receivers, and undo all share it) and
+  followed while the app is open and signed in. The later action wins; a web
+  stop of the same timer ends it on the phone without a record; the phone's own
+  echoes, cached snapshots, and other phones are ignored (`TimerSyncPolicy`,
+  17 unit tests). The rules copy gains the timer document (owner only, fixed
+  fields, server-time `updatedAt`; emulator checks 33 → 43). Account deletion
+  deletes the timer document. Titles changed on the web now reach a running
+  timer on the home screen.
+- Added Firebase App Check: Play Integrity in release builds and the debug
+  provider in debug builds (`appcheck/`, chosen by source set), installed at
+  startup and never fatal. It has no effect until enforcement is turned on in
+  the Firebase console.
+- Tightened the repository copy of the Firestore rules
+  (`docs/study-integration/firestore.proposed.rules`): survey responses need
+  sign-in, one per account, fixed fields and 2,000-character text; the account
+  deletion reservation accepts only its two fields with server time; generic
+  Flowlog documents and records are capped at 100 fields. Admin and staff uids
+  are placeholders filled by `prepare-rules.cjs`. Emulator checks grew from 15
+  to 33.
+- Added account deletion with a 14-day grace period (Settings, signed in only):
+  two confirmations (the second needs "삭제" typed), then the app marks
+  `users/{uid}/flowlog/account` with `deletionRequestedAt`, clears Room,
+  app SharedPreferences, alarms, notifications, and the widget, and signs out.
+  Signing in again checks the mark before any upload: within 14 days the user
+  can cancel and restore, after that the app explains and signs out
+  (`AccountDeletionPolicy`, `AccountDeletionRemote`, `DeviceDataWiper`).
+- Added `tools/account-deletion/`, a daily Cloud Functions v2 job that
+  permanently deletes accounts 14 days after the request: per-user Firestore
+  data, the Auth user, then the reservation last so failures retry the next day.
+  Not deployed yet.
+- Changed activity tombstones: a deleted record is uploaded without its title,
+  note, tags, or exercise sets (`ActivityRevisionContent.forUpload`); the
+  fields the Firestore rules require stay. Todo deletes already remove the
+  server document.
+- Added "기록 가져오기(JSON)" next to export (`ActivityImportParser`): reads an
+  exported JSON file, skips duplicates and broken entries, confirms the counts,
+  and saves records with their original ids as pending uploads.
+- Changed the exact alarm permission flow: instead of opening the system
+  settings screen on every launch, the app now explains the "Alarms &
+  reminders" permission in an in-app dialog once (`ExactAlarmPromptPolicy`,
+  remembered in SharedPreferences) and never asks again. Settings gains a
+  "정확한 알림" row showing the current state with a shortcut to the system
+  screen. A new `ExactAlarmPermissionReceiver` reschedules alarms when the
+  permission is granted, sharing `AlarmRescheduler` with the boot receivers.
+  Without the permission, schedulers keep falling back to inexact alarms.
+- Removed sensitive values from release logs: Todo, activity, and course
+  titles are logged as ids or lengths, and sync/restore/calendar logs no
+  longer print the signed-in user's id.
+- Removed the "Flowlog AI" wording from the main-button onboarding and the
+  suggestion sheet header. Suggestions are rule-based on the device, so the
+  text now says Flowlog suggests buttons based on your records.
+- Added manual entry of past activities from the recent records card
+  ("직접 추가"), saved with source type `MANUAL` through the same insert, event
+  log, undo, and conditional sync path as timer saves. Checks
+  (`ManualActivityValidator`) refuse end-before-start, over-24-hour, and future
+  ranges, and warn without blocking when the range overlaps existing records.
+- Added activity export to CSV and JSON from Settings (`ActivityExportFormatter`),
+  written through the system file picker. Soft-deleted records are excluded;
+  CSV starts with a UTF-8 BOM so spreadsheet apps read Korean text correctly.
+  Signed-out users reach Settings from a new gear button next to the login
+  button, so offline-only records can be exported too.
+- Added dynamic home-screen shortcuts that start a timer for the first four main
+  buttons (`shortcut/`). `MainActivity` accepts only the
+  `com.example.flowlog.action.START_TIMER` action with a known category and does
+  not start a second timer while one is running.
+- Release hardening for a Play Store build: R8 minification and resource
+  shrinking are on for release, debug/info/verbose logs are stripped there, and
+  the remaining warning logs no longer include Todo titles (they log ids, see
+  the sensitive-log entry above). Cleartext traffic is
+  blocked through a network security config, and the widget no longer exports
+  its internal refresh action.
+- Removed 11 unreferenced timetable/island drawables (about 8.4 MB) and 177
+  unused tile assets. The four widget character images are now 256 px WebP in
+  `drawable-nodpi`, so launchers no longer decode a 1254 px image scaled up by
+  screen density.
+- Periodic sync now pulls only activities, study links and study decisions
+  changed since the previous pull (`RemotePullCursor`, 24 h overlap for clock
+  skew, full pull on first use and weekly). Reinstall restore and conflict
+  resolution still read the whole collection.
+- Stopped writing `flowlog/metadata.updatedAt` after every upload (nothing reads
+  it) and stopped creating empty `calendarEvents` documents for Todos that
+  have no web calendar mirror.
+- The midnight sync alarm is inexact (it no longer needs the exact alarm
+  permission), and the widget redraws its fill once a minute instead of every
+  15 seconds (the elapsed text is a Chronometer).
+- Routine-complete and planned-Todo notifications hide their titles on the
+  lock screen.
+- The app always uses its light palette without dynamic color, with dark
+  system bar icons, so system dark mode no longer produces a mixed light/dark
+  screen.
 - Fixed activity sync revision catch-up when the saved content already matches
   the remote record, without overwriting genuine concurrent edits.
 - Fixed obsolete conflict prompts remaining visible after a record was synced,

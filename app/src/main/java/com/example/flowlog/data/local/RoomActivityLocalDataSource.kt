@@ -29,6 +29,14 @@ class RoomActivityLocalDataSource(context: Context) {
     }
 
     /**
+     * 가져오기 중복 판정용 키: 이 기기의 모든 activityId(계정·삭제 여부 무관)와
+     * legacyId가 있는 행의 "legacy_activity_<legacyId>". 원격 문서 id가 legacyId에서 나오므로
+     * 같은 legacyId를 두 행이 갖지 않게 한다.
+     */
+    suspend fun getImportIdentityKeys(): Set<String> =
+        dao.getAllActivityIds().toSet() + dao.getAllLegacyIds().map { "legacy_activity_$it" }
+
+    /**
      * 활동 수정.
      * legacyId가 있으면 "legacy_activity_${id}"로 activityId를 유도.
      * id == 0L인 순수 Room 데이터는 아직 지원 안 함 (전환 완료 후 확장).

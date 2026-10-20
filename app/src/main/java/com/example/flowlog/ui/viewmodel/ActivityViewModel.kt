@@ -1,6 +1,7 @@
 package com.example.flowlog.ui.viewmodel
 
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.flowlog.data.constants.ActivitySourceType
@@ -716,6 +717,142 @@ class ActivityViewModel(
             rememberLastAddedActivity(savedActivity)
             inactivityReminderScheduler.scheduleAfterActivityEnded(endTime)
             syncAfterActivitySaveIfNeeded(savedActivity)
+        }
+    }
+
+    /**
+     * Saves a past activity entered by hand because the timer was not started.
+     * Follows the timer save path: Room insert with the ACTIVITY_SAVED event log
+     * (both inside insertActivity), the undo slot, today's time plan check, and
+     * the same conditional immediate sync. The meal → toothbrush reminder is not
+     * scheduled because the activity is already over, and the inactivity reminder
+     * moves only when this record ended later than the last known activity and no
+     * timer is running.
+     */
+    fun addManualActivity(
+        category: String,
+        title: String,
+        note: String?,
+        startTime: Long,
+        endTime: Long,
+        onSaved: (Boolean) -> Unit = {}
+    ) {
+        val cleanCategory = category.trim()
+        val validation = ManualActivityValidator.validate(
+            startMillis = startTime,
+            endMillis = endTime,
+            nowMillis = System.currentTimeMillis(),
+            existing = emptyList()
+        )
+        if (cleanCategory.isBlank() || !validation.canSave) {
+            onSaved(false)
+            return
+        }
+        val activity = ActivitySession(
+            category = cleanCategory,
+            title = title.trim().ifBlank { defaultTitle(cleanCategory) },
+            startTime = startTime,
+            endTime = endTime,
+            durationMillis = endTime - startTime,
+            note = note?.trim()?.takeIf { it.isNotBlank() },
+            tags = emptyList(),
+            sourceType = ActivitySourceType.MANUAL
+        )
+        viewModelScope.launch {
+            val newId = runCatching { repository.insertActivity(activity) }.getOrNull()
+            if (newId == null) {
+                onSaved(false)
+                return@launch
+            }
+            val savedActivity = activity.copy(id = newId)
+            rememberLastAddedActivity(savedActivity)
+            dailyGoalRepository.ensureTodayTimePlan(
+                activities = _uiState.value.allActivities + savedActivity,
+                forceRefresh = false
+            )
+            if (!_uiState.value.isRunning &&
+                endTime > InactivityReminderStore.getLastActivityEndedAt(appContext)
+            ) {
+                inactivityReminderScheduler.scheduleAfterActivityEnded(endTime)
+            }
+            onSaved(true)
+            syncAfterActivitySaveIfNeeded(savedActivity)
+        }
+    }
+
+    /**
+     * Writes every saved (non-deleted) activity of the current account to [uri]
+     * as CSV or JSON. [onDone] receives the exported record count, or null on failure.
+     */
+    fun exportActivities(
+        uri: Uri,
+        format: ActivityExportFormat,
+        onDone: (Int?) -> Unit
+    ) {
+        viewModelScope.launch {
+            val result = runCatching {
+                val sessions = repository.getAllActivities().first()
+                val text = withContext(Dispatchers.Default) {
+                    ActivityExportFormatter.format(sessions, format, TimeZone.getDefault())
+                }
+                withContext(Dispatchers.IO) {
+                    val stream = appContext.contentResolver.openOutputStream(uri, "wt")
+                        ?: error("Cannot open export destination")
+                    stream.use { out ->
+                        // UTF-8 BOM so spreadsheet apps (e.g. Excel) read Korean text in CSV correctly.
+                        if (format == ActivityExportFormat.CSV) {
+                            out.write(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()))
+                        }
+                        out.write(text.toByteArray(Charsets.UTF_8))
+                    }
+                }
+                sessions.size
+            }
+            result.exceptionOrNull()?.let { Log.w("ActivityExport", "export failed", it) }
+            onDone(result.getOrNull())
+        }
+    }
+
+    /**
+     * Reads an exported JSON file at [uri] and checks it against this device's records
+     * without saving anything. [onResult] gets null when the file cannot be read.
+     */
+    fun previewActivityImport(uri: Uri, onResult: (ActivityImportResult?) -> Unit) {
+        viewModelScope.launch {
+            val result = runCatching {
+                val text = withContext(Dispatchers.IO) {
+                    val stream = appContext.contentResolver.openInputStream(uri)
+                        ?: error("Cannot open import source")
+                    stream.use { it.readBytes().toString(Charsets.UTF_8) }
+                }
+                val existing = repository.getAllActivities().first()
+                val keys = repository.getImportIdentityKeys()
+                withContext(Dispatchers.Default) {
+                    ActivityImportParser.parse(text, keys, existing, System.currentTimeMillis())
+                }
+            }
+            result.exceptionOrNull()?.let { Log.w("ActivityImport", "import preview failed", it) }
+            onResult(result.getOrNull())
+        }
+    }
+
+    /**
+     * Saves the records of a confirmed import preview. Keys are checked again right
+     * before saving so a record restored or added in the meantime is not replaced.
+     * [onDone] gets the saved count, or null on failure.
+     */
+    fun commitActivityImport(records: List<ActivitySession>, onDone: (Int?) -> Unit) {
+        viewModelScope.launch {
+            val result = runCatching {
+                val keys = repository.getImportIdentityKeys()
+                val fresh = records.filter { record ->
+                    ActivityImportParser.identityKeys(record).none { it in keys }
+                }
+                repository.importActivities(fresh)
+            }
+            result.exceptionOrNull()?.let { Log.w("ActivityImport", "import failed", it) }
+            onDone(result.getOrNull())
+            if ((result.getOrNull() ?: 0) > 0) runCatching { syncAllPendingChanges() }
         }
     }
 
@@ -1622,7 +1759,9 @@ class ActivityViewModel(
             state.linkedTodoCalendarSourceId != activeTimer.linkedTodoCalendarSourceId ||
             state.linkedPetiteId != activeTimer.linkedPetiteId ||
             state.sourceType != activeTimer.sourceType ||
-            state.sourceId != activeTimer.sourceId
+            state.sourceId != activeTimer.sourceId ||
+            // A title changed in the PC web app reaches the store through RemoteTimerSync.
+            state.pendingTitle != (activeTimer.pendingTitle ?: activeTimer.linkedTodoTitle)
 
         if (shouldUpdate) {
             _timerDisplayState.value = TimerDisplayState(
@@ -1775,7 +1914,7 @@ class ActivityViewModel(
     }
 
     fun replaceRecommendedTodoItem(block: RecommendedTodoBlock, newTodo: TodoItem) {
-        Log.d(TAG, "user replaceRecommendedTodoItem: oldItemId=${block.itemId} oldTodoId=${block.todoId} oldPlannedStart=${block.plannedStartMillis} newTodoId=${newTodo.id} newTodoTitle=${newTodo.title}")
+        Log.d(TAG, "user replaceRecommendedTodoItem: oldItemId=${block.itemId} oldTodoId=${block.todoId} oldPlannedStart=${block.plannedStartMillis} newTodoId=${newTodo.id} newTodoTitleLength=${newTodo.title.length}")
         viewModelScope.launch {
             dailyGoalRepository.replacePlannedItemTodo(
                 block = block,
@@ -1786,7 +1925,7 @@ class ActivityViewModel(
     }
 
     fun completeRecommendedTodo(block: RecommendedTodoBlock) {
-        Log.d(TAG, "user completeRecommendedTodo: itemId=${block.itemId} todoId=${block.todoId} title=${block.title}")
+        Log.d(TAG, "user completeRecommendedTodo: itemId=${block.itemId} todoId=${block.todoId} titleLength=${block.title.length}")
         viewModelScope.launch {
             if (block.petiteId != null) {
                 dailyGoalRepository.markPlannedItemCompleted(

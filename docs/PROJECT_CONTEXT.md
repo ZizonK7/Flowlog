@@ -16,6 +16,8 @@ Document roles:
 - `docs/study-integration/IMPLEMENTATION_STATUS.md` (and similar per-effort
   status docs): in-progress status, deployment order, open limitations, and
   verification results for a specific piece of work.
+- `docs/RELEASE_CHECKLIST.md`: decisions made for the Play Store release
+  (pricing model, what stays free) and the remaining pre-release to-do list.
 
 Where things go:
 

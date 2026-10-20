@@ -2,6 +2,8 @@ package com.example.flowlog.ui.screen
 
 import android.content.Context
 import android.graphics.Paint
+import androidx.compose.ui.res.stringResource
+import com.example.flowlog.R
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
@@ -366,7 +368,7 @@ internal fun MainButtonSetupPage(
             color = FlowInk
         )
         Text(
-            text = "자주 쓰는 활동을 추려봤어요. 필요하면 바꿀 수 있어요.\n나중에 Flowlog AI가 더 맞는 버튼을 추천해 드려요.",
+            text = stringResource(R.string.onboarding_main_buttons_desc),
             fontSize = 13.sp,
             color = FlowMuted,
             modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
