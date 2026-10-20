@@ -25,7 +25,7 @@ const GRACE_MS = GRACE_DAYS * DAY_MS;
  *   users/{uid}/flowlog/data/calendarEvents
  *   users/{uid}/flowlog/data/assistantSnapshots
  *   users/{uid}/flowlog/config      (main button configuration)
- *   users/{uid}/flowlog/metadata    (last sync time)
+ *   users/{uid}/flowlog/metadata    (last sync time; older app builds only)
  *   users/{uid}/flowlog/calendar    (syllabus data from the web)
  *   users/{uid}/activityStudyLinks
  *   users/{uid}/interactionDecisions
