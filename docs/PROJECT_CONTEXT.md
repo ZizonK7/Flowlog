@@ -17,7 +17,13 @@ Document roles:
   status docs): in-progress status, deployment order, open limitations, and
   verification results for a specific piece of work.
 - `docs/RELEASE_CHECKLIST.md`: decisions made for the Play Store release
-  (pricing model, what stays free) and the remaining pre-release to-do list.
+  (pricing model, what stays free) and the current status of every
+  pre-release item (done / partial / deferred / not started). Console,
+  billing, and security details stay in the private web repository's
+  `docs/flowlog-release-plan.md`.
+- `docs/STUDY_FLOWLOG_*.md`: September 2026 design and review notes for the
+  study integration, kept as history. Current state is in
+  `docs/study-integration/IMPLEMENTATION_STATUS.md`.
 
 Where things go:
 
