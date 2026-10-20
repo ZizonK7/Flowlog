@@ -6,12 +6,12 @@ Play 스토어 출시를 앞두고 **결정한 것**과 **남은 할 일**을 �
 
 세션(Claude)은 콘솔에 들어갈 수 없어서 아래는 주인만 할 수 있다. 끝나면 체크.
 
-- [ ] **1. 배포 서비스 계정에 권한 주기 → 워크플로 다시 돌리기 (5분).** 웹 저장소에 `main` 푸시 때 인덱스 → 규칙 → 함수를 자동 배포하는 워크플로(`.github/workflows/firebase-backend-deploy.yml`)를 넣었는데, 첫 실행이 `firebaserules … 403`으로 실패했다(Hosting용 계정이라 권한이 없음).
+- [x] **1. 배포 서비스 계정에 권한 주기 → 워크플로 다시 돌리기 (5분).** (2026-10-21 주인이 처리) 웹 저장소에 `main` 푸시 때 인덱스 → 규칙 → 함수를 자동 배포하는 워크플로(`.github/workflows/firebase-backend-deploy.yml`)를 넣었는데, 첫 실행이 `firebaserules … 403`으로 실패했다(Hosting용 계정이라 권한이 없음).
   1. Google Cloud 콘솔 → 프로젝트 pfkfks → IAM 및 관리자 → IAM.
   2. `github-action-…@pfkfks.iam.gserviceaccount.com` 모양의 계정(Hosting 배포용) → 연필 → 역할 추가: **편집자(Editor)** + **서비스 계정 사용자(Service Account User)** → 저장.
   3. GitHub pfkfks-main → Actions → "Deploy Firestore and Functions on merge" → Run workflow. 인덱스·규칙·함수(`updateActivitySummary`, `flushDirtyActivitySummaries`, `reconcileActivitySummaries`, `purgeDeletedFlowlogAccounts`)가 순서대로 배포된다. 실패하면 로그에 빠진 역할 이름이 나온다.
 - [ ] **2. (선택) 기존 사용자 요약 만들기.** 1번 뒤 Google Cloud 콘솔 → Cloud Scheduler → `reconcileActivitySummaries` 작업 → "지금 실행". 안 하면 각 사용자가 다음에 기록을 저장할 때 자동으로 만들어진다.
-- [ ] **3. 서비스 계정 키 폐기 확인.** 웹 저장소 `docs/flowlog-release-plan.md` 1절. 콘솔 → IAM 및 관리자 → 서비스 계정 → `firebase-adminsdk-…` → 키 탭에서 2026-05-28 이전 키가 남아 있으면 삭제. PC의 웹 저장소 클론에서 `git show d93f3cf:serviceAccountKey.json | python -c "import json,sys; print(json.load(sys.stdin)['private_key_id'])"`로 키 ID를 뽑아 목록과 대조하면 확실하다(값은 출력하지 않는다). 폐기 뒤 이력 정리는 같은 문서 2절.
+- [x] **3. 서비스 계정 키 폐기 확인.** (2026-10-21) 콘솔의 `firebase-adminsdk-…` 키 탭이 "키 없음" — 유출됐던 키는 폐기된 상태. 웹 저장소 히스토리에서 키 파일과 export를 지우고 강제 푸시함(웹 `docs/flowlog-release-plan.md` 1·2절). 남은 것: Firestore 사용량에서 6월 이후 급증 여부 확인, 다른 PC의 웹 저장소 복사본은 새로 clone.
 - [ ] **4. Firebase 예산 알림.** Google Cloud 콘솔 → 결제 → 예산 및 알림 → 월 5,000원, 50·90·100% 이메일. 잔액 -13,000원의 정체는 결제 → 보고서를 "서비스"별로 묶어 확인(Firestore 읽기인지, Functions·Artifact Registry인지).
 - [ ] **5. App Check 콘솔 등록(적용은 나중에).** Firebase 콘솔 → App Check: Android 앱을 Play Integrity로, 웹 앱을 reCAPTCHA v3로 등록하고 사이트 키를 웹 `shared/appcheck.js`의 상수에 넣는다. 디버그 토큰(앱 로그캣에 찍힘)도 등록. **적용(enforce)은 축구판·FM24 페이지까지 덮인 뒤에** 켠다.
 - [ ] **6. 비공개 테스트 12명 모으기 (14일 걸림, 아래 정책 항목).**
