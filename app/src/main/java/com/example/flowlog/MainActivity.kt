@@ -74,7 +74,13 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
+import com.example.flowlog.data.account.AccountDeletionPolicy
+import com.example.flowlog.data.account.AccountDeletionRemote
+import com.example.flowlog.data.account.AccountDeletionState
+import com.example.flowlog.data.account.DeviceDataWiper
+import com.google.firebase.auth.FirebaseUser
 import androidx.credentials.GetCredentialRequest
 import com.example.flowlog.data.local.UserRole
 import com.example.flowlog.data.local.UserRoleStore
@@ -152,6 +158,8 @@ import com.example.flowlog.shortcut.TimerShortcutPublisher
 import com.example.flowlog.shortcut.TimerShortcutRules
 import com.example.flowlog.ui.viewmodel.ActivityExportFormat
 import com.example.flowlog.ui.viewmodel.ActivityExportFormatter
+import com.example.flowlog.ui.viewmodel.ActivityImportResult
+import com.example.flowlog.ui.viewmodel.ActivityImportSummary
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.FileDownload
@@ -165,6 +173,8 @@ class MainActivity : ComponentActivity() {
     // 정확 알람 권한: 설정 창에 보일 현재 상태와, 처음 한 번만 띄우는 설명 다이얼로그.
     private var exactAlarmStatus by mutableStateOf(ExactAlarmStatus.NOT_REQUIRED)
     private var showExactAlarmPrompt by mutableStateOf(false)
+    // 로그인한 계정에 삭제 예약이 있어 사용자의 답을 기다리는 동안 업로드·캘린더 구독을 멈춘다.
+    @Volatile private var accountDeletionGate = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var calendarDataSource: FirebaseCalendarPullDataSource? = null
     private var calendarSubscription: FirebaseCalendarPullDataSource.CalendarSubscription? = null
@@ -337,44 +347,126 @@ class MainActivity : ComponentActivity() {
                         auth.removeAuthStateListener(listener)
                     }
                 }
+                // 로그인한 계정에 삭제 예약이 있으면 (uid, 상태). 답할 때까지 평소 로그인 작업을 미룬다.
+                var deletionPrompt by remember { mutableStateOf<Pair<String, AccountDeletionState>?>(null) }
+                var resolvingDeletion by remember { mutableStateOf(false) }
+                val runSignedInSetup: suspend (FirebaseUser) -> Unit = { user ->
+                    runCatching {
+                        // anonymous로 저장된 Room 데이터를 실제 uid로 교체
+                        withContext(Dispatchers.IO) {
+                            val db = FlowlogDatabase.getInstance(applicationContext)
+                            db.activityDao().reassignAnonymousUser(user.uid)
+                            db.autoButtonScheduleDao().reassignAnonymousUser(user.uid)
+                            db.todoDao().reassignAnonymousUser(user.uid)
+                            db.eventLogDao().reassignAnonymousUser(user.uid)
+                        }
+                    }
+                    runCatching {
+                        // 신규 설치·재설치 감지: 로컬에 activity/todo 데이터가 모두 없으면 Firebase에서 복원
+                        val shouldRestore = withContext(Dispatchers.IO) {
+                            val db = FlowlogDatabase.getInstance(applicationContext)
+                            val activityCount = db.activityDao().getActiveActivitiesCount(user.uid)
+                            val todoCount = db.todoDao().getActiveTodosCount(user.uid)
+                            activityCount == 0 && todoCount == 0
+                        }
+                        if (shouldRestore) {
+                            FirebaseRestoreDataSource(applicationContext).restoreFromFirestore(user.uid)
+                        }
+                    }
+                    runCatching {
+                        uploadLocalFlowlogSnapshot()
+                    }
+                    activityViewModel.handleLoginMainButtonSync()
+                    runCatching {
+                        AutoButtonScheduler(applicationContext).rescheduleAll()
+                    }
+                    runCatching {
+                        PlannedTodoReminderScheduler(applicationContext).rescheduleAll()
+                    }
+                    startCalendarSubscription(user.uid)
+                }
+                val signOutCompletely: suspend () -> Unit = {
+                    auth.signOut()
+                    runCatching {
+                        CredentialManager.create(this@MainActivity)
+                            .clearCredentialState(ClearCredentialStateRequest())
+                    }
+                }
                 LaunchedEffect(signedInUser) {
                     val user = signedInUser
                     if (user != null) {
-                        runCatching {
-                            // anonymous로 저장된 Room 데이터를 실제 uid로 교체
-                            withContext(Dispatchers.IO) {
-                                val db = FlowlogDatabase.getInstance(applicationContext)
-                                db.activityDao().reassignAnonymousUser(user.uid)
-                                db.autoButtonScheduleDao().reassignAnonymousUser(user.uid)
-                                db.todoDao().reassignAnonymousUser(user.uid)
-                                db.eventLogDao().reassignAnonymousUser(user.uid)
-                            }
+                        // 삭제 예약 확인을 평소 작업(익명 기록 이관·복원·업로드)보다 먼저 한다.
+                        // 읽지 못하면(오프라인 등) 평소대로 진행하고, 다음 실행 때 다시 확인한다.
+                        val requestedAt = runCatching { AccountDeletionRemote.readRequestedAt(user.uid) }.getOrNull()
+                        val deletionState = AccountDeletionPolicy.state(requestedAt, System.currentTimeMillis())
+                        if (deletionState != AccountDeletionState.None) {
+                            accountDeletionGate = true
+                            stopCalendarSubscription()
+                            deletionPrompt = user.uid to deletionState
+                            return@LaunchedEffect
                         }
-                        runCatching {
-                            // 신규 설치·재설치 감지: 로컬에 activity/todo 데이터가 모두 없으면 Firebase에서 복원
-                            val shouldRestore = withContext(Dispatchers.IO) {
-                                val db = FlowlogDatabase.getInstance(applicationContext)
-                                val activityCount = db.activityDao().getActiveActivitiesCount(user.uid)
-                                val todoCount = db.todoDao().getActiveTodosCount(user.uid)
-                                activityCount == 0 && todoCount == 0
-                            }
-                            if (shouldRestore) {
-                                FirebaseRestoreDataSource(applicationContext).restoreFromFirestore(user.uid)
-                            }
-                        }
-                        runCatching {
-                            uploadLocalFlowlogSnapshot()
-                        }
-                        activityViewModel.handleLoginMainButtonSync()
-                        runCatching {
-                            AutoButtonScheduler(applicationContext).rescheduleAll()
-                        }
-                        runCatching {
-                            PlannedTodoReminderScheduler(applicationContext).rescheduleAll()
-                        }
-                        startCalendarSubscription(user.uid)
+                        runSignedInSetup(user)
                     } else {
+                        accountDeletionGate = false
+                        deletionPrompt = null
                         stopCalendarSubscription()
+                    }
+                }
+                deletionPrompt?.let { (deletionUid, deletionState) ->
+                    AccountDeletionPendingDialog(
+                        state = deletionState,
+                        busy = resolvingDeletion,
+                        onCancelAndRestore = {
+                            if (resolvingDeletion) return@AccountDeletionPendingDialog
+                            resolvingDeletion = true
+                            scope.launch {
+                                val cancelled = runCatching { AccountDeletionRemote.cancelDeletion(deletionUid) }.isSuccess
+                                if (cancelled && auth.currentUser?.uid == deletionUid) {
+                                    runCatching { FirebaseRestoreDataSource(applicationContext).restoreFromFirestore(deletionUid) }
+                                    accountDeletionGate = false
+                                    deletionPrompt = null
+                                    auth.currentUser?.let { runSignedInSetup(it) }
+                                    Toast.makeText(this@MainActivity, getString(R.string.account_deletion_restored), Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(this@MainActivity, getString(R.string.account_deletion_cancel_failed), Toast.LENGTH_LONG).show()
+                                    deletionPrompt = null
+                                    signOutCompletely()
+                                }
+                                resolvingDeletion = false
+                            }
+                        },
+                        onSignOut = {
+                            deletionPrompt = null
+                            scope.launch { signOutCompletely() }
+                        }
+                    )
+                }
+                val deleteAccountAndData: () -> Unit = {
+                    val uid = auth.currentUser?.uid
+                    if (uid != null && !resolvingDeletion) {
+                        resolvingDeletion = true
+                        Toast.makeText(this@MainActivity, getString(R.string.account_delete_in_progress), Toast.LENGTH_SHORT).show()
+                        scope.launch {
+                            // 서버 예약이 먼저다. 실패하면 폰 데이터도 그대로 둔다.
+                            val reserved = runCatching { AccountDeletionRemote.requestDeletion(uid) }.isSuccess
+                            if (!reserved) {
+                                resolvingDeletion = false
+                                Toast.makeText(this@MainActivity, getString(R.string.account_delete_failed), Toast.LENGTH_LONG).show()
+                                return@launch
+                            }
+                            accountDeletionGate = true
+                            stopCalendarSubscription()
+                            // 알람 조회가 현재 계정의 행을 읽으므로 로그아웃 전에 지운다.
+                            runCatching { DeviceDataWiper.wipe(applicationContext) }
+                            signOutCompletely()
+                            Toast.makeText(applicationContext, getString(R.string.account_delete_scheduled), Toast.LENGTH_LONG).show()
+                            // 화면과 ViewModel의 메모리 상태(진행 중 타이머 등)를 버리고 새로 시작한다.
+                            startActivity(
+                                Intent(applicationContext, MainActivity::class.java)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                            )
+                            finish()
+                        }
                     }
                 }
                 val runAccountSync: () -> Unit = {
@@ -390,7 +482,12 @@ class MainActivity : ComponentActivity() {
                         Toast.makeText(this@MainActivity, getString(R.string.main_activity_google_signin_start), Toast.LENGTH_SHORT).show()
                         val signInResult = runCatching {
                             signInWithGoogle()
-                            uploadLocalFlowlogSnapshot()
+                            // 삭제 예약이 있는 계정이면 로그인 확인 창이 답을 받을 때까지 올리지 않는다.
+                            val uid = auth.currentUser?.uid
+                            val pendingDeletion = uid != null && runCatching {
+                                AccountDeletionRemote.readRequestedAt(uid) != null
+                            }.getOrDefault(false)
+                            if (!pendingDeletion) uploadLocalFlowlogSnapshot()
                         }
                         syncStatus = signInResult.fold(
                             onSuccess = {
@@ -440,6 +537,21 @@ class MainActivity : ComponentActivity() {
                             getString(R.string.export_activities_failed)
                         }
                         Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+                    }
+                }
+                var pendingImport by remember { mutableStateOf<ActivityImportResult.Ready?>(null) }
+                val importActivities: (Uri) -> Unit = { uri ->
+                    activityViewModel.previewActivityImport(uri) { result ->
+                        when {
+                            result == null -> Toast.makeText(this@MainActivity, getString(R.string.import_activities_read_failed), Toast.LENGTH_SHORT).show()
+                            result !is ActivityImportResult.Ready -> Toast.makeText(this@MainActivity, getString(R.string.import_activities_not_json), Toast.LENGTH_SHORT).show()
+                            result.summary.newCount == 0 -> Toast.makeText(
+                                this@MainActivity,
+                                getString(R.string.import_activities_nothing_new, result.summary.duplicateCount, result.summary.invalidCount),
+                                Toast.LENGTH_LONG
+                            ).show()
+                            else -> pendingImport = result
+                        }
                     }
                 }
                 val regenerateRecommendedTimePlan: () -> Unit = {
@@ -554,6 +666,8 @@ class MainActivity : ComponentActivity() {
                                                 activityViewModel.toggleTimetableReminder()
                                             },
                                             onExportActivities = exportActivities,
+                                            onImportActivities = importActivities,
+                                            onDeleteAccount = deleteAccountAndData,
                                             exactAlarmStatus = exactAlarmStatus,
                                             onOpenExactAlarmSettings = {
                                                 ExactAlarmPermission.openSettings(this@MainActivity)
@@ -588,6 +702,23 @@ class MainActivity : ComponentActivity() {
                             onDismiss = activityViewModel::dismissExistingButtonRecommendation,
                             onDisable = activityViewModel::disableExistingButtonRecommendation
                         ),
+                    )
+                }
+                pendingImport?.let { preview ->
+                    ActivityImportConfirmDialog(
+                        summary = preview.summary,
+                        onConfirm = {
+                            pendingImport = null
+                            activityViewModel.commitActivityImport(preview.toInsert) { count ->
+                                val message = if (count != null) {
+                                    getString(R.string.import_activities_success, count)
+                                } else {
+                                    getString(R.string.import_activities_save_failed)
+                                }
+                                Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onDismiss = { pendingImport = null }
                     )
                 }
                 if (showExactAlarmPrompt) {
@@ -638,6 +769,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private suspend fun uploadLocalFlowlogSnapshot(): com.example.flowlog.data.sync.SyncOutcome? {
+        if (accountDeletionGate) return null
         if (!syncMutex.tryLock()) return null
         try {
             val uid = FirebaseAuth.getInstance().currentUser?.uid
@@ -651,6 +783,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private suspend fun uploadAllPendingFlowlogSnapshot(): com.example.flowlog.data.sync.SyncOutcome? {
+        if (accountDeletionGate) return null
         if (!syncMutex.tryLock()) return null
         try {
             val uid = FirebaseAuth.getInstance().currentUser?.uid
@@ -664,6 +797,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startCalendarSubscription(userId: String) {
+        if (accountDeletionGate) return
         if (calendarSubscription != null && calendarSubscriptionUserId == userId) return
         stopCalendarSubscription()
 
@@ -825,17 +959,24 @@ private fun HeaderActions(
     isTimetableReminderEnabled: Boolean = true,
     onToggleTimetableReminder: () -> Unit = {},
     onExportActivities: (ActivityExportFormat, Uri) -> Unit = { _, _ -> },
+    onImportActivities: (Uri) -> Unit = {},
+    onDeleteAccount: () -> Unit = {},
     exactAlarmStatus: ExactAlarmStatus = ExactAlarmStatus.NOT_REQUIRED,
     onOpenExactAlarmSettings: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    // 계정 삭제: 0 = 닫힘, 1 = 첫 확인(설명), 2 = 마지막 확인('삭제' 입력)
+    var accountDeleteStep by remember { mutableStateOf(0) }
     val csvExportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(ActivityExportFormat.CSV.mimeType)
     ) { uri -> uri?.let { onExportActivities(ActivityExportFormat.CSV, it) } }
     val jsonExportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(ActivityExportFormat.JSON.mimeType)
     ) { uri -> uri?.let { onExportActivities(ActivityExportFormat.JSON, it) } }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let(onImportActivities) }
     val launchExport: (ActivityExportFormat) -> Unit = { format ->
         val fileName = ActivityExportFormatter.defaultFileName(
             nowMillis = System.currentTimeMillis(),
@@ -1047,6 +1188,93 @@ private fun HeaderActions(
                 }
             }
         }
+    }
+
+    if (accountDeleteStep == 1) {
+        AlertDialog(
+            onDismissRequest = { accountDeleteStep = 0 },
+            containerColor = Color.White,
+            title = {
+                Text(
+                    text = stringResource(R.string.account_delete_confirm1_title),
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 18.sp,
+                    color = Color(0xFF10182C)
+                )
+            },
+            text = {
+                Text(
+                    text = stringResource(R.string.account_delete_confirm1_message),
+                    fontSize = 14.sp,
+                    color = Color(0xFF3C4457)
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { accountDeleteStep = 2 }) {
+                    Text(stringResource(R.string.account_delete_continue), color = Color(0xFFC62828), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { accountDeleteStep = 0 }) {
+                    Text(stringResource(R.string.account_delete_cancel), color = Color(0xFF697386))
+                }
+            }
+        )
+    }
+    if (accountDeleteStep == 2) {
+        var typed by remember { mutableStateOf("") }
+        val confirmed = AccountDeletionPolicy.isConfirmationTyped(typed)
+        AlertDialog(
+            onDismissRequest = { accountDeleteStep = 0 },
+            containerColor = Color.White,
+            title = {
+                Text(
+                    text = stringResource(R.string.account_delete_confirm2_title),
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 18.sp,
+                    color = Color(0xFF10182C)
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = stringResource(R.string.account_delete_confirm2_message),
+                        fontSize = 14.sp,
+                        color = Color(0xFF3C4457)
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    androidx.compose.material3.OutlinedTextField(
+                        value = typed,
+                        onValueChange = { typed = it },
+                        singleLine = true,
+                        placeholder = { Text(AccountDeletionPolicy.CONFIRMATION_WORD) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = confirmed,
+                    onClick = {
+                        accountDeleteStep = 0
+                        showSettingsDialog = false
+                        onDeleteAccount()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFC62828),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(stringResource(R.string.account_delete_execute), fontWeight = FontWeight.ExtraBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { accountDeleteStep = 0 }) {
+                    Text(stringResource(R.string.account_delete_cancel), color = Color(0xFF697386))
+                }
+            }
+        )
     }
 
     if (showSettingsDialog) {
@@ -1328,6 +1556,57 @@ private fun HeaderActions(
                             Text(stringResource(R.string.export_activities_json), color = Color(0xFF5140D8), fontWeight = FontWeight.Bold)
                         }
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            runCatching { importLauncher.launch(arrayOf(ActivityExportFormat.JSON.mimeType)) }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(stringResource(R.string.import_activities_button), color = Color(0xFF5140D8), fontWeight = FontWeight.Bold)
+                    }
+                    Text(
+                        text = stringResource(R.string.import_activities_desc),
+                        fontSize = 12.sp,
+                        color = Color(0xFF9E9E9E),
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                    if (isSignedIn) {
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Text(
+                            text = stringResource(R.string.account_delete_section),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF5140D8)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        androidx.compose.foundation.layout.Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.account_delete_title),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFC62828)
+                                )
+                                Text(
+                                    text = stringResource(R.string.account_delete_desc),
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF9E9E9E)
+                                )
+                            }
+                            TextButton(onClick = { accountDeleteStep = 1 }) {
+                                Text(
+                                    text = stringResource(R.string.account_delete_button),
+                                    color = Color(0xFFC62828),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -1345,6 +1624,139 @@ private fun HeaderActions(
             }
         )
     }
+}
+
+@Composable
+private fun AccountDeletionPendingDialog(
+    state: AccountDeletionState,
+    busy: Boolean,
+    onCancelAndRestore: () -> Unit,
+    onSignOut: () -> Unit
+) {
+    val pending = state as? AccountDeletionState.Pending
+    AlertDialog(
+        // 답하기 전에는 닫히지 않는다: 답에 따라 복원하거나 로그아웃해야 한다.
+        onDismissRequest = {},
+        containerColor = Color.White,
+        title = {
+            Text(
+                text = stringResource(
+                    if (pending != null) R.string.account_deletion_pending_title else R.string.account_deletion_expired_title
+                ),
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 18.sp,
+                color = Color(0xFF10182C)
+            )
+        },
+        text = {
+            Text(
+                text = if (pending != null) {
+                    stringResource(R.string.account_deletion_pending_message, pending.daysLeft)
+                } else {
+                    stringResource(R.string.account_deletion_expired_message)
+                },
+                fontSize = 14.sp,
+                color = Color(0xFF3C4457)
+            )
+        },
+        confirmButton = {
+            if (pending != null) {
+                Button(
+                    enabled = !busy,
+                    onClick = onCancelAndRestore,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF5140D8),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(stringResource(R.string.account_deletion_cancel_restore), fontWeight = FontWeight.ExtraBold)
+                }
+            } else {
+                TextButton(onClick = onSignOut) {
+                    Text(stringResource(R.string.account_deletion_ok), color = Color(0xFF5140D8), fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        dismissButton = {
+            if (pending != null) {
+                TextButton(enabled = !busy, onClick = onSignOut) {
+                    Text(stringResource(R.string.account_deletion_keep), color = Color(0xFF697386))
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun ActivityImportConfirmDialog(
+    summary: ActivityImportSummary,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val dateFormat = remember { java.text.SimpleDateFormat("yyyy.MM.dd", java.util.Locale.KOREA) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color.White,
+        title = {
+            Text(
+                text = stringResource(R.string.import_activities_title),
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 18.sp,
+                color = Color(0xFF10182C)
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = stringResource(R.string.import_activities_confirm_message, summary.newCount, summary.duplicateCount),
+                    fontSize = 14.sp,
+                    color = Color(0xFF3C4457)
+                )
+                if (summary.invalidCount > 0) {
+                    Text(
+                        text = stringResource(R.string.import_activities_invalid, summary.invalidCount),
+                        fontSize = 14.sp,
+                        color = Color(0xFF3C4457)
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = stringResource(R.string.import_activities_total, summary.total),
+                    fontSize = 12.sp,
+                    color = Color(0xFF697386)
+                )
+                if (summary.firstStartMillis != null && summary.lastEndMillis != null) {
+                    Text(
+                        text = stringResource(
+                            R.string.import_activities_period,
+                            dateFormat.format(java.util.Date(summary.firstStartMillis)),
+                            dateFormat.format(java.util.Date(summary.lastEndMillis))
+                        ),
+                        fontSize = 12.sp,
+                        color = Color(0xFF697386)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF5140D8),
+                    contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(stringResource(R.string.import_activities_confirm), fontWeight = FontWeight.ExtraBold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.import_activities_cancel), color = Color(0xFF697386))
+            }
+        }
+    )
 }
 
 @Composable

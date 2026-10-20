@@ -36,6 +36,29 @@ object AlarmRescheduler {
         rescheduleAutoButtonGroup(context)
         reschedulePlannedTodoReminders(context)
     }
+
+    /**
+     * Cancels the alarms of every scheduler, for "delete account and data". Run while still
+     * signed in, before the database is cleared, because the lookups read the current rows.
+     */
+    suspend fun cancelAll(context: Context) {
+        runCatching { AutoButtonScheduler(context).cancelAll() }
+            .onFailure { Log.e(TAG, "Failed to cancel auto button alarms", it) }
+        runCatching { StudyPlanAutoStartScheduler(context).cancelAll() }
+            .onFailure { Log.e(TAG, "Failed to cancel study plan alarms", it) }
+        runCatching { PlannedTodoReminderScheduler(context).cancelAll() }
+            .onFailure { Log.e(TAG, "Failed to cancel planned todo reminders", it) }
+        runCatching {
+            ReminderScheduler(context).apply {
+                cancelMealReminder()
+                cancelSnackReminder()
+                cancelBrushTimers()
+            }
+        }.onFailure { Log.e(TAG, "Failed to cancel toothbrush reminders", it) }
+        runCatching { FocusModeScheduler(context).cancel() }
+        runCatching { InactivityReminderScheduler(context).cancel() }
+        runCatching { RoutineGoalAlarmScheduler(context).cancel() }
+    }
 }
 
 /**

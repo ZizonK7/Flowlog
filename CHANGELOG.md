@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Added account deletion with a 14-day grace period (Settings, signed in only):
+  two confirmations (the second needs "삭제" typed), then the app marks
+  `users/{uid}/flowlog/account` with `deletionRequestedAt`, clears Room,
+  app SharedPreferences, alarms, notifications, and the widget, and signs out.
+  Signing in again checks the mark before any upload: within 14 days the user
+  can cancel and restore, after that the app explains and signs out
+  (`AccountDeletionPolicy`, `AccountDeletionRemote`, `DeviceDataWiper`).
+- Added `tools/account-deletion/`, a daily Cloud Functions v2 job that
+  permanently deletes accounts 14 days after the request: per-user Firestore
+  data, the Auth user, then the reservation last so failures retry the next day.
+  Not deployed yet.
+- Changed activity tombstones: a deleted record is uploaded without its title,
+  note, tags, or exercise sets (`ActivityRevisionContent.forUpload`); the
+  fields the Firestore rules require stay. Todo deletes already remove the
+  server document.
+- Added "기록 가져오기(JSON)" next to export (`ActivityImportParser`): reads an
+  exported JSON file, skips duplicates and broken entries, confirms the counts,
+  and saves records with their original ids as pending uploads.
 - Changed the exact alarm permission flow: instead of opening the system
   settings screen on every launch, the app now explains the "Alarms &
   reminders" permission in an in-app dialog once (`ExactAlarmPromptPolicy`,

@@ -29,6 +29,13 @@ class AutoButtonScheduler(private val context: Context) {
         }
     }
 
+    /** Cancels every alarm [rescheduleAll] would arm (account data reset). */
+    suspend fun cancelAll() {
+        withContext(Dispatchers.IO) {
+            dao.getActiveSchedules(userId).forEach { cancel(it.scheduleId) }
+        }
+    }
+
     suspend fun reschedule(scheduleId: String) {
         withContext(Dispatchers.IO) {
             cancel(scheduleId)

@@ -92,6 +92,31 @@ class ActivityRepository(context: Context) {
         return id
     }
 
+    /** Keys already used on this device; see [RoomActivityLocalDataSource.getImportIdentityKeys]. */
+    suspend fun getImportIdentityKeys(): Set<String> = roomDataSource.getImportIdentityKeys()
+
+    /**
+     * Inserts records read from an exported JSON file. Unlike [insertActivity], the file's
+     * `id` (legacy id → remote document id) and `localActivityId` are kept, so uploading
+     * them again to the same account targets the original Firestore documents instead of
+     * creating copies. Rows go in as PENDING with remoteRevision from the caller (0).
+     */
+    suspend fun importActivities(activities: List<ActivitySession>): Int {
+        var inserted = 0
+        activities.forEach { activity ->
+            roomDataSource.insert(activity, userId)
+            inserted++
+            runCatching {
+                eventLogRepository.log(
+                    eventType = EventType.ACTIVITY_SAVED,
+                    entityType = EntityType.ACTIVITY,
+                    entityId = activity.id.toString()
+                )
+            }
+        }
+        return inserted
+    }
+
     suspend fun updateActivity(activity: ActivitySession) {
         runCatching { roomDataSource.update(activity, userId) }
         runCatching {

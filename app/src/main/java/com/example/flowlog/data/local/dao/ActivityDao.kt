@@ -23,6 +23,13 @@ interface ActivityDao {
     @Update
     suspend fun updateActivity(activity: ActivityEntity)
 
+    // 가져오기 중복 판정용: 이 기기의 모든 행(계정·삭제 여부 무관).
+    @Query("SELECT activityId FROM activities")
+    suspend fun getAllActivityIds(): List<String>
+
+    @Query("SELECT legacyId FROM activities WHERE legacyId IS NOT NULL")
+    suspend fun getAllLegacyIds(): List<Long>
+
     @Query("SELECT * FROM activities WHERE activityId = :activityId LIMIT 1")
     suspend fun getActivityById(activityId: String): ActivityEntity?
 

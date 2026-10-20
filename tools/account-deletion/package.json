@@ -1,0 +1,16 @@
+{
+  "name": "flowlog-account-deletion",
+  "private": true,
+  "description": "Daily Cloud Function that permanently deletes Flowlog accounts 14 days after the user asked for deletion.",
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^6.1.0"
+  }
+}

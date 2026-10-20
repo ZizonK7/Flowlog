@@ -143,7 +143,9 @@ class FirestoreSyncRepository(
         // Revision ACKs and local row identities are not new edits. Keep modifiedTime so
         // a later edit back to the same content still represents a distinct mutation.
         val mutationId = ActivityRevisionContent.mutationId(docId, activity, deletedAt)
-        val content = activity.toRemoteMap() + mapOf("isDeleted" to (deletedAt != null), "deletedAt" to deletedAt)
+        // 삭제된 기록은 제목·메모·태그·운동 세트를 비운 채 올린다(merge라 빈 값으로 덮어써야 지워진다).
+        val uploaded = ActivityRevisionContent.forUpload(activity, deletedAt)
+        val content = uploaded.toRemoteMap() + mapOf("isDeleted" to (deletedAt != null), "deletedAt" to deletedAt)
         val ref = activityCollection(userId).document(docId)
         val links = firestore.collection("users").document(userId).collection("activityStudyLinks")
             .whereEqualTo("activityId", docId).get().awaitResult().documents

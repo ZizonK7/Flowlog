@@ -72,4 +72,31 @@ class ActivityRevisionContentTest {
         assertNotEquals(original, ActivityRevisionContent.mutationId("123", a.copy(note="new"), null))
         assertNotEquals(original, ActivityRevisionContent.mutationId("123", a, 50))
     }
+
+    @Test fun deletedTombstoneCarriesNoUserContent() {
+        val a = ActivitySession(id=123, title="병원 진료", category="REST", startTime=1000, endTime=6000, durationMillis=5000,
+            note="메모", tags=listOf("개인"), exerciseSets=listOf(com.example.flowlog.data.model.ExerciseSetRecord("run", 2, "HIGH")),
+            modifiedTime=10, linkedTodoId=7)
+        val tombstone = ActivityRevisionContent.forUpload(a, deletedAt = 50)
+        assertEquals("", tombstone.title)
+        assertNull(tombstone.note)
+        assertTrue(tombstone.tags.isEmpty())
+        assertTrue(tombstone.exerciseSets.isEmpty())
+        // Fields the Firestore rules require, and identifiers, stay.
+        assertEquals(a.copy(title="", note=null, tags=emptyList(), exerciseSets=emptyList()), tombstone)
+        // A live record is uploaded unchanged.
+        assertEquals(a, ActivityRevisionContent.forUpload(a, deletedAt = null))
+    }
+
+    @Test fun tombstoneMutationIdDoesNotDependOnDeletedText() {
+        val a = ActivitySession(id=123, title="휴식", category="REST", startTime=1000, endTime=6000, durationMillis=5000, modifiedTime=10)
+        assertEquals(
+            ActivityRevisionContent.mutationId("123", a, 50),
+            ActivityRevisionContent.mutationId("123", a.copy(title="다른 제목", note="다른 메모"), 50)
+        )
+        assertNotEquals(
+            ActivityRevisionContent.mutationId("123", a, null),
+            ActivityRevisionContent.mutationId("123", a.copy(title="다른 제목"), null)
+        )
+    }
 }

@@ -813,6 +813,49 @@ class ActivityViewModel(
         }
     }
 
+    /**
+     * Reads an exported JSON file at [uri] and checks it against this device's records
+     * without saving anything. [onResult] gets null when the file cannot be read.
+     */
+    fun previewActivityImport(uri: Uri, onResult: (ActivityImportResult?) -> Unit) {
+        viewModelScope.launch {
+            val result = runCatching {
+                val text = withContext(Dispatchers.IO) {
+                    val stream = appContext.contentResolver.openInputStream(uri)
+                        ?: error("Cannot open import source")
+                    stream.use { it.readBytes().toString(Charsets.UTF_8) }
+                }
+                val existing = repository.getAllActivities().first()
+                val keys = repository.getImportIdentityKeys()
+                withContext(Dispatchers.Default) {
+                    ActivityImportParser.parse(text, keys, existing, System.currentTimeMillis())
+                }
+            }
+            result.exceptionOrNull()?.let { Log.w("ActivityImport", "import preview failed", it) }
+            onResult(result.getOrNull())
+        }
+    }
+
+    /**
+     * Saves the records of a confirmed import preview. Keys are checked again right
+     * before saving so a record restored or added in the meantime is not replaced.
+     * [onDone] gets the saved count, or null on failure.
+     */
+    fun commitActivityImport(records: List<ActivitySession>, onDone: (Int?) -> Unit) {
+        viewModelScope.launch {
+            val result = runCatching {
+                val keys = repository.getImportIdentityKeys()
+                val fresh = records.filter { record ->
+                    ActivityImportParser.identityKeys(record).none { it in keys }
+                }
+                repository.importActivities(fresh)
+            }
+            result.exceptionOrNull()?.let { Log.w("ActivityImport", "import failed", it) }
+            onDone(result.getOrNull())
+            if ((result.getOrNull() ?: 0) > 0) runCatching { syncAllPendingChanges() }
+        }
+    }
+
     fun setRunningActivityTitle(title: String) {
         if (!_uiState.value.isRunning) return
         val cleanTitle = title.trim().takeIf { it.isNotBlank() }

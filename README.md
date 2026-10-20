@@ -200,6 +200,22 @@ Some data also flows from Firestore back to the app:
   button suggestions. Links are edited on the web only; Android has no study
   link editor.
 
+Records can also come back from a file: Settings > 기록 가져오기(JSON) reads a
+file written by "export as JSON", skips records already on the device (same
+record id, or same category and start/end) and broken entries, shows the counts,
+and saves the rest as pending uploads. Records keep their original ids, so
+re-uploading them to the same account updates the original Firestore documents
+instead of creating copies.
+
+Deleting a single activity leaves only a tombstone on the server (ids, category,
+times, and the deleted flag; title, note, tags, and exercise sets are blanked).
+Signed-in users can delete their account from Settings ("계정과 데이터 삭제"):
+the app marks `users/{uid}/flowlog/account` with `deletionRequestedAt`, clears
+the phone, and signs out. Signing in again within 14 days offers to cancel and
+restore; after 14 days a scheduled Cloud Function
+(`tools/account-deletion/`) permanently deletes the server data and the sign-in
+account.
+
 Whenever today's focus recommendation recomputes, `TodoViewModel` also pushes a
 full-overwrite snapshot (`data/assistant/AssistantSnapshotBuilder.kt`) to
 `assistantSnapshots/{yyyy-MM-dd}`: active repeat routines and time-slotted

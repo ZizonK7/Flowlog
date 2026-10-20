@@ -35,6 +35,14 @@ class PlannedTodoReminderScheduler(private val context: Context) {
         }
     }
 
+    /** Cancels every alarm [rescheduleAll] would arm (account data reset). */
+    suspend fun cancelAll() {
+        val items = withContext(Dispatchers.IO) {
+            dao.getUpcomingPlannedItemsForReminder(userId, System.currentTimeMillis())
+        }
+        items.forEach { cancel(it.itemId) }
+    }
+
     suspend fun reschedule(itemId: String) {
         withContext(Dispatchers.IO) {
             cancel(itemId)
