@@ -1869,7 +1869,7 @@ class ActivityViewModel(
     }
 
     fun replaceRecommendedTodoItem(block: RecommendedTodoBlock, newTodo: TodoItem) {
-        Log.d(TAG, "user replaceRecommendedTodoItem: oldItemId=${block.itemId} oldTodoId=${block.todoId} oldPlannedStart=${block.plannedStartMillis} newTodoId=${newTodo.id} newTodoTitle=${newTodo.title}")
+        Log.d(TAG, "user replaceRecommendedTodoItem: oldItemId=${block.itemId} oldTodoId=${block.todoId} oldPlannedStart=${block.plannedStartMillis} newTodoId=${newTodo.id} newTodoTitleLength=${newTodo.title.length}")
         viewModelScope.launch {
             dailyGoalRepository.replacePlannedItemTodo(
                 block = block,
@@ -1880,7 +1880,7 @@ class ActivityViewModel(
     }
 
     fun completeRecommendedTodo(block: RecommendedTodoBlock) {
-        Log.d(TAG, "user completeRecommendedTodo: itemId=${block.itemId} todoId=${block.todoId} title=${block.title}")
+        Log.d(TAG, "user completeRecommendedTodo: itemId=${block.itemId} todoId=${block.todoId} titleLength=${block.title.length}")
         viewModelScope.launch {
             if (block.petiteId != null) {
                 dailyGoalRepository.markPlannedItemCompleted(

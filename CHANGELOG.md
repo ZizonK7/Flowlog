@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Changed the exact alarm permission flow: instead of opening the system
+  settings screen on every launch, the app now explains the "Alarms &
+  reminders" permission in an in-app dialog once (`ExactAlarmPromptPolicy`,
+  remembered in SharedPreferences) and never asks again. Settings gains a
+  "정확한 알림" row showing the current state with a shortcut to the system
+  screen. A new `ExactAlarmPermissionReceiver` reschedules alarms when the
+  permission is granted, sharing `AlarmRescheduler` with the boot receivers.
+  Without the permission, schedulers keep falling back to inexact alarms.
+- Removed sensitive values from release logs: Todo, activity, and course
+  titles are logged as ids or lengths, and sync/restore/calendar logs no
+  longer print the signed-in user's id.
+- Removed the "Flowlog AI" wording from the main-button onboarding and the
+  suggestion sheet header. Suggestions are rule-based on the device, so the
+  text now says Flowlog suggests buttons based on your records.
 - Added manual entry of past activities from the recent records card
   ("직접 추가"), saved with source type `MANUAL` through the same insert, event
   log, undo, and conditional sync path as timer saves. Checks

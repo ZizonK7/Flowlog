@@ -76,7 +76,7 @@ class FirebaseRestoreDataSource(context: Context) {
 
     suspend fun restoreFromFirestore(userId: String): RestoreOutcome {
         return withContext(Dispatchers.IO) {
-            Log.i(TAG, "restore start — userId=$userId")
+            Log.i(TAG, "restore start — signed in")
 
             val activityResult = runCatching { restoreActivities(userId) }
                 .onFailure { e -> Log.w(TAG, "Activity restore section failed: ${e.message}", e) }

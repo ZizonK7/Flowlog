@@ -71,6 +71,10 @@ for reviewing synced data, not a second place to record.
 - Focus sessions, optionally turning on system Do Not Disturb.
 - Reminders for planned Todos, routine goals, inactivity, and toothbrush/meal
   timers; scheduled reminders are restored after a reboot or app update.
+- On Android 12 and later, the app explains once why reminders need the
+  "Alarms & reminders" (exact alarm) permission and asks a single time.
+  Without it reminders still fire, possibly a few minutes late; it can be
+  turned on any time from Settings ("정확한 알림").
 - A compact home-screen widget showing the current timer.
 
 ### Sync and Web

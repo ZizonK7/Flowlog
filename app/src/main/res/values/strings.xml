@@ -47,6 +47,7 @@
     <string name="main_activity_close">닫기</string>
     <string name="main_activity_google_profile_content_desc">구글 프로필</string>
     <string name="main_activity_default_profile_content_desc">기본 프로필</string>
+    <string name="main_activity_suggestion_sheet_title">Flowlog 제안</string>
     <string name="main_activity_pattern_suggestion_title">활동 패턴 기반 제안</string>
     <string name="main_activity_no_suggestion_yet">아직 제안할 내용이 없어요.\n기록이 조금 더 쌓이면 Flowlog가 도와줄게요.</string>
     <string name="main_activity_category_suggestion">최근 %1$s 기록이 자주 보여요. %1$s 버튼을 메인에 추가해볼까요?</string>
@@ -348,4 +349,12 @@
     <!-- Home-screen timer shortcuts -->
     <string name="shortcut_start_timer_label">%1$s 시작</string>
     <string name="shortcut_timer_already_running">이미 타이머가 돌고 있어요. 지금 타이머를 먼저 끝내 주세요.</string>
+    <string name="onboarding_main_buttons_desc">자주 쓰는 활동을 추려봤어요. 필요하면 바꿀 수 있어요.\n기록이 쌓이면 Flowlog가 기록을 바탕으로 더 맞는 버튼을 제안해 드려요.</string>
+    <string name="exact_alarm_prompt_title">알림을 제시간에 받으려면</string>
+    <string name="exact_alarm_prompt_message">알림이 제시간에 울리려면 \'알람 및 리마인더\' 권한이 필요합니다. 끄면 알림이 몇 분 늦을 수 있습니다.\n\n켜지 않아도 앱은 그대로 쓸 수 있고, 나중에 설정 창의 \'정확한 알림\'에서 언제든 켤 수 있어요.</string>
+    <string name="exact_alarm_prompt_open_settings">설정으로</string>
+    <string name="settings_exact_alarm_title">정확한 알림</string>
+    <string name="settings_exact_alarm_on">켜짐 · 알림이 제시간에 울려요</string>
+    <string name="settings_exact_alarm_off">꺼짐 · 알림이 몇 분 늦을 수 있어요</string>
+    <string name="settings_exact_alarm_open">설정 열기</string>
 </resources>

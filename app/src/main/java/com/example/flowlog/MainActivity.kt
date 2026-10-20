@@ -1,7 +1,6 @@
 package com.example.flowlog
 
 import android.Manifest
-import android.app.AlarmManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -13,7 +12,6 @@ import android.net.NetworkRequest
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
-import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -141,6 +139,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.DoNotDisturb
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.AlarmOff
+import com.example.flowlog.notification.ExactAlarmPermission
+import com.example.flowlog.notification.ExactAlarmStatus
 import com.example.flowlog.notification.FocusDndController
 import com.example.flowlog.data.model.AiMessage
 import com.example.flowlog.data.model.MainButtonConfig
@@ -160,6 +162,9 @@ class MainActivity : ComponentActivity() {
     private var requestedScreen by mutableStateOf(SCREEN_HOME)
     // Category from a home-screen "start timer" shortcut, consumed once by the UI.
     private var pendingShortcutCategory by mutableStateOf<String?>(null)
+    // 정확 알람 권한: 설정 창에 보일 현재 상태와, 처음 한 번만 띄우는 설명 다이얼로그.
+    private var exactAlarmStatus by mutableStateOf(ExactAlarmStatus.NOT_REQUIRED)
+    private var showExactAlarmPrompt by mutableStateOf(false)
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var calendarDataSource: FirebaseCalendarPullDataSource? = null
     private var calendarSubscription: FirebaseCalendarPullDataSource.CalendarSubscription? = null
@@ -182,7 +187,8 @@ class MainActivity : ComponentActivity() {
             runCatching { PlannedTodoReminderScheduler(applicationContext).rescheduleAll() }
         }
         requestNotificationPermission()
-        requestExactAlarmPermission()
+        exactAlarmStatus = ExactAlarmPermission.status(this)
+        showExactAlarmPrompt = ExactAlarmPermission.shouldPrompt(this)
         enableEdgeToEdge()
         setContent {
             FlowlogTheme {
@@ -547,7 +553,11 @@ class MainActivity : ComponentActivity() {
                                             onToggleTimetableReminder = {
                                                 activityViewModel.toggleTimetableReminder()
                                             },
-                                            onExportActivities = exportActivities
+                                            onExportActivities = exportActivities,
+                                            exactAlarmStatus = exactAlarmStatus,
+                                            onOpenExactAlarmSettings = {
+                                                ExactAlarmPermission.openSettings(this@MainActivity)
+                                            }
                                         )
                                     },
                                     scrollToMainTimerRequest = homeMainTimerScrollRequest,
@@ -580,6 +590,12 @@ class MainActivity : ComponentActivity() {
                         ),
                     )
                 }
+                if (showExactAlarmPrompt) {
+                    ExactAlarmPromptDialog(
+                        onOpenSettings = { answerExactAlarmPrompt(openSettings = true) },
+                        onLater = { answerExactAlarmPrompt(openSettings = false) }
+                    )
+                }
                 }
             }
         }
@@ -589,6 +605,13 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         registerNetworkSync()
         FirebaseAuth.getInstance().currentUser?.uid?.let(::startCalendarSubscription)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 시스템 설정에서 돌아왔을 때 설정 창의 "정확한 알림" 상태를 새로 읽는다.
+        exactAlarmStatus = ExactAlarmPermission.status(this)
+        if (exactAlarmStatus != ExactAlarmStatus.DENIED) showExactAlarmPrompt = false
     }
 
     override fun onStop() {
@@ -763,19 +786,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestExactAlarmPermission() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-
-        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        if (alarmManager.canScheduleExactAlarms()) return
-
-        runCatching {
-            startActivity(
-                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-            )
-        }
+    private fun answerExactAlarmPrompt(openSettings: Boolean) {
+        ExactAlarmPermission.markPrompted(this)
+        showExactAlarmPrompt = false
+        if (openSettings) ExactAlarmPermission.openSettings(this)
     }
 
     companion object {
@@ -810,7 +824,9 @@ private fun HeaderActions(
     onToggleTimetableAutoPlace: () -> Unit = {},
     isTimetableReminderEnabled: Boolean = true,
     onToggleTimetableReminder: () -> Unit = {},
-    onExportActivities: (ActivityExportFormat, Uri) -> Unit = { _, _ -> }
+    onExportActivities: (ActivityExportFormat, Uri) -> Unit = { _, _ -> },
+    exactAlarmStatus: ExactAlarmStatus = ExactAlarmStatus.NOT_REQUIRED,
+    onOpenExactAlarmSettings: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -1181,6 +1197,43 @@ private fun HeaderActions(
                             onCheckedChange = { onToggleTimetableReminder() }
                         )
                     }
+                    if (exactAlarmStatus != ExactAlarmStatus.NOT_REQUIRED) {
+                        val exactAllowed = exactAlarmStatus == ExactAlarmStatus.ALLOWED
+                        Spacer(modifier = Modifier.height(14.dp))
+                        androidx.compose.foundation.layout.Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = if (exactAllowed) Icons.Filled.Alarm else Icons.Filled.AlarmOff,
+                                contentDescription = null,
+                                tint = if (exactAllowed) Color(0xFF5140D8) else Color(0xFF9E9E9E),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.size(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.settings_exact_alarm_title),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF10182C)
+                                )
+                                Text(
+                                    text = if (exactAllowed) stringResource(R.string.settings_exact_alarm_on) else stringResource(R.string.settings_exact_alarm_off),
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF9E9E9E)
+                                )
+                            }
+                            // 특수 권한은 시스템 설정에서만 바꿀 수 있다. 돌아오면 onResume에서 상태를 다시 읽는다.
+                            TextButton(onClick = onOpenExactAlarmSettings) {
+                                Text(
+                                    text = stringResource(R.string.settings_exact_alarm_open),
+                                    color = Color(0xFF5140D8),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
                     Spacer(modifier = Modifier.height(20.dp))
                     Text(
                         text = stringResource(R.string.main_activity_focus_mode),
@@ -1295,6 +1348,57 @@ private fun HeaderActions(
 }
 
 @Composable
+private fun ExactAlarmPromptDialog(
+    onOpenSettings: () -> Unit,
+    onLater: () -> Unit
+) {
+    AlertDialog(
+        // 바깥을 눌러 닫아도 "나중에"로 본다(다시 묻지 않음).
+        onDismissRequest = onLater,
+        containerColor = Color.White,
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.Alarm,
+                contentDescription = null,
+                tint = Color(0xFF5140D8)
+            )
+        },
+        title = {
+            Text(
+                text = stringResource(R.string.exact_alarm_prompt_title),
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 18.sp,
+                color = Color(0xFF10182C)
+            )
+        },
+        text = {
+            Text(
+                text = stringResource(R.string.exact_alarm_prompt_message),
+                fontSize = 14.sp,
+                color = Color(0xFF3C4457)
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onOpenSettings,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF5140D8),
+                    contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(stringResource(R.string.exact_alarm_prompt_open_settings), fontWeight = FontWeight.ExtraBold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onLater) {
+                Text(stringResource(R.string.main_activity_later), color = Color(0xFF697386))
+            }
+        }
+    )
+}
+
+@Composable
 private fun ProfileAvatar(
     profilePhotoUrl: String?,
     isSignedIn: Boolean
@@ -1395,7 +1499,7 @@ private fun AiMessengerSheet(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "Flowlog AI",
+                        text = stringResource(R.string.main_activity_suggestion_sheet_title),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = Color(0xFF10182C)
