@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Version 0.6.0 (versionCode 27) is the first build with the PC web app link-up
+  below (shared timer, web todo pull). The web app (`/app/`) asks for 0.6.0 or
+  later and hides that notice once this phone has written the timer document.
 - Added pulling Todos changed on the web (PC app): after each sync that pulls
   activities, Todos with a newer `updatedAt` (incremental, `RemotePullCursor`
   key `todos`) and the open Todos are merged into Room; documents deleted on
