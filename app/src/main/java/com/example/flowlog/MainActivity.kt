@@ -173,6 +173,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.FileDownload
 import java.util.TimeZone
 import com.example.flowlog.ui.viewmodel.AiMessengerUiState
+import androidx.compose.material.icons.filled.Favorite
+import com.example.flowlog.data.external.ExternalSampleScheduler
+import com.example.flowlog.data.external.HealthConnectAccess
+import com.example.flowlog.data.external.HealthConnectAvailability
+import com.example.flowlog.data.external.HealthConnectState
+import com.example.flowlog.data.external.HealthConnectStatus
+import com.example.flowlog.data.local.ExternalDataSettingsStore
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private var requestedScreen by mutableStateOf(SCREEN_HOME)
@@ -181,6 +191,12 @@ class MainActivity : ComponentActivity() {
     // 정확 알람 권한: 설정 창에 보일 현재 상태와, 처음 한 번만 띄우는 설명 다이얼로그.
     private var exactAlarmStatus by mutableStateOf(ExactAlarmStatus.NOT_REQUIRED)
     private var showExactAlarmPrompt by mutableStateOf(false)
+    // Health Connect: 설정 창 "건강 데이터" 행의 상태. onResume과 설정 창을 열 때 다시 읽는다.
+    private var healthConnectStatus by mutableStateOf(HealthConnectStatus())
+    private val healthConnectPermissionLauncher =
+        registerForActivityResult(HealthConnectAccess.permissionContract()) { granted ->
+            onHealthConnectPermissionResult(granted)
+        }
     // 로그인한 계정에 삭제 예약이 있어 사용자의 답을 기다리는 동안 업로드·캘린더 구독을 멈춘다.
     @Volatile private var accountDeletionGate = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -392,6 +408,7 @@ class MainActivity : ComponentActivity() {
                             db.autoButtonScheduleDao().reassignAnonymousUser(user.uid)
                             db.todoDao().reassignAnonymousUser(user.uid)
                             db.eventLogDao().reassignAnonymousUser(user.uid)
+                            db.externalSampleDao().reassignAnonymousUser(user.uid)
                         }
                     }
                     runCatching {
@@ -709,7 +726,11 @@ class MainActivity : ComponentActivity() {
                                             exactAlarmStatus = exactAlarmStatus,
                                             onOpenExactAlarmSettings = {
                                                 ExactAlarmPermission.openSettings(this@MainActivity)
-                                            }
+                                            },
+                                            healthConnectStatus = healthConnectStatus,
+                                            onHealthConnectAction = { onHealthConnectAction() },
+                                            onHealthConnectTurnOff = { setHealthConnectEnabled(false) },
+                                            onRefreshHealthConnect = { refreshHealthConnectStatus() }
                                         )
                                     },
                                     scrollToMainTimerRequest = homeMainTimerScrollRequest,
@@ -778,7 +799,89 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         registerNetworkSync()
         FirebaseAuth.getInstance().currentUser?.uid?.let(::startCalendarSubscription)
-        if (!accountDeletionGate) logAppEvent(EventType.APP_FOREGROUNDED)
+        if (!accountDeletionGate) {
+            logAppEvent(EventType.APP_FOREGROUNDED)
+            // Health Connect: 켜져 있으면 주기 작업을 유지하고, 마지막 시도가 6시간 지났으면 한 번 수집.
+            runCatching { ExternalSampleScheduler.onForeground(applicationContext) }
+        }
+    }
+
+    /** 설정 창 "건강 데이터(Health Connect)" 행의 상태를 다시 읽는다(권한·켜짐·마지막 수집·지난 7일 수). */
+    private fun refreshHealthConnectStatus() {
+        val appContext = applicationContext
+        lifecycleScope.launch {
+            val status = withContext(Dispatchers.IO) {
+                runCatching { HealthConnectAccess.status(appContext) }.getOrNull()
+            }
+            if (status != null) healthConnectStatus = status
+        }
+    }
+
+    /** 행의 주 버튼: 미설치·업데이트 필요면 스토어, 아니면 읽기 권한을 묻고(이미 다 있으면 바로) 켠다. */
+    private fun onHealthConnectAction() {
+        when (HealthConnectAccess.availability(this)) {
+            HealthConnectAvailability.NOT_SUPPORTED -> Unit
+            HealthConnectAvailability.NOT_INSTALLED,
+            HealthConnectAvailability.UPDATE_REQUIRED -> HealthConnectAccess.openInstallPage(this)
+            HealthConnectAvailability.AVAILABLE -> lifecycleScope.launch {
+                val granted = withContext(Dispatchers.IO) {
+                    HealthConnectAccess.grantedReadPermissions(applicationContext)
+                }
+                if (granted.containsAll(HealthConnectAccess.READ_PERMISSIONS)) {
+                    setHealthConnectEnabled(true)
+                } else {
+                    runCatching { healthConnectPermissionLauncher.launch(HealthConnectAccess.REQUESTED_PERMISSIONS) }
+                        .onFailure { refreshHealthConnectStatus() }
+                }
+            }
+        }
+    }
+
+    /** 권한 화면에서 돌아옴: 읽기 권한이 하나라도 있으면 켜고 바로 한 번 수집, 없으면 상태만 갱신. */
+    private fun onHealthConnectPermissionResult(granted: Set<String>) {
+        lifecycleScope.launch {
+            // The contract's result is not relied on alone; ask Health Connect what is granted now.
+            val current = withContext(Dispatchers.IO) {
+                HealthConnectAccess.grantedReadPermissions(applicationContext)
+            }
+            if (current.isNotEmpty() || granted.any { it in HealthConnectAccess.READ_PERMISSIONS }) {
+                setHealthConnectEnabled(true)
+            } else {
+                refreshHealthConnectStatus()
+            }
+        }
+    }
+
+    /** 켜기: 주기 작업 등록 + 즉시 한 번. 끄기: 작업 취소(저장된 샘플은 지우지 않는다). 바뀌면 SETTING_CHANGED. */
+    private fun setHealthConnectEnabled(enabled: Boolean) {
+        val appContext = applicationContext
+        val wasEnabled = ExternalDataSettingsStore.isHealthConnectEnabled(appContext)
+        ExternalDataSettingsStore.setHealthConnectEnabled(appContext, enabled)
+        if (wasEnabled != enabled) {
+            logAppEvent(
+                EventType.SETTING_CHANGED,
+                EntityType.SETTING,
+                EventMetadata.settingChanged(EventMetadata.SettingKey.EXTERNAL_DATA_HEALTH_CONNECT, enabled)
+            )
+        }
+        runCatching {
+            if (enabled) {
+                ExternalSampleScheduler.ensurePeriodic(appContext)
+                ExternalSampleScheduler.runNow(appContext, ExternalSampleScheduler.TRIGGER_ENABLED)
+            } else {
+                ExternalSampleScheduler.cancel(appContext)
+            }
+        }
+        refreshHealthConnectStatus()
+        if (enabled) {
+            // The first fetch runs in WorkManager; read the row again once it has had time to finish.
+            lifecycleScope.launch {
+                delay(5_000)
+                refreshHealthConnectStatus()
+                delay(15_000)
+                refreshHealthConnectStatus()
+            }
+        }
     }
 
     /** One event_logs row from this screen; a failure to log never affects the UI. */
@@ -800,6 +903,8 @@ class MainActivity : ComponentActivity() {
         // 시스템 설정에서 돌아왔을 때 설정 창의 "정확한 알림" 상태를 새로 읽는다.
         exactAlarmStatus = ExactAlarmPermission.status(this)
         if (exactAlarmStatus != ExactAlarmStatus.DENIED) showExactAlarmPrompt = false
+        // Health Connect 권한 화면·스토어에서 돌아왔을 때도 상태를 새로 읽는다.
+        refreshHealthConnectStatus()
     }
 
     override fun onStop() {
@@ -1034,7 +1139,11 @@ private fun HeaderActions(
     onImportActivities: (Uri) -> Unit = {},
     onDeleteAccount: () -> Unit = {},
     exactAlarmStatus: ExactAlarmStatus = ExactAlarmStatus.NOT_REQUIRED,
-    onOpenExactAlarmSettings: () -> Unit = {}
+    onOpenExactAlarmSettings: () -> Unit = {},
+    healthConnectStatus: HealthConnectStatus = HealthConnectStatus(),
+    onHealthConnectAction: () -> Unit = {},
+    onHealthConnectTurnOff: () -> Unit = {},
+    onRefreshHealthConnect: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -1351,6 +1460,7 @@ private fun HeaderActions(
 
     if (showSettingsDialog) {
         var hasDndAccess by remember { mutableStateOf(FocusDndController.hasPolicyAccess(context)) }
+        LaunchedEffect(Unit) { onRefreshHealthConnect() }
         AlertDialog(
             onDismissRequest = { showSettingsDialog = false },
             containerColor = Color.White,
@@ -1534,6 +1644,19 @@ private fun HeaderActions(
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Text(
+                        text = stringResource(R.string.settings_external_data_section),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF5140D8)
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    HealthConnectSettingsRow(
+                        status = healthConnectStatus,
+                        onAction = onHealthConnectAction,
+                        onTurnOff = onHealthConnectTurnOff
+                    )
                     Spacer(modifier = Modifier.height(20.dp))
                     Text(
                         text = stringResource(R.string.main_activity_focus_mode),
@@ -1829,6 +1952,87 @@ private fun ActivityImportConfirmDialog(
             }
         }
     )
+}
+
+/** 설정 창 "건강 데이터(Health Connect)" 행: 상태 글 + 버튼(설치·업데이트 / 켜기 / 권한 요청 / 끄기). */
+@Composable
+private fun HealthConnectSettingsRow(
+    status: HealthConnectStatus,
+    onAction: () -> Unit,
+    onTurnOff: () -> Unit
+) {
+    val state = status.state
+    val active = state == HealthConnectState.CONNECTED || state == HealthConnectState.CONNECTED_PARTIAL
+    val lastFetched = status.lastFetchedAt?.let { at ->
+        SimpleDateFormat("M/d HH:mm", Locale.getDefault()).format(Date(at))
+    } ?: stringResource(R.string.settings_health_connect_never)
+    val description = when (state) {
+        HealthConnectState.NOT_SUPPORTED -> stringResource(R.string.settings_health_connect_not_supported)
+        HealthConnectState.NOT_INSTALLED -> stringResource(R.string.settings_health_connect_not_installed)
+        HealthConnectState.UPDATE_REQUIRED -> stringResource(R.string.settings_health_connect_update_required)
+        HealthConnectState.OFF -> stringResource(R.string.settings_health_connect_off)
+        HealthConnectState.NO_PERMISSION -> stringResource(R.string.settings_health_connect_no_permission)
+        HealthConnectState.CONNECTED_PARTIAL ->
+            stringResource(R.string.settings_health_connect_connected_partial, lastFetched, status.recentSampleCount)
+        HealthConnectState.CONNECTED ->
+            stringResource(R.string.settings_health_connect_connected, lastFetched, status.recentSampleCount)
+    }
+    val actionLabel = when (state) {
+        HealthConnectState.NOT_INSTALLED -> stringResource(R.string.settings_health_connect_install)
+        HealthConnectState.UPDATE_REQUIRED -> stringResource(R.string.settings_health_connect_update)
+        HealthConnectState.OFF -> stringResource(R.string.settings_health_connect_turn_on)
+        HealthConnectState.NO_PERMISSION,
+        HealthConnectState.CONNECTED_PARTIAL -> stringResource(R.string.settings_health_connect_request)
+        HealthConnectState.NOT_SUPPORTED,
+        HealthConnectState.CONNECTED -> null
+    }
+    val showTurnOff = active || state == HealthConnectState.NO_PERMISSION
+    androidx.compose.foundation.layout.Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Favorite,
+            contentDescription = null,
+            tint = if (active) Color(0xFF5140D8) else Color(0xFF9E9E9E),
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.size(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.settings_health_connect_title),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF10182C)
+            )
+            Text(
+                text = description,
+                fontSize = 12.sp,
+                color = Color(0xFF9E9E9E)
+            )
+        }
+    }
+    if (actionLabel != null || showTurnOff) {
+        androidx.compose.foundation.layout.Row(
+            horizontalArrangement = Arrangement.End,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (actionLabel != null) {
+                TextButton(onClick = onAction) {
+                    Text(text = actionLabel, color = Color(0xFF5140D8), fontWeight = FontWeight.Bold)
+                }
+            }
+            if (showTurnOff) {
+                TextButton(onClick = onTurnOff) {
+                    Text(
+                        text = stringResource(R.string.settings_health_connect_turn_off),
+                        color = Color(0xFF9E9E9E),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable

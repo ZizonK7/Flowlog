@@ -76,6 +76,28 @@ class EventMetadataTest {
         assertEquals(23, EventMetadata.migrationFromVersion(storedVersion = 23, openedVersion = 24))
         assertEquals("""{"from":23,"to":24}""", EventMetadata.migrationCompleted(23, 24))
     }
+
+    @Test
+    fun externalSamplesFetchedKeepsDecidedKeysAndErrorOnlyWhenFailed() {
+        assertEquals(
+            """{"provider":"health_connect","window_start":100,"window_end":200,"fetched":5,"inserted":3,"updated":1,"trigger":"periodic","kinds":["sleep_session","steps_daily"]}""",
+            EventMetadata.externalSamplesFetched(
+                provider = "health_connect",
+                windowStart = 100L,
+                windowEnd = 200L,
+                fetched = 5,
+                inserted = 3,
+                updated = 1,
+                trigger = "periodic",
+                kinds = listOf("sleep_session", "steps_daily")
+            )
+        )
+        assertEquals(
+            """{"provider":"health_connect","window_start":100,"window_end":200,"fetched":0,"inserted":0,"updated":0,"error":"SecurityException"}""",
+            EventMetadata.externalSamplesFetched("health_connect", 100L, 200L, 0, 0, 0, error = "SecurityException")
+        )
+        assertEquals("external_data_health_connect_enabled", EventMetadata.SettingKey.EXTERNAL_DATA_HEALTH_CONNECT)
+    }
     @Test
     fun nestedMapsAndListsKeepNulls() {
         assertEquals(

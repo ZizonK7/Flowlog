@@ -18,6 +18,7 @@ import com.example.flowlog.data.local.dao.CalendarEventDao
 import com.example.flowlog.data.local.dao.DailyCueDao
 import com.example.flowlog.data.local.dao.DailyGoalDao
 import com.example.flowlog.data.local.dao.EventLogDao
+import com.example.flowlog.data.local.dao.ExternalSampleDao
 import com.example.flowlog.data.local.dao.LectureCalendarInfoDao
 import com.example.flowlog.data.local.dao.MigrationErrorDao
 import com.example.flowlog.data.local.dao.OrganizedPetiteDao
@@ -34,6 +35,7 @@ import com.example.flowlog.data.local.entity.DailyGoalRecommendationEntity
 import com.example.flowlog.data.local.entity.DailySummaryEntity
 import com.example.flowlog.data.local.entity.EventLogEntity
 import com.example.flowlog.data.local.entity.ExamStrategyCheckEntity
+import com.example.flowlog.data.local.entity.ExternalSampleEntity
 import com.example.flowlog.data.local.entity.InstallationEntity
 import com.example.flowlog.data.local.entity.LectureCalendarInfoEntity
 import com.example.flowlog.data.local.entity.MigrationErrorEntity
@@ -78,7 +80,8 @@ import kotlinx.coroutines.launch
         UserEntity::class,
         InstallationEntity::class,
 
-        // Phase 4 — Exam (feature removed; entity kept so the v24 schema is unchanged)
+        // Phase 4 — Exam (feature removed; entity kept until the exam cleanup migration,
+        // see docs/PROJECT_CONTEXT.md "Planned Cleanup" — not done in v25)
         ExamStrategyCheckEntity::class,
         OrganizedPetiteEntity::class,
 
@@ -86,8 +89,11 @@ import kotlinx.coroutines.launch
         CalendarEventEntity::class,
         LectureCalendarInfoEntity::class,
         DailyCueEntity::class,
+
+        // Phase 6 — External samples (Health Connect; usage statistics later)
+        ExternalSampleEntity::class,
     ],
-    version = 24,
+    version = 25,
     // 장기적으로는 schema export + Migration 검증을 붙이는 것이 바람직하지만,
     // 현재 단계에서는 개발 편의상 schema 파일 생성을 보류한다.
     exportSchema = false
@@ -117,6 +123,9 @@ abstract class FlowlogDatabase : RoomDatabase() {
     abstract fun lectureCalendarInfoDao(): LectureCalendarInfoDao
     abstract fun dailyCueDao(): DailyCueDao
 
+    // Phase 6 DAOs
+    abstract fun externalSampleDao(): ExternalSampleDao
+
     companion object {
         @Volatile
         private var INSTANCE: FlowlogDatabase? = null
@@ -130,7 +139,7 @@ abstract class FlowlogDatabase : RoomDatabase() {
                     FlowlogDatabase::class.java,
                     "flowlog.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, FlowlogMigration23To24)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, FlowlogMigration23To24, FlowlogMigration24To25)
                     .build().also {
                         INSTANCE = it
                         created = true

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Added Health Connect samples (off by default): Settings > 외부 데이터 >
+  "건강 데이터(Health Connect)" asks for read access to sleep, steps, and
+  exercise, shows the state, last fetch, and 7-day sample count, and turns it
+  off. Sleep sessions (with stages), daily step totals, and exercise sessions
+  (type, title) from the last 7 days (first fetch 30) go into the new Room
+  table `external_samples` (v24 → v25, `FlowlogMigration24To25`), keyed so a
+  re-read overwrites its row, and upload to `flowlog/data/externalSamples`.
+  Fetched every 6 hours (WorkManager), right after turning it on, and on
+  foreground after 6 hours; each fetch logs `EXTERNAL_SAMPLES_FETCHED`.
+  Samples are only stored (no activities, no recommendations, not exported).
+  New `connect-client` dependency, permission rationale screen, unit tests
+  (`ExternalSamplesTest`).
 - Event log now covers 37 of the 39 kinds in `EventType.kt` (was 22): timer
   ends without a record, favorites, daily-goal item clicks/completions/skips,
   reminder shown/clicked/dismissed (new `NotificationDismissReceiver`),

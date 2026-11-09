@@ -22,6 +22,8 @@ object EventMetadata {
         const val TIMETABLE_REMINDER = "timetable_plan_reminder_enabled"
         /** AutoButtonScheduleRepository.setEnabled (per schedule; entityId = scheduleId) */
         const val AUTO_BUTTON_SCHEDULE = "auto_button_schedule_enabled"
+        /** ExternalDataSettingsStore.setHealthConnectEnabled */
+        const val EXTERNAL_DATA_HEALTH_CONNECT = "external_data_health_connect_enabled"
     }
 
     /** Notification kinds written in the `type` field of NOTIFICATION_* events. */
@@ -278,6 +280,34 @@ object EventMetadata {
     fun isSyncFailure(failureCount: Int, threw: Boolean): Boolean = threw || failureCount > 0
 
     fun migrationCompleted(from: Int, to: Int): String = json("from" to from, "to" to to)
+
+    /**
+     * EXTERNAL_SAMPLES_FETCHED: one fetch of external samples. Keys as decided for this event
+     * (snake_case `window_*`). [fetched] = rows read, [inserted]/[updated] = rows written;
+     * the rest were unchanged. [error] = exception class name or a short reason; the counts
+     * are 0 then. [trigger] = what started it, [kinds] = the record kinds read.
+     */
+    fun externalSamplesFetched(
+        provider: String,
+        windowStart: Long,
+        windowEnd: Long,
+        fetched: Int,
+        inserted: Int,
+        updated: Int,
+        error: String? = null,
+        trigger: String? = null,
+        kinds: List<String>? = null
+    ): String = json(
+        "provider" to provider,
+        "window_start" to windowStart,
+        "window_end" to windowEnd,
+        "fetched" to fetched,
+        "inserted" to inserted,
+        "updated" to updated,
+        "error" to error,
+        "trigger" to trigger,
+        "kinds" to kinds
+    )
 
     /**
      * The version to report as `from` for MIGRATION_COMPLETED, or null when nothing should

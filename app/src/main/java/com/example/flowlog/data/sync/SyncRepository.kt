@@ -15,5 +15,6 @@ interface SyncRepository {
     suspend fun syncPendingEvents(userId: String): SyncOutcome
     suspend fun syncPendingDailyGoalRecommendations(userId: String): SyncOutcome
     suspend fun syncPendingDailyGoalItems(userId: String): SyncOutcome
+    suspend fun syncPendingExternalSamples(userId: String): SyncOutcome
     suspend fun hasPendingSync(userId: String): Boolean
 }

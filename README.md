@@ -270,6 +270,7 @@ users/{uid}/flowlog/data/dailyGoalItems
 users/{uid}/flowlog/data/dailyCues
 users/{uid}/flowlog/data/calendarEvents
 users/{uid}/flowlog/data/assistantSnapshots
+users/{uid}/flowlog/data/externalSamples   (Health Connect samples, see below)
 users/{uid}/flowlog/config          (main button configuration)
 users/{uid}/flowlog/timer           (running timer shared with the PC web app)
 users/{uid}/flowlog/metadata        (last sync time; older builds only, no longer written)
@@ -279,6 +280,44 @@ users/{uid}/interactionDecisions
 ```
 
 The last two live directly under `users/{uid}`, outside `flowlog/`.
+
+### External samples (Health Connect)
+
+Off by default. Settings > 외부 데이터 > "건강 데이터(Health Connect)" asks for
+read access to sleep, steps, and exercise (Android 9 or later; on Android 13
+and below the Health Connect app must be installed, and the row links to the
+Play Store). The row shows the state (not installed / no permission /
+connected, last fetch time, samples in the last 7 days) and turns collection
+off again. Nothing is written to Health Connect, and exercise routes (location)
+and every other data type are not read. Notifications, location, and contacts
+are not collected at all.
+
+What is read (`data/external/HealthConnectCollector.kt`): sleep sessions (with
+their stages), one total per local day of steps (Health Connect's own
+aggregate, which removes steps several apps wrote twice), and exercise sessions
+(type id and title). The window is the last 7 days from local midnight (the
+first fetch: 30, Health Connect's limit before the first grant). Each sample is
+one row of the Room table `external_samples` (v25), keyed by
+`<provider>:<kind>:<start>:<end>:<source app>` (steps: `aggregate` instead of
+the app), so a re-read overwrites its row and changed ones upload again. Rows
+are uploaded with the other pending changes to
+`users/{uid}/flowlog/data/externalSamples/{sampleId}` (samples that started
+before today in the midnight run). They are not pulled back on reinstall: the
+phone reads Health Connect again.
+
+When: every 6 hours in WorkManager while it is on, right after turning it on,
+and when the app comes to the foreground 6 hours after the last try. Each fetch
+leaves an `EXTERNAL_SAMPLES_FETCHED` event, failures included. The 6-hour
+background fetch needs Health Connect's "read in background" permission (asked
+together with the others); without it only the foreground fetch reads.
+
+The samples are only stored: sleep is not turned into an activity (the existing
+"fill a gap as sleep" stays as it is) and nothing here feeds a recommendation.
+They are not part of the CSV/JSON export. Turning collection off keeps the
+stored samples; to remove them, delete the account (server copy, after 14 days)
+or clear the app's data (phone). Before the app is offered to other users, the
+privacy policy and the Play data-safety form must list these (see
+`docs/RELEASE_CHECKLIST.md`).
 
 ### Event log
 
@@ -341,8 +380,11 @@ be checked later against what was actually done. Metadata holds plain facts
 - `DEVELOPER_MODE_ENABLED`, `DEVELOPER_MODE_DISABLED`: the developer switch,
   including the automatic switch-off for non-developer accounts.
 - `SETTING_CHANGED`: notification sound, inactivity reminder, timetable
-  auto-place, timetable reminder, and per-schedule auto-button switches
-  (`key`, `value`).
+  auto-place, timetable reminder, per-schedule auto-button, and Health
+  Connect (`external_data_health_connect_enabled`) switches (`key`, `value`).
+- `EXTERNAL_SAMPLES_FETCHED`: one Health Connect fetch, success or failure
+  (`provider`, `window_start`, `window_end`, `fetched`, `inserted`, `updated`,
+  `error` when it failed, `trigger`, `kinds` read).
 - `APP_FOREGROUNDED`: the main screen came to the foreground.
 - `EXPORT_CREATED`: a CSV/JSON export written, with the record count.
 - `SYNC_STARTED`, `SYNC_SUCCEEDED`, `SYNC_FAILED`: each upload/pull run with
@@ -385,6 +427,7 @@ rules are documented in the ranker source.
 - Kotlin Coroutines and StateFlow
 - Kotlin Serialization
 - WorkManager
+- Health Connect client (read only; sleep, steps, exercise)
 - Credential Manager with Google ID (Google sign-in)
 - Firebase Authentication
 - Cloud Firestore

@@ -141,6 +141,9 @@ latest recorded day. Product copy should state that clearly when relevant.
 Android stores local data with Room. Core entities include activity sessions,
 Todos, event logs, daily goal recommendations, daily goal items, organized
 Petites, daily cues, calendar events, and routine schedules.
+`external_samples` (v25) holds data read from elsewhere on the phone — Health
+Connect sleep, daily steps, and exercise when the user turns it on — kept apart
+from activities and not used by recommendations (README "External samples").
 
 Firestore is used as a synced copy for web reporting, analysis, and restore.
 The full path list is maintained in README ("Data & Sync"); some paths

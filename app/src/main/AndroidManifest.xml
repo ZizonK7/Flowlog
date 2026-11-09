@@ -10,6 +10,28 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
+    <!--
+        Health Connect, read only: sleep, steps, exercise (no routes, no other types).
+        Asked only when the user turns on "건강 데이터(Health Connect)" in Settings.
+        READ_HEALTH_DATA_IN_BACKGROUND lets the 6-hour background fetch read; without it
+        only the fetch while the app is open can.
+    -->
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
+
+    <!--
+        minSdk is 24 but every Health Connect call is behind API 28. 미확인: whether
+        connect-client 1.1.0 declares a minSdk above 24; if it does not, this line is harmless.
+    -->
+    <uses-sdk tools:overrideLibrary="androidx.health.connect.client" />
+
+    <!-- Lets getSdkStatus see the Health Connect app on Android 13 and below. -->
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+    </queries>
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -32,6 +54,27 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Health Connect permission rationale (Android 13 and below). -->
+        <activity
+            android:name=".ui.HealthConnectRationaleActivity"
+            android:exported="true"
+            android:label="@string/health_connect_rationale_title"
+            android:theme="@style/Theme.Flowlog">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+        <!-- The same screen for Android 14 and later (Health Connect is part of the system). -->
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".ui.HealthConnectRationaleActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
         <receiver
             android:name=".notification.ToothbrushReminderReceiver"
             android:exported="false" />
