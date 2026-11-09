@@ -5,9 +5,14 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.example.flowlog.data.constants.ActivitySourceType
+import com.example.flowlog.data.constants.EntityType
+import com.example.flowlog.data.constants.EventSource
+import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.repository.ActivityRepository
+import com.example.flowlog.data.repository.EventLogRepository
+import com.example.flowlog.data.repository.EventMetadata
 import com.example.flowlog.data.repository.TodoRepository
 import com.example.flowlog.widget.FlowStatusWidgetProvider
 import kotlinx.coroutines.CoroutineScope
@@ -83,10 +88,24 @@ class AutoButtonUndoReceiver : BroadcastReceiver() {
             ?: ActivitySourceType.MANUAL
         val restoreSourceId = previousSavedActivity?.sourceId ?: snapshot.previousSourceId
 
+        val discardedElapsedMs = active.elapsedMillis
         if (active.category == "SCHOOL" || active.category == "COMPANY") {
             TimerStateStore.clearPinnedTimer(context)
         } else {
             TimerStateStore.clearActiveTimer(context)
+        }
+        // The auto-started timer ends here without a record (the previous timer comes back).
+        runCatching {
+            EventLogRepository(context).log(
+                eventType = EventType.ACTIVITY_STOPPED,
+                entityType = EntityType.ACTIVITY,
+                source = EventSource.NOTIFICATION,
+                metadataJson = EventMetadata.activityStopped(
+                    reason = "auto_button_undo",
+                    category = active.category,
+                    elapsedMs = discardedElapsedMs
+                )
+            )
         }
         TimerStateStore.saveActiveTimer(
             context = context,

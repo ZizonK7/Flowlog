@@ -57,7 +57,18 @@ class InactivityReminderReceiver : BroadcastReceiver() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
-                notifySafely(context, notificationIntId, buildNotification(context, clickPendingIntent))
+                val deletePendingIntent = NotificationDismissReceiver.deleteIntent(
+                    context = context,
+                    type = TYPE,
+                    notificationId = notificationId,
+                    notificationIntId = notificationIntId,
+                    shownAt = now
+                )
+                notifySafely(
+                    context,
+                    notificationIntId,
+                    buildNotification(context, clickPendingIntent, deletePendingIntent)
+                )
                 InactivityReminderStore.markShown(context, notificationId, now)
                 EventLogRepository(context).log(
                     eventType = EventType.NOTIFICATION_SHOWN,
@@ -99,7 +110,11 @@ class InactivityReminderReceiver : BroadcastReceiver() {
         return null
     }
 
-    private fun buildNotification(context: Context, clickPendingIntent: PendingIntent): Notification =
+    private fun buildNotification(
+        context: Context,
+        clickPendingIntent: PendingIntent,
+        deletePendingIntent: PendingIntent
+    ): Notification =
         NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(NOTIFICATION_ICON_COLOR)
@@ -107,6 +122,7 @@ class InactivityReminderReceiver : BroadcastReceiver() {
             .setContentText(MESSAGE)
             .setStyle(NotificationCompat.BigTextStyle().bigText(MESSAGE))
             .setContentIntent(clickPendingIntent)
+            .setDeleteIntent(deletePendingIntent)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)

@@ -47,6 +47,7 @@ import com.example.flowlog.data.repository.DailyGoalRepository
 import com.example.flowlog.data.repository.DailyCueRecord
 import com.example.flowlog.data.repository.DailyCueRepository
 import com.example.flowlog.data.repository.EventLogRepository
+import com.example.flowlog.data.repository.EventMetadata
 import com.example.flowlog.data.repository.OrganizedPetiteRepository
 import com.example.flowlog.data.repository.TodoRepository
 import com.example.flowlog.data.remote.FirestoreSyncRepository
@@ -813,6 +814,15 @@ class ActivityViewModel(
                 sessions.size
             }
             result.exceptionOrNull()?.let { Log.w("ActivityExport", "export failed", it) }
+            result.getOrNull()?.let { count ->
+                runCatching {
+                    eventLogRepository.log(
+                        eventType = EventType.EXPORT_CREATED,
+                        entityType = EntityType.ACTIVITY,
+                        metadataJson = EventMetadata.exportCreated(format.name, count)
+                    )
+                }
+            }
             onDone(result.getOrNull())
         }
     }
@@ -1223,11 +1233,13 @@ class ActivityViewModel(
 
         timerJob?.cancel()
         val elapsedTime = currentElapsedTime()
+        val category = _uiState.value.currentCategory
         _uiState.update { it.copy(isRunning = false) }
         TimerStateStore.pauseActiveTimer(appContext, elapsedTime)
         routineGoalAlarmScheduler.cancel()
         FlowStatusWidgetProvider.updateAll(appContext)
         activityTimerNotifier.clearRunningTimer()
+        logActivityStopped(EventMetadata.activityStopped("paused", category, elapsedTime))
         return elapsedTime
     }
 
@@ -1465,7 +1477,26 @@ class ActivityViewModel(
     }
 
     fun cancelPendingActivity() {
+        val state = _uiState.value
+        val metadata = if (state.currentCategory.isNotBlank() && state.startTime > 0L) {
+            EventMetadata.activityStopped("discarded", state.currentCategory, currentElapsedTime())
+        } else {
+            EventMetadata.activityStopped("discarded")
+        }
         clearPendingActivity()
+        logActivityStopped(metadata)
+    }
+
+    private fun logActivityStopped(metadataJson: String) {
+        viewModelScope.launch {
+            runCatching {
+                eventLogRepository.log(
+                    eventType = EventType.ACTIVITY_STOPPED,
+                    entityType = EntityType.ACTIVITY,
+                    metadataJson = metadataJson
+                )
+            }
+        }
     }
 
     fun dismissPendingSavedActivity() {
@@ -1539,12 +1570,21 @@ class ActivityViewModel(
 
     fun toggleFavorite(activity: ActivitySession) {
         viewModelScope.launch {
+            val isFavorite = !activity.isFavorite
             repository.updateActivity(
                 activity.copy(
-                    isFavorite = !activity.isFavorite,
+                    isFavorite = isFavorite,
                     modifiedTime = System.currentTimeMillis()
                 )
             )
+            runCatching {
+                eventLogRepository.log(
+                    eventType = EventType.ACTIVITY_FAVORITE_TOGGLED,
+                    entityType = EntityType.ACTIVITY,
+                    entityId = activity.id.toString(),
+                    metadataJson = EventMetadata.favoriteToggled(isFavorite)
+                )
+            }
         }
     }
 
@@ -1811,6 +1851,17 @@ class ActivityViewModel(
     fun setAutoButtonEnabled(scheduleId: String, isEnabled: Boolean) {
         viewModelScope.launch {
             autoButtonScheduleRepository.setEnabled(scheduleId, isEnabled)
+            runCatching {
+                eventLogRepository.log(
+                    eventType = EventType.SETTING_CHANGED,
+                    entityType = EntityType.SETTING,
+                    entityId = scheduleId,
+                    metadataJson = EventMetadata.settingChanged(
+                        EventMetadata.SettingKey.AUTO_BUTTON_SCHEDULE,
+                        isEnabled
+                    )
+                )
+            }
             autoButtonScheduler.reschedule(scheduleId)
             autoButtonScheduleRepository.getSchedule(scheduleId)?.let { schedule ->
                 syncCalendarAutoButtonSchedule(schedule.copy(isEnabled = isEnabled))
@@ -3159,12 +3210,26 @@ class ActivityViewModel(
         val next = !_isNotificationSoundEnabled.value
         FocusModeStore.setNotificationSoundEnabled(appContext, next)
         _isNotificationSoundEnabled.value = next
+        logSettingChanged(EventMetadata.SettingKey.NOTIFICATION_SOUND, next)
+    }
+
+    private fun logSettingChanged(key: String, value: Boolean) {
+        viewModelScope.launch {
+            runCatching {
+                eventLogRepository.log(
+                    eventType = EventType.SETTING_CHANGED,
+                    entityType = EntityType.SETTING,
+                    metadataJson = EventMetadata.settingChanged(key, value)
+                )
+            }
+        }
     }
 
     fun toggleInactivityReminder() {
         val next = !_isInactivityReminderEnabled.value
         InactivityReminderStore.setEnabled(appContext, next)
         _isInactivityReminderEnabled.value = next
+        logSettingChanged(EventMetadata.SettingKey.INACTIVITY_REMINDER, next)
         if (next) {
             inactivityReminderScheduler.rescheduleFromLastActivityIfNeeded()
         } else {
@@ -3207,12 +3272,14 @@ class ActivityViewModel(
         val next = !_isTimetableAutoPlaceEnabled.value
         TimetablePlanSettingsStore.setAutoPlaceEnabled(appContext, next)
         _isTimetableAutoPlaceEnabled.value = next
+        logSettingChanged(EventMetadata.SettingKey.TIMETABLE_AUTO_PLACE, next)
     }
 
     fun toggleTimetableReminder() {
         val next = !_isTimetableReminderEnabled.value
         TimetablePlanSettingsStore.setReminderEnabled(appContext, next)
         _isTimetableReminderEnabled.value = next
+        logSettingChanged(EventMetadata.SettingKey.TIMETABLE_REMINDER, next)
         viewModelScope.launch {
             plannedTodoReminderScheduler.rescheduleAll()
         }

@@ -327,7 +327,7 @@ interface DailyGoalDao {
         actualCompletedAt: Long,
         linkedActivityId: String?,
         completedTodoId: String?
-    )
+    ): Int
 
     @Query("""
         UPDATE daily_goal_items
@@ -347,7 +347,7 @@ interface DailyGoalDao {
         actualCompletedAt: Long,
         linkedActivityId: String?,
         completedTodoId: String?
-    )
+    ): Int
 
     @Query("""
         UPDATE daily_goal_items
@@ -373,14 +373,14 @@ interface DailyGoalDao {
         SET wasCompleted = 1, updatedAt = :updatedAt, syncStatus = '${SyncStatus.PENDING}'
         WHERE recommendationId = :recommendationId AND todoId = :todoId
     """)
-    suspend fun markItemCompleted(recommendationId: String, todoId: String, updatedAt: Long)
+    suspend fun markItemCompleted(recommendationId: String, todoId: String, updatedAt: Long): Int
 
     @Query("""
         UPDATE daily_goal_items
         SET wasCompleted = 1, updatedAt = :updatedAt, syncStatus = '${SyncStatus.PENDING}'
         WHERE recommendationId = :recommendationId AND todoId = :todoId
     """)
-    suspend fun markItemCompletedPending(recommendationId: String, todoId: String, updatedAt: Long)
+    suspend fun markItemCompletedPending(recommendationId: String, todoId: String, updatedAt: Long): Int
 
     // 캘린더 petite가 완료/dismiss될 때 해당 petite를 가리키는 모든 Anchors 항목(여러 추천 refresh로 누적된 row 포함)을 정리
     @Query("""
@@ -388,14 +388,14 @@ interface DailyGoalDao {
         SET wasCompleted = 1, updatedAt = :updatedAt, syncStatus = '${SyncStatus.PENDING}'
         WHERE userId = :userId AND todoId = :todoId
     """)
-    suspend fun markCalendarPetiteItemsCompleted(userId: String, todoId: String, updatedAt: Long)
+    suspend fun markCalendarPetiteItemsCompleted(userId: String, todoId: String, updatedAt: Long): Int
 
     @Query("""
         UPDATE daily_goal_items
         SET wasClicked = 1, updatedAt = :updatedAt, syncStatus = '${SyncStatus.PENDING}'
         WHERE recommendationId = :recommendationId AND todoId = :todoId
     """)
-    suspend fun markItemClicked(recommendationId: String, todoId: String, updatedAt: Long)
+    suspend fun markItemClicked(recommendationId: String, todoId: String, updatedAt: Long): Int
 
     @Query("""
         UPDATE daily_goal_items
@@ -423,7 +423,7 @@ interface DailyGoalDao {
         SET wasSkipped = 1, updatedAt = :updatedAt, syncStatus = '${SyncStatus.PENDING}'
         WHERE recommendationId = :recommendationId AND todoId = :todoId
     """)
-    suspend fun markItemSkippedPending(recommendationId: String, todoId: String, updatedAt: Long)
+    suspend fun markItemSkippedPending(recommendationId: String, todoId: String, updatedAt: Long): Int
 
     @Query("""
         UPDATE daily_goal_items

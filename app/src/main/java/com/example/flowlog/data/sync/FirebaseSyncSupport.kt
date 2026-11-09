@@ -4,10 +4,15 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import com.example.flowlog.data.constants.EventSource
+import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
+import com.example.flowlog.data.repository.EventLogRepository
+import com.example.flowlog.data.repository.EventMetadata
 import com.example.flowlog.notification.StudyPlanAutoStartScheduler
 import com.example.flowlog.notification.FirebaseSyncReceiver
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.Calendar
@@ -83,22 +88,82 @@ object FirebaseSyncAlarmScheduler {
 class FirebaseSyncCoordinator(context: Context) {
     private val appContext = context.applicationContext
     private val dataSource = FirebaseSyncDataSource(appContext)
+    private val eventLogRepository by lazy { EventLogRepository(appContext) }
 
     suspend fun syncAll(userId: String): SyncOutcome {
         return globalSyncMutex.withLock {
-            // Remote pulls are incremental (RemotePullCursor), so forcing them here costs
-            // only the documents changed since the last pull, not the whole history.
-            refreshStudy(userId, dataSource.syncAll(userId), forceRefresh = true)
+            recordSync(MODE_ALL) {
+                // Remote pulls are incremental (RemotePullCursor), so forcing them here costs
+                // only the documents changed since the last pull, not the whole history.
+                refreshStudy(userId, dataSource.syncAll(userId), forceRefresh = true)
+            }
         }
     }
 
     suspend fun syncEligible(userId: String): SyncOutcome {
         return globalSyncMutex.withLock {
-            val activeTimer = TimerStateStore.getActiveTimer(appContext)
-            if (activeTimer?.status == TimerStatus.RUNNING) {
-                return@withLock SyncOutcome(deferred = true)
+            recordSync(MODE_ELIGIBLE) {
+                val activeTimer = TimerStateStore.getActiveTimer(appContext)
+                if (activeTimer?.status == TimerStatus.RUNNING) {
+                    SyncOutcome(deferred = true)
+                } else {
+                    refreshStudy(userId, dataSource.syncEligible(userId))
+                }
             }
-            refreshStudy(userId, dataSource.syncEligible(userId))
+        }
+    }
+
+    /**
+     * SYNC_STARTED before [block], then SYNC_SUCCEEDED or SYNC_FAILED with its counts.
+     * Recorded here, not inside [FirebaseSyncDataSource]: the rows are uploaded by a later
+     * sync like any other event (STARTED may go up in this same run), so a sync never
+     * logs about uploading its own log rows. A logging failure never changes the outcome.
+     */
+    private suspend fun recordSync(mode: String, block: suspend () -> SyncOutcome): SyncOutcome {
+        logSyncEvent(EventType.SYNC_STARTED, EventMetadata.syncStarted(mode))
+        val outcome = try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logSyncEvent(
+                EventType.SYNC_FAILED,
+                EventMetadata.syncFinished(
+                    mode = mode,
+                    attempted = 0,
+                    success = 0,
+                    failure = 0,
+                    deferred = false,
+                    error = e.javaClass.simpleName
+                )
+            )
+            throw e
+        }
+        val eventType = if (EventMetadata.isSyncFailure(outcome.failureCount, threw = false)) {
+            EventType.SYNC_FAILED
+        } else {
+            EventType.SYNC_SUCCEEDED
+        }
+        logSyncEvent(
+            eventType,
+            EventMetadata.syncFinished(
+                mode = mode,
+                attempted = outcome.attemptedCount,
+                success = outcome.successCount,
+                failure = outcome.failureCount,
+                deferred = outcome.deferred
+            )
+        )
+        return outcome
+    }
+
+    private suspend fun logSyncEvent(eventType: String, metadataJson: String) {
+        runCatching {
+            eventLogRepository.log(
+                eventType = eventType,
+                source = EventSource.SYSTEM,
+                metadataJson = metadataJson
+            )
         }
     }
 
@@ -127,6 +192,8 @@ class FirebaseSyncCoordinator(context: Context) {
     }
 
     companion object {
+        private const val MODE_ALL = "all"
+        private const val MODE_ELIGIBLE = "eligible"
         private val globalSyncMutex = Mutex()
         private val lastRemoteRefresh = mutableMapOf<String, Long>()
     }

@@ -83,8 +83,12 @@ import com.example.flowlog.data.account.AccountDeletionState
 import com.example.flowlog.data.account.DeviceDataWiper
 import com.google.firebase.auth.FirebaseUser
 import androidx.credentials.GetCredentialRequest
+import com.example.flowlog.data.constants.EntityType
+import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.local.UserRole
 import com.example.flowlog.data.local.UserRoleStore
+import com.example.flowlog.data.repository.EventLogRepository
+import com.example.flowlog.data.repository.EventMetadata
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.remote.awaitResult
 import com.example.flowlog.data.sync.FirebaseCalendarPullDataSource
@@ -359,6 +363,11 @@ class MainActivity : ComponentActivity() {
                     if (!isDeveloper && isDeveloperMode) {
                         isDeveloperMode = false
                         userRoleStore.setDeveloperMode(false)
+                        logAppEvent(
+                            EventType.DEVELOPER_MODE_DISABLED,
+                            EntityType.SETTING,
+                            EventMetadata.developerMode("not_developer")
+                        )
                     }
                 }
 
@@ -672,6 +681,11 @@ class MainActivity : ComponentActivity() {
                                                 val newMode = !isDeveloperMode
                                                 isDeveloperMode = newMode
                                                 userRoleStore.setDeveloperMode(newMode)
+                                                logAppEvent(
+                                                    if (newMode) EventType.DEVELOPER_MODE_ENABLED else EventType.DEVELOPER_MODE_DISABLED,
+                                                    EntityType.SETTING,
+                                                    EventMetadata.developerMode("user_toggle")
+                                                )
                                             },
                                             isNotificationSoundEnabled = isNotificationSoundEnabled,
                                             onToggleNotificationSound = {
@@ -760,6 +774,21 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         registerNetworkSync()
         FirebaseAuth.getInstance().currentUser?.uid?.let(::startCalendarSubscription)
+        if (!accountDeletionGate) logAppEvent(EventType.APP_FOREGROUNDED)
+    }
+
+    /** One event_logs row from this screen; a failure to log never affects the UI. */
+    private fun logAppEvent(eventType: String, entityType: String? = null, metadataJson: String? = null) {
+        val appContext = applicationContext
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                EventLogRepository(appContext).log(
+                    eventType = eventType,
+                    entityType = entityType,
+                    metadataJson = metadataJson
+                )
+            }
+        }
     }
 
     override fun onResume() {

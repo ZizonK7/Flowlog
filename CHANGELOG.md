@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Event log now covers 37 of the 39 kinds in `EventType.kt` (was 22): timer
+  ends without a record, favorites, daily-goal item clicks/completions/skips,
+  reminder shown/clicked/dismissed (new `NotificationDismissReceiver`),
+  developer mode, five setting switches, app foreground, export, sync
+  start/result, and database migrations. Same `event_logs` table and Room
+  version; metadata strings come from `EventMetadata` (unit tested), and
+  `EventTypeCoverageTest` fails when a kind is logged nowhere.
+  `MIGRATION_STARTED`/`MIGRATION_FAILED` stay unlogged (no safe moment).
 - Version 0.6.0 (versionCode 27) is the first build with the PC web app link-up
   below (shared timer, web todo pull). The web app (`/app/`) asks for 0.6.0 or
   later and hides that notice once this phone has written the timer document.

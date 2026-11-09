@@ -48,6 +48,9 @@
             android:name=".notification.InactivityReminderClickReceiver"
             android:exported="false" />
         <receiver
+            android:name=".notification.NotificationDismissReceiver"
+            android:exported="false" />
+        <receiver
             android:name=".notification.AutoButtonAlarmReceiver"
             android:exported="false" />
         <receiver

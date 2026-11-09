@@ -280,6 +280,51 @@ users/{uid}/interactionDecisions
 
 The last two live directly under `users/{uid}`, outside `flowlog/`.
 
+### Event log
+
+The app also keeps a raw log of what happens, one Room row per action
+(`event_logs`, uploaded to `eventLogs` with the other pending changes). It is
+not a feature users see; it exists so recommendation and reminder behaviour can
+be checked later against what was actually done. Metadata holds plain facts
+(times, kinds, counts, what was shown or chosen), built in
+`data/repository/EventMetadata.kt`. `EventTypeCoverageTest` fails when a kind in
+`EventType.kt` is logged nowhere and not listed with a reason. Logged kinds:
+
+- `ACTIVITY_STARTED`: an activity started after tapping the inactivity reminder
+  (not every start).
+- `ACTIVITY_SAVED`, `ACTIVITY_UPDATED`, `ACTIVITY_DELETED`: saved, edited,
+  imported, or deleted records.
+- `ACTIVITY_STOPPED`: a running timer ended without a record — the web replaced
+  or stopped it, an auto-button start was undone, or a pause/discard call.
+- `ACTIVITY_FAVORITE_TOGGLED`: the star on a record, with the new value.
+- `TODO_*`: Todos created, edited, completed, uncompleted, deleted, work time
+  added, review stage advanced.
+- `DAILY_GOAL_GENERATED`, `DAILY_GOAL_REFRESHED`, `DAILY_GOAL_ITEM_REPLACED`:
+  today's goal list made, remade, or one item swapped.
+- `DAILY_GOAL_ITEM_CLICKED`, `DAILY_GOAL_ITEM_COMPLETED`: a goal item started
+  or completed (only when a row actually changed; `via` names the call).
+- `DAILY_GOAL_ITEM_SKIPPED`: a past day's item never started that day, marked
+  when past recommendations are reconciled.
+- `NOTIFICATION_SHOWN`, `NOTIFICATION_CLICKED`, `NOTIFICATION_DISMISSED`: the
+  inactivity, planned-Todo, and toothbrush reminders (clicks for the first two;
+  the toothbrush alert removes itself after 3 s, which may also count as a
+  dismissal — `dismissedAt - shownAt` tells the two apart).
+- `FOCUS_MODE_STARTED`, `FOCUS_MODE_STOPPED`: focus mode on and off.
+- `FLOW_RECOMMENDATION_*`: a flow recommendation shown, opened, started, or
+  completed.
+- `DEVELOPER_MODE_ENABLED`, `DEVELOPER_MODE_DISABLED`: the developer switch,
+  including the automatic switch-off for non-developer accounts.
+- `SETTING_CHANGED`: notification sound, inactivity reminder, timetable
+  auto-place, timetable reminder, and per-schedule auto-button switches
+  (`key`, `value`).
+- `APP_FOREGROUNDED`: the main screen came to the foreground.
+- `EXPORT_CREATED`: a CSV/JSON export written, with the record count.
+- `SYNC_STARTED`, `SYNC_SUCCEEDED`, `SYNC_FAILED`: each upload/pull run with
+  its counts (these rows go up with the next sync).
+- `MIGRATION_COMPLETED`: the first open after a database version change.
+  `MIGRATION_STARTED` and `MIGRATION_FAILED` are not logged: nothing can be
+  written to the database before or during a migration.
+
 ## Title Suggestion Scoring
 
 `ActivityTitleSuggestionRanker` ranks titles from saved, completed sessions in
