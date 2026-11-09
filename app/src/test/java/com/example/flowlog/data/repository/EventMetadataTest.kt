@@ -97,6 +97,15 @@ class EventMetadataTest {
             EventMetadata.externalSamplesFetched("health_connect", 100L, 200L, 0, 0, 0, error = "SecurityException")
         )
         assertEquals("external_data_health_connect_enabled", EventMetadata.SettingKey.EXTERNAL_DATA_HEALTH_CONNECT)
+        assertEquals("external_data_usage_stats_enabled", EventMetadata.SettingKey.EXTERNAL_DATA_USAGE_STATS)
+        assertEquals(
+            """{"provider":"usage_stats","window_start":1,"window_end":2,"fetched":0,"inserted":0,"updated":0,"kinds":["app_foreground_daily"],"screen_events_supported":false}""",
+            EventMetadata.externalSamplesFetched(
+                "usage_stats", 1L, 2L, 0, 0, 0,
+                kinds = listOf("app_foreground_daily"),
+                screenEventsSupported = false
+            )
+        )
     }
     @Test
     fun nestedMapsAndListsKeepNulls() {

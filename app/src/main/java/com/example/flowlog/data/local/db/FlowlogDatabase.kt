@@ -90,7 +90,7 @@ import kotlinx.coroutines.launch
         LectureCalendarInfoEntity::class,
         DailyCueEntity::class,
 
-        // Phase 6 — External samples (Health Connect; usage statistics later)
+        // Phase 6 — External samples (Health Connect, app usage statistics)
         ExternalSampleEntity::class,
     ],
     version = 25,

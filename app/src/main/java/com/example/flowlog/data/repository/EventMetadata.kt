@@ -24,6 +24,8 @@ object EventMetadata {
         const val AUTO_BUTTON_SCHEDULE = "auto_button_schedule_enabled"
         /** ExternalDataSettingsStore.setHealthConnectEnabled */
         const val EXTERNAL_DATA_HEALTH_CONNECT = "external_data_health_connect_enabled"
+        /** ExternalDataSettingsStore.setUsageStatsEnabled */
+        const val EXTERNAL_DATA_USAGE_STATS = "external_data_usage_stats_enabled"
     }
 
     /** Notification kinds written in the `type` field of NOTIFICATION_* events. */
@@ -286,6 +288,8 @@ object EventMetadata {
      * (snake_case `window_*`). [fetched] = rows read, [inserted]/[updated] = rows written;
      * the rest were unchanged. [error] = exception class name or a short reason; the counts
      * are 0 then. [trigger] = what started it, [kinds] = the record kinds read.
+     * [screenEventsSupported] = false only for usage statistics below Android 9 (no screen
+     * events there); left out otherwise.
      */
     fun externalSamplesFetched(
         provider: String,
@@ -296,7 +300,8 @@ object EventMetadata {
         updated: Int,
         error: String? = null,
         trigger: String? = null,
-        kinds: List<String>? = null
+        kinds: List<String>? = null,
+        screenEventsSupported: Boolean? = null
     ): String = json(
         "provider" to provider,
         "window_start" to windowStart,
@@ -306,7 +311,8 @@ object EventMetadata {
         "updated" to updated,
         "error" to error,
         "trigger" to trigger,
-        "kinds" to kinds
+        "kinds" to kinds,
+        "screen_events_supported" to screenEventsSupported
     )
 
     /**

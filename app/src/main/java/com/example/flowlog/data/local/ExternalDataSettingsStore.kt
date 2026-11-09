@@ -10,7 +10,7 @@ import android.content.Context
 object ExternalDataSettingsStore {
     private const val PREFS_NAME = "external_data_settings"
     private const val KEY_HEALTH_CONNECT_ENABLED = "health_connect_enabled"
-    // Round 2 (usage statistics); no reader yet.
+    // Usage statistics (UsageStatsCollector).
     private const val KEY_USAGE_STATS_ENABLED = "usage_stats_enabled"
     private const val SUFFIX_LAST_ATTEMPT_AT = "_last_attempt_at"
     private const val SUFFIX_LAST_FETCHED_AT = "_last_fetched_at"

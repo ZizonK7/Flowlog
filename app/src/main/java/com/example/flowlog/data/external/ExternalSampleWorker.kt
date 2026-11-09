@@ -14,11 +14,13 @@ import com.example.flowlog.data.local.ExternalDataSettingsStore
 import java.util.concurrent.TimeUnit
 
 /**
- * Runs one Health Connect fetch. Started every 6 hours while the switch is on, right after
- * it is turned on, and on app foreground when the last try is 6 hours old
- * ([ExternalSampleScheduler]). Does nothing when the switch is off (a periodic request that
- * outlived the switch, e.g. after an account wipe, ends here). A failed fetch is recorded as
- * an event and not retried: the next period or foreground tries again.
+ * Runs one fetch for each provider that is switched on (Health Connect, usage statistics),
+ * or only for the one named in the input. Started every 6 hours while any switch is on, right
+ * after a switch is turned on, and on app foreground for each provider whose last try is
+ * 6 hours old ([ExternalSampleScheduler]). One provider failing does not stop the other; each
+ * collector records its own EXTERNAL_SAMPLES_FETCHED. A failed fetch is not retried: the next
+ * period or foreground tries again. With every switch off it does nothing (a periodic request
+ * that outlived the switches, e.g. after an account wipe, ends here).
  */
 class ExternalSampleWorker(
     appContext: Context,
@@ -26,26 +28,43 @@ class ExternalSampleWorker(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
-        if (!ExternalDataSettingsStore.isHealthConnectEnabled(applicationContext)) return Result.success()
-        // Inline check (not HealthConnectAccess.isSupported) so lint sees the API 28 guard.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return Result.success()
         val trigger = inputData.getString(KEY_TRIGGER) ?: ExternalSampleScheduler.TRIGGER_PERIODIC
-        runCatching { HealthConnectCollector(applicationContext).collect(trigger) }
+        val only = inputData.getString(KEY_PROVIDER)
+        fun wanted(provider: String) = only == null || only == provider
+
+        if (wanted(ExternalSampleProvider.HEALTH_CONNECT) &&
+            ExternalDataSettingsStore.isHealthConnectEnabled(applicationContext) &&
+            // Inline check (not HealthConnectAccess.isSupported) so lint sees the API 28 guard.
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+        ) {
+            runCatching { HealthConnectCollector(applicationContext).collect(trigger) }
+        }
+        if (wanted(ExternalSampleProvider.USAGE_STATS) &&
+            ExternalDataSettingsStore.isUsageStatsEnabled(applicationContext)
+        ) {
+            runCatching { UsageStatsCollector(applicationContext).collect(trigger) }
+        }
         return Result.success()
     }
 
     companion object {
         const val KEY_TRIGGER = "trigger"
+        /** Absent = every provider that is on. */
+        const val KEY_PROVIDER = "provider"
     }
 }
 
 /** Starts and stops [ExternalSampleWorker]. WorkManager uses its default initializer (no custom Application). */
 object ExternalSampleScheduler {
     private const val PERIODIC_WORK_NAME = "flowlog-external-samples-periodic"
-    private const val ONE_TIME_WORK_NAME = "flowlog-external-samples-now"
+    // One queue per provider, so turning one on never drops the other's queued fetch (KEEP).
+    private const val ONE_TIME_WORK_PREFIX = "flowlog-external-samples-now-"
     const val TRIGGER_PERIODIC = "periodic"
     const val TRIGGER_ENABLED = "enabled"
     const val TRIGGER_FOREGROUND = "foreground"
+
+    fun anyEnabled(context: Context): Boolean =
+        ExternalDataSettingsStore.isHealthConnectEnabled(context) || ExternalDataSettingsStore.isUsageStatsEnabled(context)
 
     /** Registers the 6-hour work; an existing one is kept (its schedule is not reset). */
     fun ensurePeriodic(context: Context) {
@@ -56,28 +75,48 @@ object ExternalSampleScheduler {
             .enqueueUniquePeriodicWork(PERIODIC_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
     }
 
-    fun cancel(context: Context) {
-        val workManager = WorkManager.getInstance(context.applicationContext)
-        workManager.cancelUniqueWork(PERIODIC_WORK_NAME)
-        workManager.cancelUniqueWork(ONE_TIME_WORK_NAME)
+    /** A switch was turned off: drop its queued fetch, and the periodic work once both are off. */
+    fun onProviderDisabled(context: Context, provider: String) {
+        val appContext = context.applicationContext
+        val workManager = WorkManager.getInstance(appContext)
+        workManager.cancelUniqueWork(ONE_TIME_WORK_PREFIX + provider)
+        if (!anyEnabled(appContext)) workManager.cancelUniqueWork(PERIODIC_WORK_NAME)
     }
 
-    /** One fetch as soon as possible; a fetch already queued is kept instead of doubled. */
-    fun runNow(context: Context, trigger: String) {
+    /** One fetch of [provider] as soon as possible; a fetch already queued for it is kept. */
+    fun runNow(context: Context, trigger: String, provider: String) {
         val request = OneTimeWorkRequestBuilder<ExternalSampleWorker>()
-            .setInputData(workDataOf(ExternalSampleWorker.KEY_TRIGGER to trigger))
+            .setInputData(
+                workDataOf(
+                    ExternalSampleWorker.KEY_TRIGGER to trigger,
+                    ExternalSampleWorker.KEY_PROVIDER to provider
+                )
+            )
             .build()
         WorkManager.getInstance(context.applicationContext)
-            .enqueueUniqueWork(ONE_TIME_WORK_NAME, ExistingWorkPolicy.KEEP, request)
+            .enqueueUniqueWork(ONE_TIME_WORK_PREFIX + provider, ExistingWorkPolicy.KEEP, request)
     }
 
-    /** App came to the foreground: keep the periodic work and fetch once if 6 hours have passed. */
+    /**
+     * App came to the foreground: keep the periodic work and fetch each provider that is on
+     * and whose last try is 6 hours old. Usage statistics without access is skipped here
+     * (the Settings row shows it); it is tried as soon as access is on.
+     */
     fun onForeground(context: Context, now: Long = System.currentTimeMillis()) {
         val appContext = context.applicationContext
-        if (!ExternalDataSettingsStore.isHealthConnectEnabled(appContext)) return
-        if (!HealthConnectAccess.isSupported()) return
+        if (!anyEnabled(appContext)) return
         ensurePeriodic(appContext)
-        val lastAttempt = ExternalDataSettingsStore.lastAttemptAt(appContext, ExternalSampleProvider.HEALTH_CONNECT)
-        if (ExternalSamples.isFetchDue(lastAttempt, now)) runNow(appContext, TRIGGER_FOREGROUND)
+        if (ExternalDataSettingsStore.isHealthConnectEnabled(appContext) && HealthConnectAccess.isSupported()) {
+            val lastAttempt = ExternalDataSettingsStore.lastAttemptAt(appContext, ExternalSampleProvider.HEALTH_CONNECT)
+            if (ExternalSamples.isFetchDue(lastAttempt, now)) {
+                runNow(appContext, TRIGGER_FOREGROUND, ExternalSampleProvider.HEALTH_CONNECT)
+            }
+        }
+        if (ExternalDataSettingsStore.isUsageStatsEnabled(appContext) && UsageAccess.isGranted(appContext)) {
+            val lastAttempt = ExternalDataSettingsStore.lastAttemptAt(appContext, ExternalSampleProvider.USAGE_STATS)
+            if (ExternalSamples.isFetchDue(lastAttempt, now)) {
+                runNow(appContext, TRIGGER_FOREGROUND, ExternalSampleProvider.USAGE_STATS)
+            }
+        }
     }
 }

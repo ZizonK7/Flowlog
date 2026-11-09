@@ -7,7 +7,7 @@ import java.util.TimeZone
 /** `external_samples.provider`: where a sample was read. */
 object ExternalSampleProvider {
     const val HEALTH_CONNECT = "health_connect"
-    /** Round 2 (not collected yet): Android usage statistics. */
+    /** Android usage statistics (UsageStatsCollector). */
     const val USAGE_STATS = "usage_stats"
 }
 
@@ -16,9 +16,9 @@ object ExternalSampleKind {
     const val SLEEP_SESSION = "sleep_session"
     const val STEPS_DAILY = "steps_daily"
     const val EXERCISE_SESSION = "exercise_session"
-    /** Round 2 (not collected yet). */
+    /** Per package and local day: ms in front (UsageStatsAggregation). */
     const val APP_FOREGROUND_DAILY = "app_foreground_daily"
-    /** Round 2 (not collected yet). */
+    /** One screen-on interval, Android 9+ (UsageStatsAggregation). */
     const val SCREEN_INTERACTIVE = "screen_interactive"
 }
 
@@ -77,6 +77,9 @@ enum class UpsertAction { INSERT, UPDATE, UNCHANGED }
 /** Whether Health Connect can be used on this phone at all. */
 enum class HealthConnectAvailability { NOT_SUPPORTED, NOT_INSTALLED, UPDATE_REQUIRED, AVAILABLE }
 
+/** What the "앱 사용 통계" settings row shows. */
+enum class UsageStatsState { OFF, NO_PERMISSION, CONNECTED }
+
 /** What the settings row shows. */
 enum class HealthConnectState { NOT_SUPPORTED, NOT_INSTALLED, UPDATE_REQUIRED, OFF, NO_PERMISSION, CONNECTED_PARTIAL, CONNECTED }
 
@@ -96,17 +99,31 @@ object ExternalSamples {
     private const val DAY_MILLIS = 24L * 60 * 60 * 1000
 
     /**
-     * `<provider>:<kind>:<startTime>:<endTime>:<sourcePackage>` as plain text, so reading
-     * the same sample again lands on the same row (and the same Firestore document).
+     * Plain text, so reading the same sample again lands on the same row (and the same
+     * Firestore document):
+     * - with a [recordId] (Health Connect sleep and exercise sessions): `<provider>:<kind>:<recordId>`,
+     *   so a session whose times were edited in the source app still overwrites its own row;
+     * - otherwise `<provider>:<kind>:<startTime>:<endTime>:<sourcePackage>` (`-` for no app).
+     * A record id with `/` (not a valid Firestore document id) falls back to the second form.
      */
-    fun sampleId(provider: String, kind: String, startTime: Long, endTime: Long, sourcePackage: String?): String =
-        listOf(
+    fun sampleId(
+        provider: String,
+        kind: String,
+        startTime: Long,
+        endTime: Long,
+        sourcePackage: String?,
+        recordId: String? = null
+    ): String {
+        val record = recordId?.trim()?.takeIf { it.isNotEmpty() && '/' !in it }
+        if (record != null) return listOf(provider, kind, record).joinToString(":")
+        return listOf(
             provider,
             kind,
             startTime.toString(),
             endTime.toString(),
             sourcePackage?.trim()?.takeIf { it.isNotEmpty() } ?: NO_SOURCE_KEY
         ).joinToString(":")
+    }
 
     fun minutesBetween(startMillis: Long, endMillis: Long): Double =
         (endMillis - startMillis).coerceAtLeast(0L) / 60_000.0
@@ -121,7 +138,8 @@ object ExternalSamples {
                 ExternalSampleKind.SLEEP_SESSION,
                 input.startMillis,
                 input.endMillis,
-                input.sourcePackage
+                input.sourcePackage,
+                recordId = input.recordId
             ),
             provider = ExternalSampleProvider.HEALTH_CONNECT,
             kind = ExternalSampleKind.SLEEP_SESSION,
@@ -140,7 +158,8 @@ object ExternalSamples {
             ExternalSampleKind.EXERCISE_SESSION,
             input.startMillis,
             input.endMillis,
-            input.sourcePackage
+            input.sourcePackage,
+            recordId = input.recordId
         ),
         provider = ExternalSampleProvider.HEALTH_CONNECT,
         kind = ExternalSampleKind.EXERCISE_SESSION,
@@ -215,6 +234,12 @@ object ExternalSamples {
         existing == null -> UpsertAction.INSERT
         !sameOwner || existing != incoming -> UpsertAction.UPDATE
         else -> UpsertAction.UNCHANGED
+    }
+
+    fun usageStatsState(enabled: Boolean, granted: Boolean): UsageStatsState = when {
+        !enabled -> UsageStatsState.OFF
+        !granted -> UsageStatsState.NO_PERMISSION
+        else -> UsageStatsState.CONNECTED
     }
 
     fun healthConnectState(

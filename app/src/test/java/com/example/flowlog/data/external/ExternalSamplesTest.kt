@@ -41,6 +41,19 @@ class ExternalSamplesTest {
     }
 
     @Test
+    fun sampleIdUsesTheRecordIdWhenThereIsOne() {
+        assertEquals("health_connect:sleep_session:abc-1", ExternalSamples.sampleId("health_connect", "sleep_session", 1L, 2L, "a", recordId = "abc-1"))
+        // Times edited in the source app: same record, same id.
+        assertEquals(
+            ExternalSamples.sampleId("health_connect", "sleep_session", 1L, 2L, "a", recordId = "abc-1"),
+            ExternalSamples.sampleId("health_connect", "sleep_session", 5L, 9L, "a", recordId = "abc-1")
+        )
+        // Blank or not a valid Firestore document id: back to the time-based form.
+        assertEquals("health_connect:sleep_session:1:2:a", ExternalSamples.sampleId("health_connect", "sleep_session", 1L, 2L, "a", recordId = " "))
+        assertEquals("health_connect:sleep_session:1:2:a", ExternalSamples.sampleId("health_connect", "sleep_session", 1L, 2L, "a", recordId = "x/y"))
+    }
+
+    @Test
     fun sleepSessionBecomesMinutesWithSortedStagesInPayload() {
         val start = todayMidnight - 2 * hour      // 22:00 the day before
         val end = todayMidnight + 6 * hour + 30 * 60_000L  // 06:30
@@ -56,7 +69,7 @@ class ExternalSamplesTest {
                 )
             )
         )
-        assertEquals("health_connect:sleep_session:$start:$end:com.example.health", row.sampleId)
+        assertEquals("health_connect:sleep_session:r1", row.sampleId)
         assertEquals(ExternalSampleProvider.HEALTH_CONNECT, row.provider)
         assertEquals(ExternalSampleKind.SLEEP_SESSION, row.kind)
         assertEquals(510.0, row.value, 0.0001)
@@ -91,6 +104,7 @@ class ExternalSamplesTest {
                 title = "Evening \"run\""
             )
         )
+        assertEquals("health_connect:exercise_session:e1", row.sampleId)
         assertEquals(ExternalSampleKind.EXERCISE_SESSION, row.kind)
         assertEquals(45.0, row.value, 0.0001)
         assertEquals(ExternalSampleUnit.MINUTES, row.unit)
@@ -99,6 +113,7 @@ class ExternalSamplesTest {
             ExerciseSessionInput(recordId = null, startMillis = 0L, endMillis = 0L, sourcePackage = null, exerciseType = 0, title = " ")
         )
         assertEquals("""{"exerciseType":0}""", untitled.payloadJson)
+        assertEquals("health_connect:exercise_session:0:0:-", untitled.sampleId)
         assertEquals(0.0, untitled.value, 0.0)
     }
 
@@ -183,5 +198,12 @@ class ExternalSamplesTest {
         assertEquals(HealthConnectState.NO_PERMISSION, state(HealthConnectAvailability.AVAILABLE, true, 0))
         assertEquals(HealthConnectState.CONNECTED_PARTIAL, state(HealthConnectAvailability.AVAILABLE, true, 2))
         assertEquals(HealthConnectState.CONNECTED, state(HealthConnectAvailability.AVAILABLE, true, 3))
+    }
+
+    @Test
+    fun usageStatsStateFollowsSwitchThenAccess() {
+        assertEquals(UsageStatsState.OFF, ExternalSamples.usageStatsState(enabled = false, granted = true))
+        assertEquals(UsageStatsState.NO_PERMISSION, ExternalSamples.usageStatsState(enabled = true, granted = false))
+        assertEquals(UsageStatsState.CONNECTED, ExternalSamples.usageStatsState(enabled = true, granted = true))
     }
 }

@@ -5,7 +5,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
  * v24 → v25 (비파괴)
- * - external_samples 신규: 폰의 다른 곳(Health Connect, 나중에 사용 통계)에서 읽은 샘플
+ * - external_samples 신규: 폰의 다른 곳(Health Connect, 앱 사용 통계)에서 읽은 샘플
  */
 object FlowlogMigration24To25 : Migration(24, 25) {
     override fun migrate(db: SupportSQLiteDatabase) {

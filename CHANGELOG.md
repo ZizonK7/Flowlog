@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Added app usage samples (off by default): Settings > 외부 데이터 > "앱 사용
+  통계" opens the system usage-access screen (`PACKAGE_USAGE_STATS`, checked
+  through AppOps) and shows the state. From the system usage events of the
+  same window the app builds per-package foreground time per local day
+  (`app_foreground_daily`, cut at midnight, today's row partial) and screen-on
+  intervals (`screen_interactive`, Android 9+) into `external_samples`
+  (no Room version change); package names are stored as they are. The
+  `ExternalSampleWorker` now runs each provider that is on (one failing does not
+  stop the other, one `EXTERNAL_SAMPLES_FETCHED` each) and the periodic work is
+  cancelled only when both are off. Health Connect sleep and exercise sessions
+  are now keyed by their record id, so edited session times overwrite the same
+  row. Unit tests `UsageStatsAggregationTest`.
 - Added Health Connect samples (off by default): Settings > 외부 데이터 >
   "건강 데이터(Health Connect)" asks for read access to sleep, steps, and
   exercise, shows the state, last fetch, and 7-day sample count, and turns it

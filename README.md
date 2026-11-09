@@ -270,7 +270,7 @@ users/{uid}/flowlog/data/dailyGoalItems
 users/{uid}/flowlog/data/dailyCues
 users/{uid}/flowlog/data/calendarEvents
 users/{uid}/flowlog/data/assistantSnapshots
-users/{uid}/flowlog/data/externalSamples   (Health Connect samples, see below)
+users/{uid}/flowlog/data/externalSamples   (Health Connect and app usage samples, see below)
 users/{uid}/flowlog/config          (main button configuration)
 users/{uid}/flowlog/timer           (running timer shared with the PC web app)
 users/{uid}/flowlog/metadata        (last sync time; older builds only, no longer written)
@@ -281,7 +281,7 @@ users/{uid}/interactionDecisions
 
 The last two live directly under `users/{uid}`, outside `flowlog/`.
 
-### External samples (Health Connect)
+### External samples (Health Connect, app usage)
 
 Off by default. Settings > 외부 데이터 > "건강 데이터(Health Connect)" asks for
 read access to sleep, steps, and exercise (Android 9 or later; on Android 13
@@ -297,9 +297,13 @@ their stages), one total per local day of steps (Health Connect's own
 aggregate, which removes steps several apps wrote twice), and exercise sessions
 (type id and title). The window is the last 7 days from local midnight (the
 first fetch: 30, Health Connect's limit before the first grant). Each sample is
-one row of the Room table `external_samples` (v25), keyed by
+one row of the Room table `external_samples` (v25). Sleep and exercise
+sessions are keyed by Health Connect's record id (`health_connect:<kind>:<id>`),
+so a session whose times were edited in the source app still overwrites its own
+row; everything else (and a session without an id) by
 `<provider>:<kind>:<start>:<end>:<source app>` (steps: `aggregate` instead of
-the app), so a re-read overwrites its row and changed ones upload again. Rows
+the app). A re-read overwrites its row and changed ones upload again; a session
+deleted in Health Connect is not deleted here. Rows
 are uploaded with the other pending changes to
 `users/{uid}/flowlog/data/externalSamples/{sampleId}` (samples that started
 before today in the midnight run). They are not pulled back on reinstall: the
@@ -310,6 +314,25 @@ and when the app comes to the foreground 6 hours after the last try. Each fetch
 leaves an `EXTERNAL_SAMPLES_FETCHED` event, failures included. The 6-hour
 background fetch needs Health Connect's "read in background" permission (asked
 together with the others); without it only the foreground fetch reads.
+
+App usage (`data/external/UsageStatsCollector.kt`) is a second switch in the
+same place, "앱 사용 통계", also off by default. It needs the system's "사용 정보
+접근" (usage access, `PACKAGE_USAGE_STATS`), which only the user can turn on in
+system settings; the row opens that screen and shows no permission / connected
+(last fetch, samples in the last 7 days). It reads the system usage events over
+the same window (the system may keep fewer days and then gives what it has) and
+builds two kinds itself (`UsageStatsAggregation.kt`, unit tested) instead of
+using the system's daily buckets, whose day boundaries differ between devices:
+`app_foreground_daily`, one row per app package and local day (0:00 to the next
+day's 0:00) with the milliseconds an activity of that app was in front
+(resume/pause pairs, cut at midnight, overlapping activities of one app counted
+once, `{sessions}` in the payload); and `screen_interactive`, one row per
+screen-on → screen-off interval (Android 9+, not cut at midnight; a screen still
+on is read on the next fetch). Package names are stored as they are, not app
+names, and Flowlog itself is a row like any other. Today's rows are always
+partial and are overwritten by each fetch until the day ends. No notification
+listener, notification contents, or locations. Each provider leaves its own
+`EXTERNAL_SAMPLES_FETCHED` per fetch, and one failing does not stop the other.
 
 The samples are only stored: sleep is not turned into an activity (the existing
 "fill a gap as sleep" stays as it is) and nothing here feeds a recommendation.
@@ -380,11 +403,13 @@ be checked later against what was actually done. Metadata holds plain facts
 - `DEVELOPER_MODE_ENABLED`, `DEVELOPER_MODE_DISABLED`: the developer switch,
   including the automatic switch-off for non-developer accounts.
 - `SETTING_CHANGED`: notification sound, inactivity reminder, timetable
-  auto-place, timetable reminder, per-schedule auto-button, and Health
-  Connect (`external_data_health_connect_enabled`) switches (`key`, `value`).
-- `EXTERNAL_SAMPLES_FETCHED`: one Health Connect fetch, success or failure
-  (`provider`, `window_start`, `window_end`, `fetched`, `inserted`, `updated`,
-  `error` when it failed, `trigger`, `kinds` read).
+  auto-place, timetable reminder, per-schedule auto-button, Health Connect
+  (`external_data_health_connect_enabled`), and app usage
+  (`external_data_usage_stats_enabled`) switches (`key`, `value`).
+- `EXTERNAL_SAMPLES_FETCHED`: one fetch of one provider (`health_connect` or
+  `usage_stats`), success or failure (`provider`, `window_start`, `window_end`,
+  `fetched`, `inserted`, `updated`, `error` when it failed, `trigger`, `kinds`
+  read; `screen_events_supported: false` for usage below Android 9).
 - `APP_FOREGROUNDED`: the main screen came to the foreground.
 - `EXPORT_CREATED`: a CSV/JSON export written, with the record count.
 - `SYNC_STARTED`, `SYNC_SUCCEEDED`, `SYNC_FAILED`: each upload/pull run with
@@ -428,6 +453,7 @@ rules are documented in the ranker source.
 - Kotlin Serialization
 - WorkManager
 - Health Connect client (read only; sleep, steps, exercise)
+- UsageStatsManager usage events (app foreground time, screen on/off)
 - Credential Manager with Google ID (Google sign-in)
 - Firebase Authentication
 - Cloud Firestore

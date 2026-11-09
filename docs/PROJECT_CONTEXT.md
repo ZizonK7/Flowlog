@@ -142,8 +142,10 @@ Android stores local data with Room. Core entities include activity sessions,
 Todos, event logs, daily goal recommendations, daily goal items, organized
 Petites, daily cues, calendar events, and routine schedules.
 `external_samples` (v25) holds data read from elsewhere on the phone — Health
-Connect sleep, daily steps, and exercise when the user turns it on — kept apart
-from activities and not used by recommendations (README "External samples").
+Connect sleep, daily steps, and exercise, and per-app foreground time per day
+and screen-on intervals from the system usage events, each when the user turns
+it on — kept apart from activities and not used by recommendations (README
+"External samples").
 
 Firestore is used as a synced copy for web reporting, analysis, and restore.
 The full path list is maintained in README ("Data & Sync"); some paths
@@ -216,15 +218,17 @@ Prefer:
 
 ## Planned Cleanup
 
-### Drop exam leftovers at the next schema migration
+### Drop exam leftovers when the user decides
 
 The university exam feature was removed on 2026-09-30 without a Room version
 bump. Its storage is still in the v24 schema: the `exam_strategy_checks` table
 (`ExamStrategyCheckEntity` stays registered in `FlowlogDatabase` only for this
 reason) and the exam columns on `organized_petites` (`isSeverelyBehind`,
 `totalStudyMinutesSinceD7`, `studiedDaysSinceD7`, `missedDaysSinceD7`,
-`examDValue`), which are now written as null. Drop them in the next migration
-that changes the schema for another reason. `TodoDao.downgradeRetiredExamTodos`
+`examDValue`), which are now written as null. Drop them once the user decides
+to, together with whatever schema change happens then (2026-11-09: not done in
+v25, which added `external_samples`, because there was no decision yet).
+`TodoDao.downgradeRetiredExamTodos`
 can go once no synced Todo still has `category = UNIVERSITY_EXAM`.
 
 ## Future Review Questions

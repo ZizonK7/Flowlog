@@ -7,7 +7,7 @@ import androidx.room.PrimaryKey
 import com.example.flowlog.data.constants.SyncStatus
 
 /**
- * Data read from elsewhere on the phone (v25). Health Connect now; usage statistics later.
+ * Data read from elsewhere on the phone (v25). Health Connect and app usage statistics.
  * Kept apart from activities: nothing here becomes an activity or feeds a recommendation.
  * sampleId = ExternalSamples.sampleId(...), so a re-read sample overwrites its own row.
  * Uploaded to users/{uid}/flowlog/data/externalSamples/{sampleId}.

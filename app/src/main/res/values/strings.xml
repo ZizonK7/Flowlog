@@ -373,6 +373,12 @@
     <string name="settings_health_connect_install">설치</string>
     <string name="settings_health_connect_update">업데이트</string>
     <string name="settings_health_connect_turn_off">끄기</string>
+    <!-- External data (Settings dialog): usage statistics -->
+    <string name="settings_usage_stats_title">앱 사용 통계</string>
+    <string name="settings_usage_stats_off">꺼짐 · 앱별 사용 시간과 화면 켜짐을 읽지 않아요</string>
+    <string name="settings_usage_stats_no_permission">권한 없음 · \'사용 정보 접근\'에서 Flowlog를 허용해 주세요</string>
+    <string name="settings_usage_stats_connected">연결됨 · 마지막 수집 %1$s · 지난 7일 샘플 %2$d개</string>
+    <string name="settings_usage_stats_open_settings">설정 열기</string>
     <string name="health_connect_rationale_title">Flowlog가 읽는 건강 데이터</string>
     <string name="health_connect_rationale_body">Flowlog는 Health Connect에서 수면 기록, 하루 걸음 수, 운동 기록(종류·제목·시작·끝)만 읽어요. 쓰거나 고치지 않고, 운동 경로(위치)나 다른 건강 데이터는 읽지 않아요. 읽은 값은 이 폰에 따로 저장되고, 로그인하면 내 계정의 동기화 사본에 함께 올라가요. 활동 기록을 바꾸거나 추천에 쓰지 않으며, 나중에 내 활동 기록과 견줘 보려고 모아 둬요. 설정의 \'건강 데이터(Health Connect)\'에서 언제든 끌 수 있어요.</string>
     <string name="import_activities_button">기록 가져오기(JSON)</string>

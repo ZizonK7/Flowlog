@@ -22,6 +22,15 @@
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
 
     <!--
+        App usage statistics: per-app foreground time and screen on/off from the system usage
+        events. A special access the user turns on in system settings ("사용 정보 접근"),
+        only when "앱 사용 통계" is turned on in Settings. No notification listener.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!--
         minSdk is 24 but every Health Connect call is behind API 28. 미확인: whether
         connect-client 1.1.0 declares a minSdk above 24; if it does not, this line is harmless.
     -->

@@ -179,6 +179,12 @@ import com.example.flowlog.data.external.HealthConnectAccess
 import com.example.flowlog.data.external.HealthConnectAvailability
 import com.example.flowlog.data.external.HealthConnectState
 import com.example.flowlog.data.external.HealthConnectStatus
+import com.example.flowlog.data.external.ExternalSampleProvider
+import com.example.flowlog.data.external.UsageAccess
+import com.example.flowlog.data.external.UsageStatsState
+import com.example.flowlog.data.external.UsageStatsStatus
+import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.example.flowlog.data.local.ExternalDataSettingsStore
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -193,6 +199,8 @@ class MainActivity : ComponentActivity() {
     private var showExactAlarmPrompt by mutableStateOf(false)
     // Health Connect: 설정 창 "건강 데이터" 행의 상태. onResume과 설정 창을 열 때 다시 읽는다.
     private var healthConnectStatus by mutableStateOf(HealthConnectStatus())
+    // 앱 사용 통계: 설정 창 "앱 사용 통계" 행의 상태(사용 정보 접근은 시스템 설정에서만 켠다).
+    private var usageStatsStatus by mutableStateOf(UsageStatsStatus())
     private val healthConnectPermissionLauncher =
         registerForActivityResult(HealthConnectAccess.permissionContract()) { granted ->
             onHealthConnectPermissionResult(granted)
@@ -730,7 +738,13 @@ class MainActivity : ComponentActivity() {
                                             healthConnectStatus = healthConnectStatus,
                                             onHealthConnectAction = { onHealthConnectAction() },
                                             onHealthConnectTurnOff = { setHealthConnectEnabled(false) },
-                                            onRefreshHealthConnect = { refreshHealthConnectStatus() }
+                                            onRefreshHealthConnect = {
+                                                refreshHealthConnectStatus()
+                                                refreshUsageStatsStatus()
+                                            },
+                                            usageStatsStatus = usageStatsStatus,
+                                            onUsageStatsAction = { onUsageStatsAction() },
+                                            onUsageStatsTurnOff = { setUsageStatsEnabled(false) }
                                         )
                                     },
                                     scrollToMainTimerRequest = homeMainTimerScrollRequest,
@@ -801,7 +815,8 @@ class MainActivity : ComponentActivity() {
         FirebaseAuth.getInstance().currentUser?.uid?.let(::startCalendarSubscription)
         if (!accountDeletionGate) {
             logAppEvent(EventType.APP_FOREGROUNDED)
-            // Health Connect: 켜져 있으면 주기 작업을 유지하고, 마지막 시도가 6시간 지났으면 한 번 수집.
+            // 외부 데이터(Health Connect·앱 사용 통계): 켜진 것이 있으면 주기 작업을 유지하고,
+            // 공급자마다 마지막 시도가 6시간 지났으면 한 번 수집.
             runCatching { ExternalSampleScheduler.onForeground(applicationContext) }
         }
     }
@@ -867,9 +882,13 @@ class MainActivity : ComponentActivity() {
         runCatching {
             if (enabled) {
                 ExternalSampleScheduler.ensurePeriodic(appContext)
-                ExternalSampleScheduler.runNow(appContext, ExternalSampleScheduler.TRIGGER_ENABLED)
+                ExternalSampleScheduler.runNow(
+                    appContext,
+                    ExternalSampleScheduler.TRIGGER_ENABLED,
+                    ExternalSampleProvider.HEALTH_CONNECT
+                )
             } else {
-                ExternalSampleScheduler.cancel(appContext)
+                ExternalSampleScheduler.onProviderDisabled(appContext, ExternalSampleProvider.HEALTH_CONNECT)
             }
         }
         refreshHealthConnectStatus()
@@ -898,13 +917,73 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** 설정 창 "앱 사용 통계" 행의 상태를 다시 읽는다(켜짐·접근 허용·마지막 수집·지난 7일 수). */
+    private fun refreshUsageStatsStatus() {
+        val appContext = applicationContext
+        lifecycleScope.launch {
+            val status = withContext(Dispatchers.IO) {
+                runCatching { UsageAccess.status(appContext) }.getOrNull()
+            }
+            if (status != null) usageStatsStatus = status
+        }
+    }
+
+    /**
+     * 행의 주 버튼. 꺼짐 → 켜고, 접근이 아직 없으면 시스템 "사용 정보 접근" 설정을 연다.
+     * 권한 없음 → 설정을 연다. 돌아오면 onStart가 첫 수집을, onResume이 상태를 맡는다.
+     */
+    private fun onUsageStatsAction() {
+        val granted = UsageAccess.isGranted(this)
+        if (!ExternalDataSettingsStore.isUsageStatsEnabled(applicationContext)) setUsageStatsEnabled(true)
+        if (!granted) UsageAccess.openSettings(this)
+    }
+
+    /** 켜기: 주기 작업 등록, 접근이 있으면 즉시 한 번. 끄기: 그 공급자 작업 취소(샘플은 안 지움). 바뀌면 SETTING_CHANGED. */
+    private fun setUsageStatsEnabled(enabled: Boolean) {
+        val appContext = applicationContext
+        val wasEnabled = ExternalDataSettingsStore.isUsageStatsEnabled(appContext)
+        ExternalDataSettingsStore.setUsageStatsEnabled(appContext, enabled)
+        if (wasEnabled != enabled) {
+            logAppEvent(
+                EventType.SETTING_CHANGED,
+                EntityType.SETTING,
+                EventMetadata.settingChanged(EventMetadata.SettingKey.EXTERNAL_DATA_USAGE_STATS, enabled)
+            )
+        }
+        val granted = UsageAccess.isGranted(appContext)
+        runCatching {
+            if (enabled) {
+                ExternalSampleScheduler.ensurePeriodic(appContext)
+                if (granted) {
+                    ExternalSampleScheduler.runNow(
+                        appContext,
+                        ExternalSampleScheduler.TRIGGER_ENABLED,
+                        ExternalSampleProvider.USAGE_STATS
+                    )
+                }
+            } else {
+                ExternalSampleScheduler.onProviderDisabled(appContext, ExternalSampleProvider.USAGE_STATS)
+            }
+        }
+        refreshUsageStatsStatus()
+        if (enabled && granted) {
+            lifecycleScope.launch {
+                delay(5_000)
+                refreshUsageStatsStatus()
+                delay(15_000)
+                refreshUsageStatsStatus()
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         // 시스템 설정에서 돌아왔을 때 설정 창의 "정확한 알림" 상태를 새로 읽는다.
         exactAlarmStatus = ExactAlarmPermission.status(this)
         if (exactAlarmStatus != ExactAlarmStatus.DENIED) showExactAlarmPrompt = false
-        // Health Connect 권한 화면·스토어에서 돌아왔을 때도 상태를 새로 읽는다.
+        // Health Connect 권한 화면·스토어, "사용 정보 접근" 설정에서 돌아왔을 때도 상태를 새로 읽는다.
         refreshHealthConnectStatus()
+        refreshUsageStatsStatus()
     }
 
     override fun onStop() {
@@ -1143,7 +1222,10 @@ private fun HeaderActions(
     healthConnectStatus: HealthConnectStatus = HealthConnectStatus(),
     onHealthConnectAction: () -> Unit = {},
     onHealthConnectTurnOff: () -> Unit = {},
-    onRefreshHealthConnect: () -> Unit = {}
+    onRefreshHealthConnect: () -> Unit = {},
+    usageStatsStatus: UsageStatsStatus = UsageStatsStatus(),
+    onUsageStatsAction: () -> Unit = {},
+    onUsageStatsTurnOff: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -1657,6 +1739,12 @@ private fun HeaderActions(
                         onAction = onHealthConnectAction,
                         onTurnOff = onHealthConnectTurnOff
                     )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    UsageStatsSettingsRow(
+                        status = usageStatsStatus,
+                        onAction = onUsageStatsAction,
+                        onTurnOff = onUsageStatsTurnOff
+                    )
                     Spacer(modifier = Modifier.height(20.dp))
                     Text(
                         text = stringResource(R.string.main_activity_focus_mode),
@@ -1963,9 +2051,7 @@ private fun HealthConnectSettingsRow(
 ) {
     val state = status.state
     val active = state == HealthConnectState.CONNECTED || state == HealthConnectState.CONNECTED_PARTIAL
-    val lastFetched = status.lastFetchedAt?.let { at ->
-        SimpleDateFormat("M/d HH:mm", Locale.getDefault()).format(Date(at))
-    } ?: stringResource(R.string.settings_health_connect_never)
+    val lastFetched = lastFetchedLabel(status.lastFetchedAt)
     val description = when (state) {
         HealthConnectState.NOT_SUPPORTED -> stringResource(R.string.settings_health_connect_not_supported)
         HealthConnectState.NOT_INSTALLED -> stringResource(R.string.settings_health_connect_not_installed)
@@ -1986,13 +2072,77 @@ private fun HealthConnectSettingsRow(
         HealthConnectState.NOT_SUPPORTED,
         HealthConnectState.CONNECTED -> null
     }
-    val showTurnOff = active || state == HealthConnectState.NO_PERMISSION
+    ExternalSourceSettingsRow(
+        icon = Icons.Filled.Favorite,
+        title = stringResource(R.string.settings_health_connect_title),
+        description = description,
+        active = active,
+        actionLabel = actionLabel,
+        onAction = onAction,
+        showTurnOff = active || state == HealthConnectState.NO_PERMISSION,
+        onTurnOff = onTurnOff
+    )
+}
+
+/** 설정 창 "앱 사용 통계" 행: 상태 글 + 버튼(켜기 / 설정 열기 / 끄기). */
+@Composable
+private fun UsageStatsSettingsRow(
+    status: UsageStatsStatus,
+    onAction: () -> Unit,
+    onTurnOff: () -> Unit
+) {
+    val state = status.state
+    val description = when (state) {
+        UsageStatsState.OFF -> stringResource(R.string.settings_usage_stats_off)
+        UsageStatsState.NO_PERMISSION -> stringResource(R.string.settings_usage_stats_no_permission)
+        UsageStatsState.CONNECTED -> stringResource(
+            R.string.settings_usage_stats_connected,
+            lastFetchedLabel(status.lastFetchedAt),
+            status.recentSampleCount
+        )
+    }
+    val actionLabel = when (state) {
+        UsageStatsState.OFF -> stringResource(R.string.settings_health_connect_turn_on)
+        UsageStatsState.NO_PERMISSION -> stringResource(R.string.settings_usage_stats_open_settings)
+        UsageStatsState.CONNECTED -> null
+    }
+    ExternalSourceSettingsRow(
+        icon = Icons.Filled.Smartphone,
+        title = stringResource(R.string.settings_usage_stats_title),
+        description = description,
+        active = state == UsageStatsState.CONNECTED,
+        actionLabel = actionLabel,
+        onAction = onAction,
+        showTurnOff = state != UsageStatsState.OFF,
+        onTurnOff = onTurnOff
+    )
+}
+
+/** 마지막 수집 시각 글("M/d HH:mm", 없으면 "아직 없음"). */
+@Composable
+private fun lastFetchedLabel(lastFetchedAt: Long?): String {
+    val never = stringResource(R.string.settings_health_connect_never)
+    return lastFetchedAt?.let { at -> SimpleDateFormat("M/d HH:mm", Locale.getDefault()).format(Date(at)) } ?: never
+}
+
+/** 외부 데이터 행 하나의 모양: 아이콘·제목·상태 글, 아래에 버튼(주 버튼 / 끄기). */
+@Composable
+private fun ExternalSourceSettingsRow(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    active: Boolean,
+    actionLabel: String?,
+    onAction: () -> Unit,
+    showTurnOff: Boolean,
+    onTurnOff: () -> Unit
+) {
     androidx.compose.foundation.layout.Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
     ) {
         Icon(
-            imageVector = Icons.Filled.Favorite,
+            imageVector = icon,
             contentDescription = null,
             tint = if (active) Color(0xFF5140D8) else Color(0xFF9E9E9E),
             modifier = Modifier.size(22.dp)
@@ -2000,7 +2150,7 @@ private fun HealthConnectSettingsRow(
         Spacer(modifier = Modifier.size(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = stringResource(R.string.settings_health_connect_title),
+                text = title,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF10182C)
