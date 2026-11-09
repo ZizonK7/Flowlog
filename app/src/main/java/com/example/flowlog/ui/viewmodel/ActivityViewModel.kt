@@ -171,7 +171,6 @@ data class ActivityUiState(
     val dailyCueId: Long? = null,
     val dailyCueTargetDateKey: Long? = null,
     val completedDailyCueGoalIds: Set<Long> = emptySet(),
-    val pendingSavedActivity: ActivitySession? = null,
     val lastAddedActivity: ActivitySession? = null,
     val editingActivity: ActivitySession? = null,
     val selectedCategory: String? = null,
@@ -610,10 +609,6 @@ class ActivityViewModel(
             activityTimerNotifier.showRunningTimer(category, startTime)
         }
         startTimer()
-    }
-
-    fun restartActivity(activity: ActivitySession) {
-        startActivity(activity.category, EventMetadata.StartVia.RESTART)
     }
 
     fun startScheduledAutoButtonNow(block: ScheduledAutoButtonBlock) {
@@ -1421,21 +1416,6 @@ class ActivityViewModel(
         }
     }
 
-    fun stopActivity(): Long {
-        if (!_uiState.value.isRunning) return -1L
-
-        timerJob?.cancel()
-        val elapsedTime = currentElapsedTime()
-        val category = _uiState.value.currentCategory
-        _uiState.update { it.copy(isRunning = false) }
-        TimerStateStore.pauseActiveTimer(appContext, elapsedTime)
-        routineGoalAlarmScheduler.cancel()
-        FlowStatusWidgetProvider.updateAll(appContext)
-        activityTimerNotifier.clearRunningTimer()
-        logActivityStopped(EventMetadata.activityStopped("paused", category, elapsedTime))
-        return elapsedTime
-    }
-
     fun stopActivityAndSave(
         titleOverride: String? = null,
         noteOverride: String? = null,
@@ -1612,128 +1592,7 @@ class ActivityViewModel(
             syncAfterActivitySaveIfNeeded(savedActivity)
             _uiState.update {
                 it.copy(
-                    pendingSavedActivity = null,
                     statusMessage = "활동이 저장되었습니다."
-                )
-            }
-        }
-    }
-
-    fun saveActivity(category: String, title: String, note: String? = null) {
-        val state = _uiState.value
-        if (state.currentCategory.isEmpty() || state.startTime == 0L) return
-
-        val endTime = System.currentTimeMillis()
-        val elapsedTime = currentElapsedTime()
-        val durationMillis = if (elapsedTime > 0L) elapsedTime else endTime - state.startTime
-        val cleanCategory = category.ifBlank { state.currentCategory }
-        val cleanTitle = title.trim().ifBlank { state.pendingTitle ?: defaultTitle(cleanCategory) }
-        val activity = ActivitySession(
-            category = cleanCategory,
-            title = cleanTitle,
-            startTime = state.startTime,
-            endTime = endTime,
-            durationMillis = durationMillis,
-            note = note?.takeIf { it.isNotBlank() } ?: state.pendingNote?.takeIf { it.isNotBlank() },
-            tags = emptyList(),
-            linkedTodoId = state.linkedTodoId,
-            linkedPetiteId = state.linkedPetiteId ?: state.linkedTodoCalendarSourceId,
-            sourceType = state.sourceType,
-            sourceId = state.sourceId
-        )
-
-        viewModelScope.launch {
-            val newId = repository.insertActivity(
-                activity,
-                EventMetadata.activitySaved(EventMetadata.SaveVia.TIMER_SAVE)
-            )
-            val savedActivity = activity.copy(id = newId)
-            if (state.linkedPetiteId != null) {
-                if (state.sourceId != null) {
-                    dailyGoalRepository.markPlannedItemCompleted(state.sourceId, 0L, newId)
-                }
-            } else {
-                state.linkedTodoId?.let { todoId ->
-                    val todo = linkedTodoForState(state, todoId)
-                    if (todo != null) {
-                        todoRepository.addAccumulatedSeconds(todo, durationMillis / 1000L)
-                    } else if (state.linkedTodoCalendarSourceId != null) {
-                        todoRepository.addAccumulatedSecondsByCalendarSourceId(
-                            state.linkedTodoCalendarSourceId,
-                            durationMillis / 1000L
-                        )
-                    } else {
-                        todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
-                    }
-                    if (state.sourceId != null) {
-                        dailyGoalRepository.markPlannedItemCompleted(state.sourceId, todoId, newId)
-                    } else if (todoId != 0L) {
-                        dailyGoalRepository.markOpenPlannedItemCompleted(todoId, newId)
-                    }
-                }
-            }
-            dailyGoalRepository.ensureTodayTimePlan(
-                activities = _uiState.value.allActivities + savedActivity,
-                forceRefresh = false
-            )
-            val mealTimerEndsAt = runCatching {
-                reminderScheduler.scheduleToothbrushReminder(savedActivity)
-            }.getOrNull()
-            if (mealTimerEndsAt != null) {
-                rememberSnackButtonTimerState(mealTimerEndsAt)
-                _uiState.update { it.copy(snackButtonEndsAtMillis = mealTimerEndsAt) }
-            }
-            rememberLastAddedActivity(savedActivity)
-            inactivityReminderScheduler.scheduleAfterActivityEnded(endTime)
-            syncAfterActivitySaveIfNeeded(savedActivity)
-            clearPendingActivity()
-        }
-    }
-
-    fun cancelPendingActivity() {
-        val state = _uiState.value
-        val metadata = if (state.currentCategory.isNotBlank() && state.startTime > 0L) {
-            EventMetadata.activityStopped("discarded", state.currentCategory, currentElapsedTime())
-        } else {
-            EventMetadata.activityStopped("discarded")
-        }
-        clearPendingActivity()
-        logActivityStopped(metadata)
-    }
-
-    private fun logActivityStopped(metadataJson: String) {
-        viewModelScope.launch {
-            runCatching {
-                eventLogRepository.log(
-                    eventType = EventType.ACTIVITY_STOPPED,
-                    entityType = EntityType.ACTIVITY,
-                    metadataJson = metadataJson
-                )
-            }
-        }
-    }
-
-    fun dismissPendingSavedActivity() {
-        _uiState.update { it.copy(pendingSavedActivity = null) }
-    }
-
-    fun updatePendingSavedActivity(category: String, title: String, note: String?) {
-        viewModelScope.launch {
-            val savedActivity = _uiState.value.pendingSavedActivity ?: return@launch
-            val cleanCategory = category.ifBlank { savedActivity.category }
-            val updatedActivity = savedActivity.copy(
-                category = cleanCategory,
-                title = title.trim().ifBlank { defaultTitle(cleanCategory) },
-                note = note?.takeIf { it.isNotBlank() },
-                tags = emptyList(),
-                modifiedTime = System.currentTimeMillis()
-            )
-            repository.updateActivity(updatedActivity)
-            rememberLastAddedActivity(updatedActivity)
-            _uiState.update {
-                it.copy(
-                    pendingSavedActivity = null,
-                    statusMessage = "활동 내용이 업데이트되었습니다."
                 )
             }
         }
@@ -1759,7 +1618,6 @@ class ActivityViewModel(
                     addAccumulatedSecondsForActivityTodo(existingActivity, -existingActivity.durationMillis / 1000L)
                     _uiState.update {
                         it.copy(
-                            pendingSavedActivity = null,
                             statusMessage = "최근 추가한 활동을 삭제했습니다."
                         )
                     }
@@ -3158,41 +3016,6 @@ class ActivityViewModel(
             true
         } else {
             false
-        }
-    }
-
-    private fun clearPendingActivity() {
-        timerJob?.cancel()
-        timerJob = null
-        activityTimerNotifier.clearRunningTimer()
-        clearActiveSession()
-        finishFocusMode(reason = "activity_cleared")
-        resetTimerDisplayState()
-        _uiState.update {
-            it.copy(
-                isRunning = false,
-                currentCategory = "",
-                isRoutineActive = false,
-                routineGoalMillis = 0L,
-                startTime = 0L,
-                linkedTodoId = null,
-                linkedTodoCalendarSourceId = null,
-                linkedPetiteId = null,
-                sourceType = ActivitySourceType.MANUAL,
-                sourceId = null,
-                pendingTitle = null,
-                pendingTitleSource = null,
-                pendingTitleSourceTitle = null,
-                pendingTitleSlot = null,
-                shownTitleSlots = emptyList(),
-                titleChoiceStartTime = 0L,
-                pendingNote = null,
-                dailyCueId = null,
-                dailyCueTargetDateKey = null,
-                isFocusModeActive = false,
-                focusModeEndsAtMillis = 0L,
-                statusMessage = null
-            )
         }
     }
 

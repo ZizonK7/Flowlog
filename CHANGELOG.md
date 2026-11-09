@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Removed dead code and the exam leftovers. `ActivityViewModel` loses five
+  functions nothing called (`stopActivity`, `cancelPendingActivity`,
+  `restartActivity`, `saveActivity`, `updatePendingSavedActivity`) with
+  `dismissPendingSavedActivity`, `clearPendingActivity`, `logActivityStopped`,
+  the never-set `pendingSavedActivity` state, and the `via` values `restart`
+  and `timer_save`. The v25 migration (`FlowlogMigration24To25`, still v24 →
+  v25) now also drops the `exam_strategy_checks` table
+  (`ExamStrategyCheckEntity` removed), rebuilds `organized_petites` without its
+  five exam columns, and turns remaining `UNIVERSITY_EXAM` Todos into `NORMAL`
+  once (marked for upload); `TodoDao.downgradeRetiredExamTodos` and its two
+  per-sync calls are gone. Earlier migrations keep their exam SQL.
 - Added app usage samples (off by default): Settings > 외부 데이터 > "앱 사용
   통계" opens the system usage-access screen (`PACKAGE_USAGE_STATS`, checked
   through AppOps) and shows the state. From the system usage events of the

@@ -39,7 +39,6 @@ object EventMetadata {
         const val MANUAL_BUTTON = "manual_button"
         const val APP_SHORTCUT = "app_shortcut"
         const val EXISTING_BUTTON_RECOMMENDATION = "existing_button_recommendation"
-        const val RESTART = "restart"
         const val SCHEDULED_AUTO_BUTTON_NOW = "scheduled_auto_button_now"
         const val OVERLAPPING = "overlapping"
         const val TODO = "todo"
@@ -57,8 +56,6 @@ object EventMetadata {
     /** `via` values of ACTIVITY_SAVED: which code path wrote the record (one per caller). */
     object SaveVia {
         const val TIMER_STOP = "timer_stop"
-        /** ActivityViewModel.saveActivity — no caller in the app at the time of writing. */
-        const val TIMER_SAVE = "timer_save"
         const val OVERLAPPING_STOP = "overlapping_stop"
         const val FILL_SLEEP = "fill_sleep"
         const val MANUAL_ADD = "manual_add"

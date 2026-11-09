@@ -41,7 +41,6 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
 
     override suspend fun syncAll(userId: String): SyncOutcome {
         return withContext(Dispatchers.IO) {
-            downgradeRetiredExamTodos(userId)
             val activityCount = runCatching { activityDao.getUnsyncedActivities(userId).size }.getOrDefault(0)
             val todoCount = runCatching { todoDao.getUnsyncedTodos(userId).size }.getOrDefault(0)
             val eventCount = runCatching { eventLogDao.getUnsyncedEvents(userId).size }.getOrDefault(0)
@@ -76,7 +75,6 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
 
     suspend fun syncEligible(userId: String): SyncOutcome {
         return withContext(Dispatchers.IO) {
-            downgradeRetiredExamTodos(userId)
             val cutoffMillis = todayStartMillis()
             val activityCount = runCatching { activityDao.getEligibleUnsyncedActivities(userId, cutoffMillis).size }.getOrDefault(0)
             val todoCount = runCatching { todoDao.getEligibleUnsyncedTodos(userId, cutoffMillis).size }.getOrDefault(0)
@@ -536,12 +534,6 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
                 failureCount = errors.size
             )
         }
-    }
-
-    private suspend fun downgradeRetiredExamTodos(userId: String) {
-        runCatching { todoDao.downgradeRetiredExamTodos(userId, System.currentTimeMillis()) }
-            .onSuccess { count -> if (count > 0) Log.i(TAG, "Downgraded $count retired exam Todo(s) to NORMAL") }
-            .onFailure { e -> Log.w(TAG, "Exam Todo downgrade failed: ${e.message}", e) }
     }
 
     override suspend fun hasPendingSync(userId: String): Boolean {

@@ -218,18 +218,7 @@ Prefer:
 
 ## Planned Cleanup
 
-### Drop exam leftovers when the user decides
-
-The university exam feature was removed on 2026-09-30 without a Room version
-bump. Its storage is still in the v24 schema: the `exam_strategy_checks` table
-(`ExamStrategyCheckEntity` stays registered in `FlowlogDatabase` only for this
-reason) and the exam columns on `organized_petites` (`isSeverelyBehind`,
-`totalStudyMinutesSinceD7`, `studiedDaysSinceD7`, `missedDaysSinceD7`,
-`examDValue`), which are now written as null. Drop them once the user decides
-to, together with whatever schema change happens then (2026-11-09: not done in
-v25, which added `external_samples`, because there was no decision yet).
-`TodoDao.downgradeRetiredExamTodos`
-can go once no synced Todo still has `category = UNIVERSITY_EXAM`.
+Exam leftovers were dropped in the v25 migration (2026-11-09, user decision).
 
 ## Future Review Questions
 

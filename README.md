@@ -383,7 +383,7 @@ be checked later against what was actually done. Metadata holds plain facts
   logged here; their decisions are already kept in `study_decisions`
   (uploaded as `interactionDecisions`).
 - `ACTIVITY_STOPPED`: a running timer ended without a record — the web replaced
-  or stopped it, an auto-button start was undone, or a pause/discard call.
+  or stopped it, or an auto-button start was undone.
 - `ACTIVITY_FAVORITE_TOGGLED`: the star on a record, with the new value.
 - `TODO_*`: Todos created, edited, completed, uncompleted, deleted, work time
   added, review stage advanced.

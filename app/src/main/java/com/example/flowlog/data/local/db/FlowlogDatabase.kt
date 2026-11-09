@@ -34,7 +34,6 @@ import com.example.flowlog.data.local.entity.DailyGoalItemEntity
 import com.example.flowlog.data.local.entity.DailyGoalRecommendationEntity
 import com.example.flowlog.data.local.entity.DailySummaryEntity
 import com.example.flowlog.data.local.entity.EventLogEntity
-import com.example.flowlog.data.local.entity.ExamStrategyCheckEntity
 import com.example.flowlog.data.local.entity.ExternalSampleEntity
 import com.example.flowlog.data.local.entity.InstallationEntity
 import com.example.flowlog.data.local.entity.LectureCalendarInfoEntity
@@ -80,9 +79,7 @@ import kotlinx.coroutines.launch
         UserEntity::class,
         InstallationEntity::class,
 
-        // Phase 4 — Exam (feature removed; entity kept until the exam cleanup migration,
-        // see docs/PROJECT_CONTEXT.md "Planned Cleanup" — not done in v25)
-        ExamStrategyCheckEntity::class,
+        // Phase 4 — Petites
         OrganizedPetiteEntity::class,
 
         // Phase 5 — Calendar
