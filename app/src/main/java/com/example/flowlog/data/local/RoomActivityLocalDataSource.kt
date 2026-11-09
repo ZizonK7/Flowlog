@@ -41,6 +41,12 @@ class RoomActivityLocalDataSource(context: Context) {
      * legacyId가 있으면 "legacy_activity_${id}"로 activityId를 유도.
      * id == 0L인 순수 Room 데이터는 아직 지원 안 함 (전환 완료 후 확장).
      */
+    /** The stored row [update] would change (same id rule), before the change; null if none. */
+    suspend fun getRowForUpdate(activity: ActivitySession): ActivitySession? {
+        val activityId = activity.localActivityId ?: if (activity.id != 0L) "legacy_activity_${activity.id}" else return null
+        return dao.getActivityById(activityId)?.toActivitySession()
+    }
+
     suspend fun update(activity: ActivitySession, userId: String) {
         val activityId = activity.localActivityId ?: if (activity.id != 0L) "legacy_activity_${activity.id}" else return
         val existing = dao.getActivityById(activityId)

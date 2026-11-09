@@ -10,6 +10,16 @@
   version; metadata strings come from `EventMetadata` (unit tested), and
   `EventTypeCoverageTest` fails when a kind is logged nowhere.
   `MIGRATION_STARTED`/`MIGRATION_FAILED` stay unlogged (no safe moment).
+- Event log, second pass (42 of 44 kinds): `ACTIVITY_STARTED` now records every
+  timer start with `via` (main button, shortcut, todo, routine, plan item,
+  flow recommendation, auto-button alarm, study-plan auto start, web, undo
+  restore, …), merging the inactivity-reminder response into the same row.
+  New `TITLE_SUGGESTION_SHOWN`/`_PICKED` (the five title chips shown and the
+  one tapped) and `BUTTON_RECOMMENDATION_SHOWN`/`_ACCEPTED`/`_DISMISSED`.
+  `ACTIVITY_SAVED` carries `via` and, for timer saves, `titleSource`
+  (suggestion/typed/default/preset/unknown) with the slot and shown chips;
+  `ACTIVITY_UPDATED` carries only the changed fields (note as lengths only).
+  Every row now has `installationId`. No table or Room version change.
 - Version 0.6.0 (versionCode 27) is the first build with the PC web app link-up
   below (shared timer, web todo pull). The web app (`/app/`) asks for 0.6.0 or
   later and hides that notice once this phone has written the timer document.

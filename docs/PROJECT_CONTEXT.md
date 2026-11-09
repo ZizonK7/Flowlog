@@ -230,8 +230,10 @@ can go once no synced Todo still has `category = UNIVERSITY_EXAM`.
 - Should long-term insights remain conditional on data maturity, such as a
   minimum number of logged days?
 - Which recommendation signals are actually logged well enough to evaluate?
-  (2026-11-09: 37 of 39 `EventType` kinds have a logging call; not logged:
-  `MIGRATION_STARTED`, `MIGRATION_FAILED`.)
+  (2026-11-09: 42 of 44 `EventType` kinds have a logging call; not logged:
+  `MIGRATION_STARTED`, `MIGRATION_FAILED`. Title-suggestion and main-button
+  recommendations log what was shown and what was picked, and saves carry the
+  title's source.)
 - Are Todo recommendation outcomes measurable through accepted, skipped,
   ignored, or completed events?
 - Does the web dashboard clearly distinguish preview, current-day, and confirmed

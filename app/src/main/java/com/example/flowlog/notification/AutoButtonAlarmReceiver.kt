@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.example.flowlog.data.constants.ActivitySourceType
+import com.example.flowlog.data.constants.EntityType
+import com.example.flowlog.data.constants.EventSource
+import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
 import com.example.flowlog.data.local.db.FlowlogDatabase
@@ -12,6 +15,8 @@ import com.example.flowlog.data.local.entity.AutoButtonScheduleEntity
 import com.example.flowlog.data.local.entity.AutoButtonUndoSnapshotEntity
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.repository.ActivityRepository
+import com.example.flowlog.data.repository.EventLogRepository
+import com.example.flowlog.data.repository.EventMetadata
 import com.example.flowlog.data.repository.TodoRepository
 import com.example.flowlog.ui.component.displayCategory
 import com.example.flowlog.widget.FlowStatusWidgetProvider
@@ -84,7 +89,8 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
                 endTime = endAt,
                 linkedTodoId = previous.linkedTodoId,
                 sourceType = previous.sourceType,
-                sourceId = previous.sourceId
+                sourceId = previous.sourceId,
+                via = EventMetadata.SaveVia.AUTO_BUTTON_PREEMPT
             )
             undoSnapshotId = saveUndoSnapshot(
                 context = context,
@@ -114,7 +120,8 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
                 endTime = endAt,
                 linkedTodoId = null,
                 sourceType = ActivitySourceType.MANUAL,
-                sourceId = null
+                sourceId = null,
+                via = EventMetadata.SaveVia.AUTO_BUTTON_PREEMPT
             )
             TimerStateStore.clearPinnedTimer(context)
         }
@@ -137,6 +144,21 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
                 goalMillis = goalMillis,
                 sourceType = ActivitySourceType.AUTO_BUTTON,
                 sourceId = schedule.scheduleId
+            )
+        }
+        runCatching {
+            EventLogRepository(context).log(
+                eventType = EventType.ACTIVITY_STARTED,
+                entityType = EntityType.ACTIVITY,
+                source = EventSource.SYSTEM,
+                metadataJson = EventMetadata.activityStarted(
+                    via = EventMetadata.StartVia.AUTO_BUTTON_ALARM,
+                    category = schedule.category,
+                    startTime = startAt,
+                    sourceType = ActivitySourceType.AUTO_BUTTON,
+                    sourceId = schedule.scheduleId,
+                    pinned = schedule.category.isPinnedAutoButtonCategory()
+                )
             )
         }
         markStarted(context, scheduleId, dateKey)
@@ -187,7 +209,8 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
             endTime = endAt.coerceAtLeast(active.startTime + 1L),
             linkedTodoId = active.linkedTodoId,
             sourceType = active.sourceType,
-            sourceId = active.sourceId
+            sourceId = active.sourceId,
+            via = EventMetadata.SaveVia.AUTO_BUTTON_END
         )
         if (schedule.category.isPinnedAutoButtonCategory()) {
             TimerStateStore.clearPinnedTimer(context)
@@ -210,7 +233,8 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
         endTime: Long,
         linkedTodoId: Long?,
         sourceType: String,
-        sourceId: String?
+        sourceId: String?,
+        via: String
     ): Long {
         val duration = (endTime - startTime).coerceAtLeast(1L)
         val activity = ActivitySession(
@@ -224,7 +248,7 @@ class AutoButtonAlarmReceiver : BroadcastReceiver() {
             sourceId = sourceId,
             modifiedTime = System.currentTimeMillis()
         )
-        val savedId = ActivityRepository(context).insertActivity(activity)
+        val savedId = ActivityRepository(context).insertActivity(activity, EventMetadata.activitySaved(via))
         linkedTodoId?.let { todoId ->
             TodoRepository(context).addAccumulatedSeconds(todoId, duration / 1000L)
         }

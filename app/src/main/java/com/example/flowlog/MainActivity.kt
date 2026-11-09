@@ -271,7 +271,7 @@ class MainActivity : ComponentActivity() {
                             Toast.LENGTH_SHORT
                         ).show()
                     } else {
-                        activityViewModel.startActivity(category)
+                        activityViewModel.startActivity(category, EventMetadata.StartVia.APP_SHORTCUT)
                     }
                     showHomeMainTimer()
                 }
@@ -734,7 +734,11 @@ class MainActivity : ComponentActivity() {
                         mainButtons = activityUiState.mainButtonConfig.buttons,
                         existingButtonCallbacks = ExistingButtonCardCallbacks(
                             onShown = activityViewModel::onExistingButtonRecommendationShown,
-                            onUse = { id -> activityViewModel.useExistingButtonRecommendation(id, activityViewModel::startActivity) },
+                            onUse = { id ->
+                                activityViewModel.useExistingButtonRecommendation(id) { category ->
+                                    activityViewModel.startActivity(category, EventMetadata.StartVia.EXISTING_BUTTON_RECOMMENDATION)
+                                }
+                            },
                             onAdd = activityViewModel::addExistingButtonRecommendation,
                             onReplace = activityViewModel::replaceWithExistingButtonRecommendation,
                             onDismiss = activityViewModel::dismissExistingButtonRecommendation,

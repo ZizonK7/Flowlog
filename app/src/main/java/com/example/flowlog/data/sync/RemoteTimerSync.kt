@@ -157,6 +157,25 @@ object RemoteTimerSync {
             clearRunningTimer()
             if (remote.category != "SLEEP") showRunningTimer(remote.category, remote.startTime)
         }
+        val appContext = context.applicationContext
+        val metadata = EventMetadata.activityStarted(
+            via = EventMetadata.StartVia.WEB_START,
+            category = remote.category,
+            startTime = remote.startTime,
+            sourceType = ActivitySourceType.MANUAL,
+            linkedTodoId = remote.linkedTodoId?.toLongOrNull(),
+            pendingTitle = remote.title.ifBlank { null }
+        )
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching {
+                EventLogRepository(appContext).log(
+                    eventType = EventType.ACTIVITY_STARTED,
+                    entityType = EntityType.ACTIVITY,
+                    source = EventSource.WEB,
+                    metadataJson = metadata
+                )
+            }
+        }
     }
 
     private fun updateFromRemote(context: Context, current: ActiveTimerState, remote: RemoteTimer) {

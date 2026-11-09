@@ -4,10 +4,12 @@ import android.content.Context
 import com.example.flowlog.data.constants.EventSource
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.local.entity.EventLogEntity
+import com.example.flowlog.data.sync.RemoteTimerSync
 import com.google.firebase.auth.FirebaseAuth
 import java.util.UUID
 
 class EventLogRepository(context: Context) {
+    private val appContext = context.applicationContext
     private val dao = FlowlogDatabase.getInstance(context).eventLogDao()
     private val auth = FirebaseAuth.getInstance()
 
@@ -18,6 +20,15 @@ class EventLogRepository(context: Context) {
 
     private val userId: String
         get() = auth.currentUser?.uid ?: "anonymous"
+
+    /**
+     * Which install of the app wrote the row. Reuses the random per-install id that
+     * [RemoteTimerSync.deviceId] already keeps for the shared timer (not a hardware id;
+     * a reinstall or a device wipe makes a new one).
+     */
+    private val installationId: String? by lazy {
+        runCatching { RemoteTimerSync.deviceId(appContext) }.getOrNull()
+    }
 
     suspend fun log(
         eventType: String,
@@ -32,6 +43,7 @@ class EventLogRepository(context: Context) {
             EventLogEntity(
                 eventId = UUID.randomUUID().toString(),
                 userId = userId,
+                installationId = installationId,
                 eventType = eventType,
                 entityType = entityType,
                 entityId = entityId,

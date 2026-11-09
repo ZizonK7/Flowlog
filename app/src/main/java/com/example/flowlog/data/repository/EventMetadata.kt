@@ -30,6 +30,174 @@ object EventMetadata {
         const val TOOTHBRUSH_REMINDER = "TOOTHBRUSH_REMINDER"
     }
 
+    /** `via` values of ACTIVITY_STARTED: which code path started the timer (one per caller). */
+    object StartVia {
+        const val MANUAL_BUTTON = "manual_button"
+        const val APP_SHORTCUT = "app_shortcut"
+        const val EXISTING_BUTTON_RECOMMENDATION = "existing_button_recommendation"
+        const val RESTART = "restart"
+        const val SCHEDULED_AUTO_BUTTON_NOW = "scheduled_auto_button_now"
+        const val OVERLAPPING = "overlapping"
+        const val TODO = "todo"
+        const val DAILY_CUE_ROUTINE = "daily_cue_routine"
+        const val CALENDAR_PETITE = "calendar_petite"
+        const val FLOW_RECOMMENDATION = "flow_recommendation"
+        const val RECOMMENDED_TODO = "recommended_todo"
+        const val AUTO_BUTTON_ALARM = "auto_button_alarm"
+        const val STUDY_PLAN_AUTO_START = "study_plan_auto_start"
+        const val WEB_START = "web_start"
+        /** Not a new start: the auto-button undo brings the previous timer back. */
+        const val AUTO_BUTTON_UNDO_RESTORE = "auto_button_undo_restore"
+    }
+
+    /** `via` values of ACTIVITY_SAVED: which code path wrote the record (one per caller). */
+    object SaveVia {
+        const val TIMER_STOP = "timer_stop"
+        /** ActivityViewModel.saveActivity — no caller in the app at the time of writing. */
+        const val TIMER_SAVE = "timer_save"
+        const val OVERLAPPING_STOP = "overlapping_stop"
+        const val FILL_SLEEP = "fill_sleep"
+        const val MANUAL_ADD = "manual_add"
+        const val IMPORT = "import"
+        const val DAILY_CUE_CHECK = "daily_cue_check"
+        const val UNDO_RESTORE = "undo_restore"
+        const val SEED_SLEEP = "seed_sleep"
+        const val AUTO_BUTTON_END = "auto_button_end"
+        /** The running (or pinned) timer is saved because an auto button starts over it. */
+        const val AUTO_BUTTON_PREEMPT = "auto_button_preempt"
+        const val STUDY_PLAN_AUTO_END = "study_plan_auto_end"
+    }
+
+    /** `titleSource` of ACTIVITY_SAVED: where the saved title came from. */
+    object TitleSource {
+        /** A chip of the title suggestions was picked and kept. */
+        const val SUGGESTION = "suggestion"
+        /** Entered by hand (or edited after picking a chip). */
+        const val TYPED = "typed"
+        /** No title given; the category's default title was saved. */
+        const val DEFAULT = "default"
+        /** Came with the start (to-do, routine, plan item, auto button title) and was kept. */
+        const val PRESET = "preset"
+        /** Not known on this screen: e.g. changed in the PC web app, or the app restarted mid-timer. */
+        const val UNKNOWN = "unknown"
+    }
+
+    const val TITLE_RANKER_ALGORITHM = "title_ranker_v1"
+    const val BUTTON_ENGINE_ALGORITHM = "button_engine_v1"
+
+    /**
+     * ACTIVITY_STARTED. [pinned] marks the second (overlapping) timer slot.
+     * [reminderNotificationId]/[reminderClickedAt] are set when the start followed a click on
+     * the inactivity reminder (`afterInactivityReminder: true`); otherwise those keys are left out.
+     */
+    fun activityStarted(
+        via: String,
+        category: String,
+        startTime: Long,
+        sourceType: String? = null,
+        sourceId: String? = null,
+        linkedTodoId: Long? = null,
+        pendingTitle: String? = null,
+        pinned: Boolean = false,
+        reminderNotificationId: String? = null,
+        reminderClickedAt: Long? = null
+    ): String = json(
+        "category" to category,
+        "sourceType" to sourceType,
+        "sourceId" to sourceId,
+        "linkedTodoId" to linkedTodoId?.takeIf { it > 0L },
+        "pendingTitle" to pendingTitle?.takeIf { it.isNotBlank() },
+        "startTime" to startTime,
+        "via" to via,
+        "pinned" to (if (pinned) true else null),
+        "afterInactivityReminder" to (if (reminderNotificationId != null) true else null),
+        "reminderNotificationId" to reminderNotificationId,
+        "reminderClickedAt" to reminderNotificationId?.let { reminderClickedAt }
+    )
+
+    fun titleSuggestionShown(category: String, slots: List<String>): String = json(
+        "category" to category,
+        "slots" to slots.take(MAX_TITLE_SLOTS),
+        "algorithm" to TITLE_RANKER_ALGORITHM
+    )
+
+    fun titleSuggestionPicked(category: String, slot: Int, title: String): String = json(
+        "category" to category,
+        "slot" to slot,
+        "title" to title
+    )
+
+    /**
+     * Where the saved title came from. [choiceTitle]/[choiceSource] are the last title the
+     * screen recorded a source for (picked chip, typed text, start preset); they count only
+     * when the saved title is still that one.
+     */
+    fun titleSource(
+        finalTitle: String,
+        choiceTitle: String?,
+        choiceSource: String?,
+        defaultTitle: String
+    ): String = when {
+        choiceSource != null && choiceTitle == finalTitle -> choiceSource
+        finalTitle == defaultTitle -> TitleSource.DEFAULT
+        else -> TitleSource.UNKNOWN
+    }
+
+    /** ACTIVITY_SAVED. [slot] only for a kept suggestion; [shownSlots] left out when nothing was shown. */
+    fun activitySaved(
+        via: String,
+        titleSource: String? = null,
+        slot: Int? = null,
+        shownSlots: List<String> = emptyList()
+    ): String = json(
+        "via" to via,
+        "titleSource" to titleSource,
+        "slot" to slot?.takeIf { titleSource == TitleSource.SUGGESTION },
+        "shownSlots" to shownSlots.takeIf { it.isNotEmpty() }
+    )
+
+    /** The fields ACTIVITY_UPDATED compares. [note] is read only for its length. */
+    data class ActivityFields(
+        val title: String,
+        val category: String,
+        val note: String?,
+        val startTime: Long,
+        val endTime: Long,
+        val isFavorite: Boolean,
+        val linkedTodoId: Long?,
+        val exerciseSetCount: Int = 0
+    )
+
+    /**
+     * ACTIVITY_UPDATED: `{changed: {<field>: {from, to}}}` with only the fields that differ.
+     * The note is never written — only `{fromLen, toLen}` (null counts as empty).
+     * [before] null (row not found before the update) gives `{beforeFound: false}`.
+     */
+    fun activityChanged(before: ActivityFields?, after: ActivityFields): String {
+        if (before == null) return json("beforeFound" to false)
+        val changed = LinkedHashMap<String, Any?>()
+        fun <T> diff(name: String, from: T, to: T) {
+            if (from != to) changed[name] = linkedMapOf("from" to from, "to" to to)
+        }
+        diff("title", before.title, after.title)
+        diff("category", before.category, after.category)
+        val fromNote = before.note.orEmpty()
+        val toNote = after.note.orEmpty()
+        if (fromNote != toNote) changed["note"] = linkedMapOf("fromLen" to fromNote.length, "toLen" to toNote.length)
+        diff("startTime", before.startTime, after.startTime)
+        diff("endTime", before.endTime, after.endTime)
+        diff("isFavorite", before.isFavorite, after.isFavorite)
+        diff("linkedTodoId", before.linkedTodoId, after.linkedTodoId)
+        diff("exerciseSetCount", before.exerciseSetCount, after.exerciseSetCount)
+        return json("changed" to changed)
+    }
+
+    /** BUTTON_RECOMMENDATION_SHOWN / ACCEPTED / DISMISSED. */
+    fun buttonRecommendation(category: String, messageId: String): String = json(
+        "category" to category,
+        "messageId" to messageId
+    )
+
     fun activityStopped(reason: String, category: String? = null, elapsedMs: Long? = null): String = json(
         "reason" to reason,
         "category" to category?.takeIf { it.isNotBlank() },
@@ -119,7 +287,13 @@ object EventMetadata {
     fun migrationFromVersion(storedVersion: Int?, openedVersion: Int): Int? =
         storedVersion?.takeIf { it > 0 && it != openedVersion }
 
-    /** A JSON object from [fields] in the given order; null values are skipped. */
+    private const val MAX_TITLE_SLOTS = 5
+
+    /**
+     * A JSON object from [fields] in the given order; null values are skipped.
+     * Values may be strings, numbers, booleans, maps (nested objects) and lists (arrays);
+     * inside those, nulls are kept as JSON null.
+     */
     fun json(vararg fields: Pair<String, Any?>): String {
         val sb = StringBuilder("{")
         var first = true
@@ -134,8 +308,34 @@ object EventMetadata {
         return sb.append('}').toString()
     }
 
-    private fun appendValue(sb: StringBuilder, value: Any) {
+    private fun appendValue(sb: StringBuilder, value: Any?) {
         when (value) {
+            null -> sb.append("null")
+            is Map<*, *> -> {
+                // Nested object: every entry is written, a null value as null (a diff's
+                // `from: null` is a fact). Only top-level fields skip nulls.
+                sb.append('{')
+                var first = true
+                for ((key, item) in value) {
+                    if (!first) sb.append(',')
+                    first = false
+                    appendString(sb, key.toString())
+                    sb.append(':')
+                    appendValue(sb, item)
+                }
+                sb.append('}')
+            }
+            is Iterable<*> -> {
+                // Arrays keep every element; a null element is written as null.
+                sb.append('[')
+                var first = true
+                for (item in value) {
+                    if (!first) sb.append(',')
+                    first = false
+                    appendValue(sb, item)
+                }
+                sb.append(']')
+            }
             is Boolean, is Int, is Long, is Short, is Byte -> sb.append(value.toString())
             is Double -> if (value.isFinite()) sb.append(value.toString()) else sb.append("null")
             is Float -> if (value.isFinite()) sb.append(value.toString()) else sb.append("null")

@@ -117,6 +117,23 @@ class AutoButtonUndoReceiver : BroadcastReceiver() {
             sourceType = restoreSourceType,
             sourceId = restoreSourceId
         )
+        // Not a new start: the timer the auto button replaced comes back with its old start time.
+        runCatching {
+            EventLogRepository(context).log(
+                eventType = EventType.ACTIVITY_STARTED,
+                entityType = EntityType.ACTIVITY,
+                source = EventSource.NOTIFICATION,
+                metadataJson = EventMetadata.activityStarted(
+                    via = EventMetadata.StartVia.AUTO_BUTTON_UNDO_RESTORE,
+                    category = restoreCategory,
+                    startTime = previousStartTime,
+                    sourceType = restoreSourceType,
+                    sourceId = restoreSourceId,
+                    linkedTodoId = restoreLinkedTodoId,
+                    pendingTitle = restoreTitle
+                )
+            )
+        }
         FlowStatusWidgetProvider.updateAll(context)
         ActivityTimerNotifier(context).apply {
             clearRunningTimer()

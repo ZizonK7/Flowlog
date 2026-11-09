@@ -415,6 +415,12 @@ fun HomeScreen(
                 onApplyTitle = { title ->
                     viewModel.setRunningActivityTitle(title)
                 },
+                onTitleSuggestionsShown = { category, slots ->
+                    viewModel.recordTitleSuggestionsShown(category, slots)
+                },
+                onTitleSuggestionPicked = { slot, title ->
+                    viewModel.pickTitleSuggestion(slot, title)
+                },
                 exerciseSets = uiState.exerciseSets,
                 exerciseMemo = uiState.exerciseMemo,
                 onExerciseSetsChanged = { viewModel.updateExerciseSets(it) },

@@ -290,10 +290,36 @@ be checked later against what was actually done. Metadata holds plain facts
 `data/repository/EventMetadata.kt`. `EventTypeCoverageTest` fails when a kind in
 `EventType.kt` is logged nowhere and not listed with a reason. Logged kinds:
 
-- `ACTIVITY_STARTED`: an activity started after tapping the inactivity reminder
-  (not every start).
-- `ACTIVITY_SAVED`, `ACTIVITY_UPDATED`, `ACTIVITY_DELETED`: saved, edited,
-  imported, or deleted records.
+- `ACTIVITY_STARTED`: every timer start, one row each, with `via` naming the
+  path (`manual_button`, `app_shortcut`, `existing_button_recommendation`,
+  `scheduled_auto_button_now`, `overlapping`, `todo`, `daily_cue_routine`,
+  `calendar_petite`, `flow_recommendation`, `recommended_todo`,
+  `auto_button_alarm`, `study_plan_auto_start`, `web_start`) plus category,
+  source, linked Todo, preset title and start time; `pinned: true` for the
+  second (overlapping) timer slot. `auto_button_undo_restore` is not a new
+  start: the timer an auto button replaced comes back. A start right after
+  tapping the inactivity reminder carries `afterInactivityReminder: true` and the
+  reminder's id in the same row.
+- `ACTIVITY_SAVED`: a record written, with `via` (`timer_stop`, `manual_add`,
+  `import`, `fill_sleep`, `overlapping_stop`, `daily_cue_check`,
+  `undo_restore`, `auto_button_end`, `auto_button_preempt`,
+  `study_plan_auto_end`, `seed_sleep`). Timer saves also carry `titleSource`
+  (`suggestion`, `typed`, `default`, `preset` = came with the start, `unknown` =
+  e.g. changed on the web or after an app restart), the chip `slot` when a
+  suggestion was kept, and `shownSlots`.
+- `ACTIVITY_UPDATED`: an edit on the phone, with only the fields that changed
+  as `{from, to}`; the note is never copied, only `{fromLen, toLen}`. Changes
+  pulled from the web are not logged here.
+- `ACTIVITY_DELETED`: deleted records.
+- `TITLE_SUGGESTION_SHOWN`: the title chips on the running timer (up to five,
+  `slots` in order), once per timer and list; `TITLE_SUGGESTION_PICKED`: the
+  chip tapped (`slot` from 0, `title`). Both with algorithm `title_ranker_v1`.
+- `BUTTON_RECOMMENDATION_SHOWN`, `_ACCEPTED`, `_DISMISSED`: the AI messenger's
+  "add this main button" suggestion (`category`, `messageId`, algorithm
+  `button_engine_v1`). SHOWN is written when the message is created, not when
+  it is drawn on screen. The SCHOOL/MOVE existing-button suggestions are not
+  logged here; their decisions are already kept in `study_decisions`
+  (uploaded as `interactionDecisions`).
 - `ACTIVITY_STOPPED`: a running timer ended without a record — the web replaced
   or stopped it, an auto-button start was undone, or a pause/discard call.
 - `ACTIVITY_FAVORITE_TOGGLED`: the star on a record, with the new value.
@@ -324,6 +350,11 @@ be checked later against what was actually done. Metadata holds plain facts
 - `MIGRATION_COMPLETED`: the first open after a database version change.
   `MIGRATION_STARTED` and `MIGRATION_FAILED` are not logged: nothing can be
   written to the database before or during a migration.
+
+Every row also has `installationId`: a random id made once per app install
+(the same one the shared timer uses to tell this phone's writes apart). It says
+which install wrote the row; it is not a hardware or advertising id, and a
+reinstall or account wipe makes a new one.
 
 ## Title Suggestion Scoring
 
