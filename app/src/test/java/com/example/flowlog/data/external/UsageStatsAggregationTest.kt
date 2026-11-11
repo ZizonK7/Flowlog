@@ -60,9 +60,10 @@ class UsageStatsAggregationTest {
 
     @Test
     fun intervalStillOpenAtTheWindowEndRunsToTheWindowEnd() {
+        // at(day, hour): opened on the 9th at 15:00, window ends on the 9th at 20:00.
         val rows = daily(listOf(fg("a.app", at(9, 15))), windowEnd = at(9, 20))
         assertEquals(1, rows.size)
-        assertEquals((5 * minute).toDouble(), rows[0].value, 0.0)
+        assertEquals((5 * hour).toDouble(), rows[0].value, 0.0)
         // Today's row keeps its day bounds (and id) while its value grows.
         assertEquals(day9, rows[0].startTime)
         assertEquals(day10, rows[0].endTime)

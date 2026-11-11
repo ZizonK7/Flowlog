@@ -107,6 +107,9 @@ dependencies {
 
     // Health Connect (read sleep, steps, exercise into external_samples; API 28+ at runtime)
     implementation(libs.androidx.health.connect.client)
+    // registerForActivityResult (Health Connect permission request) needs Fragment 1.3.0+ on the
+    // classpath; an older Fragment came in transitively and lintVitalRelease failed on it.
+    implementation(libs.androidx.fragment.ktx)
 
     // Kotlin Serialization
     implementation(libs.kotlinx.serialization.json)
