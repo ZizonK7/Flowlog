@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fixed normal timer progress on the home screen and widget using the saved
+  focus-session duration. Study, Todo, work, development, and other activity
+  timers now use their 75-minute goal independently of focus settings.
 - Version 0.6.0 (versionCode 27) is the first build with the PC web app link-up
   below (shared timer, web todo pull). The web app (`/app/`) asks for 0.6.0 or
   later and hides that notice once this phone has written the timer document.

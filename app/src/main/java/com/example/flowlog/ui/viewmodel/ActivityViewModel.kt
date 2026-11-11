@@ -3081,8 +3081,8 @@ class ActivityViewModel(
     }
 
     private fun defaultGoalMillisForCategory(category: String): Long {
+        // Focus duration controls the optional focus session, not activity progress.
         return when {
-            category in FOCUS_BANNER_CATEGORIES -> FocusModeStore.getFocusDurationMillis(appContext)
             category in SEVENTY_FIVE_MINUTE_GOAL_CATEGORIES -> SEVENTY_FIVE_MINUTE_GOAL_MILLIS
             else -> TimerStateStore.DEFAULT_GOAL_MILLIS
         }
@@ -3288,6 +3288,5 @@ class ActivityViewModel(
         private val SEVENTY_FIVE_MINUTE_GOAL_MILLIS = TimeUnit.MINUTES.toMillis(75)
         private val IMMEDIATE_SYNC_ACTIVITY_DURATION_MILLIS = TimeUnit.MINUTES.toMillis(10)
         private val SEVENTY_FIVE_MINUTE_GOAL_CATEGORIES = setOf("STUDY", "TODO", "WORK", "DEVELOPMENT", "EXERCISE", "ETC")
-        private val FOCUS_BANNER_CATEGORIES = setOf("STUDY", "TODO", "WORK", "DEVELOPMENT", "ETC")
     }
 }
