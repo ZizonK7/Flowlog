@@ -5,6 +5,59 @@
 - Fixed normal timer progress on the home screen and widget using the saved
   focus-session duration. Study, Todo, work, development, and other activity
   timers now use their 75-minute goal independently of focus settings.
+- Removed dead code and the exam leftovers. `ActivityViewModel` loses five
+  functions nothing called (`stopActivity`, `cancelPendingActivity`,
+  `restartActivity`, `saveActivity`, `updatePendingSavedActivity`) with
+  `dismissPendingSavedActivity`, `clearPendingActivity`, `logActivityStopped`,
+  the never-set `pendingSavedActivity` state, and the `via` values `restart`
+  and `timer_save`. The v25 migration (`FlowlogMigration24To25`, still v24 →
+  v25) now also drops the `exam_strategy_checks` table
+  (`ExamStrategyCheckEntity` removed), rebuilds `organized_petites` without its
+  five exam columns, and turns remaining `UNIVERSITY_EXAM` Todos into `NORMAL`
+  once (marked for upload); `TodoDao.downgradeRetiredExamTodos` and its two
+  per-sync calls are gone. Earlier migrations keep their exam SQL.
+- Added app usage samples (off by default): Settings > 외부 데이터 > "앱 사용
+  통계" opens the system usage-access screen (`PACKAGE_USAGE_STATS`, checked
+  through AppOps) and shows the state. From the system usage events of the
+  same window the app builds per-package foreground time per local day
+  (`app_foreground_daily`, cut at midnight, today's row partial) and screen-on
+  intervals (`screen_interactive`, Android 9+) into `external_samples`
+  (no Room version change); package names are stored as they are. The
+  `ExternalSampleWorker` now runs each provider that is on (one failing does not
+  stop the other, one `EXTERNAL_SAMPLES_FETCHED` each) and the periodic work is
+  cancelled only when both are off. Health Connect sleep and exercise sessions
+  are now keyed by their record id, so edited session times overwrite the same
+  row. Unit tests `UsageStatsAggregationTest`.
+- Added Health Connect samples (off by default): Settings > 외부 데이터 >
+  "건강 데이터(Health Connect)" asks for read access to sleep, steps, and
+  exercise, shows the state, last fetch, and 7-day sample count, and turns it
+  off. Sleep sessions (with stages), daily step totals, and exercise sessions
+  (type, title) from the last 7 days (first fetch 30) go into the new Room
+  table `external_samples` (v24 → v25, `FlowlogMigration24To25`), keyed so a
+  re-read overwrites its row, and upload to `flowlog/data/externalSamples`.
+  Fetched every 6 hours (WorkManager), right after turning it on, and on
+  foreground after 6 hours; each fetch logs `EXTERNAL_SAMPLES_FETCHED`.
+  Samples are only stored (no activities, no recommendations, not exported).
+  New `connect-client` dependency, permission rationale screen, unit tests
+  (`ExternalSamplesTest`).
+- Event log now covers 37 of the 39 kinds in `EventType.kt` (was 22): timer
+  ends without a record, favorites, daily-goal item clicks/completions/skips,
+  reminder shown/clicked/dismissed (new `NotificationDismissReceiver`),
+  developer mode, five setting switches, app foreground, export, sync
+  start/result, and database migrations. Same `event_logs` table and Room
+  version; metadata strings come from `EventMetadata` (unit tested), and
+  `EventTypeCoverageTest` fails when a kind is logged nowhere.
+  `MIGRATION_STARTED`/`MIGRATION_FAILED` stay unlogged (no safe moment).
+- Event log, second pass (42 of 44 kinds): `ACTIVITY_STARTED` now records every
+  timer start with `via` (main button, shortcut, todo, routine, plan item,
+  flow recommendation, auto-button alarm, study-plan auto start, web, undo
+  restore, …), merging the inactivity-reminder response into the same row.
+  New `TITLE_SUGGESTION_SHOWN`/`_PICKED` (the five title chips shown and the
+  one tapped) and `BUTTON_RECOMMENDATION_SHOWN`/`_ACCEPTED`/`_DISMISSED`.
+  `ACTIVITY_SAVED` carries `via` and, for timer saves, `titleSource`
+  (suggestion/typed/default/preset/unknown) with the slot and shown chips;
+  `ACTIVITY_UPDATED` carries only the changed fields (note as lengths only).
+  Every row now has `installationId`. No table or Room version change.
 - Version 0.6.0 (versionCode 27) is the first build with the PC web app link-up
   below (shared timer, web todo pull). The web app (`/app/`) asks for 0.6.0 or
   later and hides that notice once this phone has written the timer document.

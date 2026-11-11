@@ -3,6 +3,7 @@ package com.example.flowlog.data.remote
 import com.example.flowlog.data.local.entity.DailyGoalItemEntity
 import com.example.flowlog.data.local.entity.DailyGoalRecommendationEntity
 import com.example.flowlog.data.local.entity.EventLogEntity
+import com.example.flowlog.data.local.entity.ExternalSampleEntity
 import com.example.flowlog.data.model.ActivitySession
 import com.example.flowlog.data.model.MainButtonConfig
 import com.example.flowlog.data.model.MainButtonItem
@@ -229,6 +230,37 @@ class FirestoreSyncRepository(
             .set(item.toRemoteMap(), SetOptions.merge())
             .awaitResult()
     }
+
+    // ── External samples ─────────────────────────────────────────────────
+    // 저장 경로: users/{uid}/flowlog/data/externalSamples/{sampleId}
+    // sampleId가 같으면 같은 문서에 merge upsert (다시 읽어 바뀐 샘플은 덮어씀).
+    suspend fun syncExternalSample(sampleId: String, sample: ExternalSampleEntity) {
+        val userId = uid ?: return
+        externalSampleCollection(userId).document(sampleId)
+            .set(sample.toRemoteMap(), SetOptions.merge())
+            .awaitResult()
+    }
+
+    private fun externalSampleCollection(userId: String) =
+        firestore.collection("users").document(userId)
+            .collection("flowlog").document("data")
+            .collection("externalSamples")
+
+    // syncStatus is local bookkeeping and stays out, as for event logs.
+    private fun ExternalSampleEntity.toRemoteMap(): Map<String, Any?> = mapOf(
+        "sampleId" to sampleId,
+        "userId" to userId,
+        "provider" to provider,
+        "kind" to kind,
+        "startTime" to startTime,
+        "endTime" to endTime,
+        "value" to value,
+        "unit" to unit,
+        "sourcePackage" to sourcePackage,
+        "payloadJson" to payloadJson,
+        "fetchedAt" to fetchedAt,
+        "createdAt" to createdAt
+    )
 
     private fun eventLogCollection(userId: String) =
         firestore.collection("users").document(userId)

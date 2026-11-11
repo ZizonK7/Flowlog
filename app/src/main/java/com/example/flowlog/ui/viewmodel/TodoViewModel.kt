@@ -25,6 +25,7 @@ import com.example.flowlog.data.repository.DailyCueRepository
 import com.example.flowlog.data.remote.FirestoreSyncRepository
 import com.example.flowlog.data.repository.DailyGoalRepository
 import com.example.flowlog.data.repository.EventLogRepository
+import com.example.flowlog.data.repository.EventMetadata
 import com.example.flowlog.data.repository.GoalItem
 import com.example.flowlog.data.repository.OrganizedPetiteRepository
 import com.example.flowlog.data.repository.TodoRepository
@@ -654,7 +655,8 @@ class TodoViewModel(
                 durationMillis = 0L,
                 sourceType = ActivitySourceType.DAILY_CUE_CHECK,
                 sourceId = sourceId
-            )
+            ),
+            EventMetadata.activitySaved(EventMetadata.SaveVia.DAILY_CUE_CHECK)
         )
     }
 

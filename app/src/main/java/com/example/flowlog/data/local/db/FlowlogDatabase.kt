@@ -1,6 +1,7 @@
 package com.example.flowlog.data.local.db
 
 import android.content.Context
+import android.util.Log
 import androidx.room.Database
 import androidx.room.migration.Migration
 import androidx.room.Room
@@ -17,6 +18,7 @@ import com.example.flowlog.data.local.dao.CalendarEventDao
 import com.example.flowlog.data.local.dao.DailyCueDao
 import com.example.flowlog.data.local.dao.DailyGoalDao
 import com.example.flowlog.data.local.dao.EventLogDao
+import com.example.flowlog.data.local.dao.ExternalSampleDao
 import com.example.flowlog.data.local.dao.LectureCalendarInfoDao
 import com.example.flowlog.data.local.dao.MigrationErrorDao
 import com.example.flowlog.data.local.dao.OrganizedPetiteDao
@@ -32,7 +34,7 @@ import com.example.flowlog.data.local.entity.DailyGoalItemEntity
 import com.example.flowlog.data.local.entity.DailyGoalRecommendationEntity
 import com.example.flowlog.data.local.entity.DailySummaryEntity
 import com.example.flowlog.data.local.entity.EventLogEntity
-import com.example.flowlog.data.local.entity.ExamStrategyCheckEntity
+import com.example.flowlog.data.local.entity.ExternalSampleEntity
 import com.example.flowlog.data.local.entity.InstallationEntity
 import com.example.flowlog.data.local.entity.LectureCalendarInfoEntity
 import com.example.flowlog.data.local.entity.MigrationErrorEntity
@@ -42,6 +44,14 @@ import com.example.flowlog.data.local.entity.SyncBatchEntity
 import com.example.flowlog.data.local.entity.TodoEntity
 import com.example.flowlog.data.local.entity.TodoWorkSessionEntity
 import com.example.flowlog.data.local.entity.UserEntity
+import com.example.flowlog.data.constants.EventSource
+import com.example.flowlog.data.constants.EventType
+import com.example.flowlog.data.repository.EventLogRepository
+import com.example.flowlog.data.repository.EventMetadata
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 @Database(
     entities = [
@@ -69,16 +79,18 @@ import com.example.flowlog.data.local.entity.UserEntity
         UserEntity::class,
         InstallationEntity::class,
 
-        // Phase 4 — Exam (feature removed; entity kept so the v24 schema is unchanged)
-        ExamStrategyCheckEntity::class,
+        // Phase 4 — Petites
         OrganizedPetiteEntity::class,
 
         // Phase 5 — Calendar
         CalendarEventEntity::class,
         LectureCalendarInfoEntity::class,
         DailyCueEntity::class,
+
+        // Phase 6 — External samples (Health Connect, app usage statistics)
+        ExternalSampleEntity::class,
     ],
-    version = 24,
+    version = 25,
     // 장기적으로는 schema export + Migration 검증을 붙이는 것이 바람직하지만,
     // 현재 단계에서는 개발 편의상 schema 파일 생성을 보류한다.
     exportSchema = false
@@ -108,19 +120,65 @@ abstract class FlowlogDatabase : RoomDatabase() {
     abstract fun lectureCalendarInfoDao(): LectureCalendarInfoDao
     abstract fun dailyCueDao(): DailyCueDao
 
+    // Phase 6 DAOs
+    abstract fun externalSampleDao(): ExternalSampleDao
+
     companion object {
         @Volatile
         private var INSTANCE: FlowlogDatabase? = null
 
         fun getInstance(context: Context): FlowlogDatabase {
-            return INSTANCE ?: synchronized(this) {
+            INSTANCE?.let { return it }
+            var created = false
+            val instance = synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     FlowlogDatabase::class.java,
                     "flowlog.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, FlowlogMigration23To24)
-                    .build().also { INSTANCE = it }
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, FlowlogMigration23To24, FlowlogMigration24To25)
+                    .build().also {
+                        INSTANCE = it
+                        created = true
+                    }
+            }
+            // Outside the lock and after INSTANCE is set, so the getInstance() call inside
+            // EventLogRepository returns at once (no recursion, no second build).
+            if (created) recordMigrationIfVersionChanged(context.applicationContext, instance)
+            return instance
+        }
+
+        private const val VERSION_PREFS = "flowlog_db_version"
+        private const val KEY_LAST_OPENED_VERSION = "last_opened_version"
+
+        /**
+         * MIGRATION_COMPLETED {from, to} when the version this process opened differs from
+         * the one stored at the last open. Room runs migrations on the first open, not in
+         * build(), so this opens the database on a background thread and reads the version
+         * afterwards; if a migration throws there, nothing is recorded or stored (the same
+         * exception reaches the app's own first query). No stored version (first install, or
+         * the first run of a build with this check) stores the version without an event.
+         * MIGRATION_STARTED / MIGRATION_FAILED are not recorded: the event table cannot be
+         * written before or during a migration, and a failed one leaves it unusable.
+         */
+        private fun recordMigrationIfVersionChanged(appContext: Context, db: FlowlogDatabase) {
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                runCatching {
+                    val openedVersion = db.openHelper.writableDatabase.version
+                    val prefs = appContext.getSharedPreferences(VERSION_PREFS, Context.MODE_PRIVATE)
+                    val stored = prefs.getInt(KEY_LAST_OPENED_VERSION, 0).takeIf { it > 0 }
+                    val from = EventMetadata.migrationFromVersion(stored, openedVersion)
+                    if (from != null) {
+                        EventLogRepository(appContext).log(
+                            eventType = EventType.MIGRATION_COMPLETED,
+                            source = EventSource.SYSTEM,
+                            metadataJson = EventMetadata.migrationCompleted(from, openedVersion)
+                        )
+                    }
+                    if (stored != openedVersion) {
+                        prefs.edit().putInt(KEY_LAST_OPENED_VERSION, openedVersion).apply()
+                    }
+                }.onFailure { Log.w("FlowlogDatabase", "version check skipped: ${it.javaClass.simpleName}") }
             }
         }
 

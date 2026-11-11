@@ -13,9 +13,14 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.flowlog.R
+import com.example.flowlog.data.constants.EntityType
+import com.example.flowlog.data.constants.EventSource
+import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.local.FocusModeStore
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.model.TodoItem
+import com.example.flowlog.data.repository.EventLogRepository
+import com.example.flowlog.data.repository.EventMetadata
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -145,6 +150,16 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                     .setContentText(title)
                     .setStyle(NotificationCompat.BigTextStyle().bigText(title))
                     .setContentIntent(clickPendingIntent)
+                    .setDeleteIntent(
+                        NotificationDismissReceiver.deleteIntent(
+                            context = context,
+                            type = EventMetadata.NotificationType.PLANNED_TODO_REMINDER,
+                            notificationId = itemId,
+                            notificationIntId = notificationId,
+                            shownAt = System.currentTimeMillis(),
+                            entityId = itemId
+                        )
+                    )
                     .setCategory(NotificationCompat.CATEGORY_REMINDER)
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     // Lock screen shows only the generic heading; the Todo title stays private.
@@ -176,6 +191,23 @@ class PlannedTodoReminderReceiver : BroadcastReceiver() {
                 val deliveredAt = System.currentTimeMillis()
                 db.dailyGoalDao().markNotificationDelivered(itemId = itemId, deliveredAt = deliveredAt)
                 Log.i(TAG, "delivered: itemId=$itemId deliveredAt=$deliveredAt")
+                runCatching {
+                    EventLogRepository(context).log(
+                        eventType = EventType.NOTIFICATION_SHOWN,
+                        entityType = EntityType.DAILY_GOAL_ITEM,
+                        entityId = itemId,
+                        source = EventSource.NOTIFICATION,
+                        metadataJson = EventMetadata.notificationShown(
+                            type = EventMetadata.NotificationType.PLANNED_TODO_REMINDER,
+                            notificationId = itemId,
+                            shownAt = deliveredAt,
+                            extra = mapOf(
+                                "scheduledAt" to expectedAt,
+                                "silenced" to shouldSilence
+                            )
+                        )
+                    )
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error in PlannedTodoReminderReceiver", e)
             } finally {

@@ -3,6 +3,7 @@ package com.example.flowlog.data.repository
 import android.content.Context
 import android.util.Log
 import com.example.flowlog.data.constants.EntityType
+import com.example.flowlog.data.constants.EventSource
 import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.constants.RecommendationReason
 import com.example.flowlog.data.constants.SyncStatus
@@ -513,17 +514,19 @@ class DailyGoalRepository(context: Context) {
     }
 
     suspend fun markOpenPlannedItemCompleted(todoLegacyId: Long, activityLegacyId: Long) {
-        dao.markOpenPlannedItemCompleted(
+        val todoId = "legacy_todo_$todoLegacyId"
+        val rows = dao.markOpenPlannedItemCompleted(
             userId = userId,
-            todoId = "legacy_todo_$todoLegacyId",
+            todoId = todoId,
             actualCompletedAt = System.currentTimeMillis(),
             linkedActivityId = activityLegacyId.toString(),
-            completedTodoId = "legacy_todo_$todoLegacyId"
+            completedTodoId = todoId
         )
+        logGoalItemEvent(EventType.DAILY_GOAL_ITEM_COMPLETED, todoId, "mark_open_planned_item_completed", rows)
     }
 
     suspend fun markPlannedItemCompleted(itemId: String, todoLegacyId: Long, activityLegacyId: Long?) {
-        dao.markPlannedItemCompleted(
+        val rows = dao.markPlannedItemCompleted(
             userId = userId,
             itemId = itemId,
             actualCompletedAt = System.currentTimeMillis(),
@@ -531,6 +534,13 @@ class DailyGoalRepository(context: Context) {
             completedTodoId = "legacy_todo_$todoLegacyId"
         )
         plannedTodoReminderScheduler.cancel(itemId)
+        logGoalItemEvent(
+            EventType.DAILY_GOAL_ITEM_COMPLETED,
+            todoLegacyId.takeIf { it != 0L }?.let { "legacy_todo_$it" },
+            "mark_planned_item_completed",
+            rows,
+            itemId = itemId
+        )
     }
 
     suspend fun revertPlannedItemCompleted(itemId: String, restoredStatus: String) {
@@ -548,10 +558,19 @@ class DailyGoalRepository(context: Context) {
      */
     suspend fun markItemCompleted(dateKey: String, todoLegacyId: Long) {
         val recommendation = dao.getRecommendationByDate(userId, dateKey) ?: return
-        dao.markItemCompleted(
+        val todoId = "legacy_todo_$todoLegacyId"
+        val rows = dao.markItemCompleted(
             recommendationId = recommendation.recommendationId,
-            todoId = "legacy_todo_$todoLegacyId",
+            todoId = todoId,
             updatedAt = System.currentTimeMillis()
+        )
+        logGoalItemEvent(
+            EventType.DAILY_GOAL_ITEM_COMPLETED,
+            todoId,
+            "mark_item_completed",
+            rows,
+            recommendationId = recommendation.recommendationId,
+            dateKey = dateKey
         )
     }
 
@@ -560,20 +579,64 @@ class DailyGoalRepository(context: Context) {
      * petiteId만으로 userId 전체 범위에서 매칭해 refresh로 누적된 row까지 모두 처리.
      */
     suspend fun markCalendarPetiteCompleted(petiteId: String) {
-        dao.markCalendarPetiteItemsCompleted(
+        val todoId = "calendar_petite_$petiteId"
+        val rows = dao.markCalendarPetiteItemsCompleted(
             userId = userId,
-            todoId = "calendar_petite_$petiteId",
+            todoId = todoId,
             updatedAt = System.currentTimeMillis()
         )
+        logGoalItemEvent(EventType.DAILY_GOAL_ITEM_COMPLETED, todoId, "mark_calendar_petite_completed", rows)
     }
 
     suspend fun markItemClicked(dateKey: String, todoLegacyId: Long) {
         val recommendation = dao.getRecommendationByDate(userId, dateKey) ?: return
-        dao.markItemClicked(
+        val todoId = "legacy_todo_$todoLegacyId"
+        val rows = dao.markItemClicked(
             recommendationId = recommendation.recommendationId,
-            todoId = "legacy_todo_$todoLegacyId",
+            todoId = todoId,
             updatedAt = System.currentTimeMillis()
         )
+        logGoalItemEvent(
+            EventType.DAILY_GOAL_ITEM_CLICKED,
+            todoId,
+            "mark_item_clicked",
+            rows,
+            recommendationId = recommendation.recommendationId,
+            dateKey = dateKey
+        )
+    }
+
+    /**
+     * One DAILY_GOAL_ITEM_* event when [rows] > 0 (the update matched something).
+     * entityId is the item when known, else the recommendation, else none
+     * (calls that match by todoId across recommendations).
+     */
+    private suspend fun logGoalItemEvent(
+        eventType: String,
+        todoId: String?,
+        via: String,
+        rows: Int,
+        itemId: String? = null,
+        recommendationId: String? = null,
+        dateKey: String? = null,
+        source: String = EventSource.APP
+    ) {
+        if (rows <= 0) return
+        runCatching {
+            eventLogRepository.log(
+                eventType = eventType,
+                entityType = if (itemId == null && recommendationId != null) EntityType.DAILY_GOAL else EntityType.DAILY_GOAL_ITEM,
+                entityId = itemId ?: recommendationId,
+                source = source,
+                metadataJson = EventMetadata.dailyGoalItem(
+                    todoId = todoId,
+                    via = via,
+                    rows = rows,
+                    dateKey = dateKey,
+                    recommendationId = if (itemId != null) recommendationId else null
+                )
+            )
+        }
     }
 
     suspend fun dismissItemsByTodoId(todoLegacyId: Long) {
@@ -605,16 +668,36 @@ class DailyGoalRepository(context: Context) {
                 val startedOnShownDate = startedByActivity || (activities.isEmpty() && startedByAccumulatedDelta)
                 val completedOnShownDate = current.completedAt?.let { it in dayStart until dayEnd } == true
 
+                // Past days only: a shown item completed that day counts as completed,
+                // one never started that day as skipped (the only code path that sets wasSkipped).
                 when {
-                    completedOnShownDate -> dao.markItemCompletedPending(
-                        recommendationId = recommendation.recommendationId,
+                    completedOnShownDate -> logGoalItemEvent(
+                        eventType = EventType.DAILY_GOAL_ITEM_COMPLETED,
                         todoId = item.todoId,
-                        updatedAt = now
+                        via = "reconcile_past_recommendations",
+                        rows = dao.markItemCompletedPending(
+                            recommendationId = recommendation.recommendationId,
+                            todoId = item.todoId,
+                            updatedAt = now
+                        ),
+                        itemId = item.itemId,
+                        recommendationId = recommendation.recommendationId,
+                        dateKey = recommendation.dateKey,
+                        source = EventSource.SYSTEM
                     )
-                    !startedOnShownDate -> dao.markItemSkippedPending(
-                        recommendationId = recommendation.recommendationId,
+                    !startedOnShownDate -> logGoalItemEvent(
+                        eventType = EventType.DAILY_GOAL_ITEM_SKIPPED,
                         todoId = item.todoId,
-                        updatedAt = now
+                        via = "reconcile_past_recommendations",
+                        rows = dao.markItemSkippedPending(
+                            recommendationId = recommendation.recommendationId,
+                            todoId = item.todoId,
+                            updatedAt = now
+                        ),
+                        itemId = item.itemId,
+                        recommendationId = recommendation.recommendationId,
+                        dateKey = recommendation.dateKey,
+                        source = EventSource.SYSTEM
                     )
                 }
             }

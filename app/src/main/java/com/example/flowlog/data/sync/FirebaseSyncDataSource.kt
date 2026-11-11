@@ -33,6 +33,7 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
     private val todoDao = db.todoDao()
     private val eventLogDao = db.eventLogDao()
     private val dailyGoalDao = db.dailyGoalDao()
+    private val externalSampleDao = db.externalSampleDao()
     private val syncBatchDao = db.syncBatchDao()
     private val firestoreSync = FirestoreSyncRepository()
 
@@ -40,7 +41,6 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
 
     override suspend fun syncAll(userId: String): SyncOutcome {
         return withContext(Dispatchers.IO) {
-            downgradeRetiredExamTodos(userId)
             val activityCount = runCatching { activityDao.getUnsyncedActivities(userId).size }.getOrDefault(0)
             val todoCount = runCatching { todoDao.getUnsyncedTodos(userId).size }.getOrDefault(0)
             val eventCount = runCatching { eventLogDao.getUnsyncedEvents(userId).size }.getOrDefault(0)
@@ -64,15 +64,17 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
             val dailyGoalItemResult = runCatching { syncPendingDailyGoalItems(userId) }
                 .onFailure { e -> Log.w(TAG, "DailyGoalItem sync section failed: ${e.message}", e) }
                 .getOrDefault(SyncOutcome())
+            val externalSampleResult = runCatching { syncPendingExternalSamples(userId) }
+                .onFailure { e -> Log.w(TAG, "ExternalSample sync section failed: ${e.message}", e) }
+                .getOrDefault(SyncOutcome())
 
             Log.i(TAG, "syncAll complete")
-            return@withContext activityResult + todoResult + eventResult + dailyGoalRecommendationResult + dailyGoalItemResult
+            return@withContext activityResult + todoResult + eventResult + dailyGoalRecommendationResult + dailyGoalItemResult + externalSampleResult
         }
     }
 
     suspend fun syncEligible(userId: String): SyncOutcome {
         return withContext(Dispatchers.IO) {
-            downgradeRetiredExamTodos(userId)
             val cutoffMillis = todayStartMillis()
             val activityCount = runCatching { activityDao.getEligibleUnsyncedActivities(userId, cutoffMillis).size }.getOrDefault(0)
             val todoCount = runCatching { todoDao.getEligibleUnsyncedTodos(userId, cutoffMillis).size }.getOrDefault(0)
@@ -97,9 +99,12 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
             val dailyGoalItemResult = runCatching { syncPendingDailyGoalItems(userId, eligibleOnly = true) }
                 .onFailure { e -> Log.w(TAG, "DailyGoalItem sync section failed: ${e.message}", e) }
                 .getOrDefault(SyncOutcome())
+            val externalSampleResult = runCatching { syncPendingExternalSamples(userId, eligibleOnly = true) }
+                .onFailure { e -> Log.w(TAG, "ExternalSample sync section failed: ${e.message}", e) }
+                .getOrDefault(SyncOutcome())
 
             Log.i(TAG, "syncEligible complete")
-            return@withContext activityResult + todoResult + eventResult + dailyGoalRecommendationResult + dailyGoalItemResult
+            return@withContext activityResult + todoResult + eventResult + dailyGoalRecommendationResult + dailyGoalItemResult + externalSampleResult
         }
     }
 
@@ -468,10 +473,67 @@ class FirebaseSyncDataSource(context: Context) : SyncRepository {
         }
     }
 
-    private suspend fun downgradeRetiredExamTodos(userId: String) {
-        runCatching { todoDao.downgradeRetiredExamTodos(userId, System.currentTimeMillis()) }
-            .onSuccess { count -> if (count > 0) Log.i(TAG, "Downgraded $count retired exam Todo(s) to NORMAL") }
-            .onFailure { e -> Log.w(TAG, "Exam Todo downgrade failed: ${e.message}", e) }
+    override suspend fun syncPendingExternalSamples(userId: String): SyncOutcome {
+        return syncPendingExternalSamples(userId, eligibleOnly = false)
+    }
+
+    // Same shape as syncPendingEvents. Eligible = the sample started before today.
+    private suspend fun syncPendingExternalSamples(userId: String, eligibleOnly: Boolean): SyncOutcome {
+        return withContext(Dispatchers.IO) {
+            val uploadStartedAt = System.currentTimeMillis()
+            val pending = runCatching {
+                if (eligibleOnly) {
+                    externalSampleDao.getEligibleUnsyncedSamples(userId, todayStartMillis())
+                } else {
+                    externalSampleDao.getUnsyncedSamples(userId)
+                }
+            }.getOrDefault(emptyList())
+            Log.i(TAG, "ExternalSamples pending: ${pending.size}")
+            if (pending.isEmpty()) return@withContext SyncOutcome()
+
+            val batchId = UUID.randomUUID().toString()
+            val dateKey = dateFormat.format(Date())
+            syncBatchDao.insertBatch(
+                SyncBatchEntity(
+                    batchId = batchId,
+                    userId = userId,
+                    dateKey = dateKey,
+                    eventCount = pending.size,
+                    status = "PENDING"
+                )
+            )
+
+            val syncedIds = mutableListOf<String>()
+            val errors = mutableListOf<String>()
+
+            pending.forEach { entity ->
+                runCatching {
+                    firestoreSync.syncExternalSample(entity.sampleId, entity)
+                    syncedIds.add(entity.sampleId)
+                }.onFailure { e ->
+                    errors.add("${entity.sampleId}: ${e.message}")
+                    Log.w(TAG, "ExternalSample sync failed: ${entity.sampleId} — ${e.message}")
+                }
+            }
+
+            if (syncedIds.isNotEmpty()) {
+                runCatching { syncedIds.chunked(500).forEach { externalSampleDao.markSamplesSynced(it, uploadStartedAt) } }
+            }
+
+            if (errors.isEmpty()) {
+                syncBatchDao.markBatchSuccess(batchId, "SUCCESS", System.currentTimeMillis())
+                Log.i(TAG, "ExternalSamples synced: ${syncedIds.size}/${pending.size}")
+            } else {
+                syncBatchDao.markBatchFailed(batchId, "FAILED", errors.joinToString("; "))
+                Log.w(TAG, "ExternalSamples sync partial: ${syncedIds.size} ok, ${errors.size} failed | ${errors.joinToString("; ")}")
+            }
+
+            return@withContext SyncOutcome(
+                attemptedCount = pending.size,
+                successCount = syncedIds.size,
+                failureCount = errors.size
+            )
+        }
     }
 
     override suspend fun hasPendingSync(userId: String): Boolean {

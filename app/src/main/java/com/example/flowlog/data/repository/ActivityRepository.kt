@@ -77,7 +77,11 @@ class ActivityRepository(context: Context) {
     //   Firebase sync → FirebaseSyncDataSource.syncAll(uid) 가 PENDING 항목 batch upload
     //   soft delete → isDeleted=1 + PENDING → batch sync에서 Firestore delete 처리
 
-    suspend fun insertActivity(activity: ActivitySession): Long {
+    /**
+     * [metadataJson] goes on the ACTIVITY_SAVED event; callers pass
+     * [EventMetadata.activitySaved] with their `via` (see [EventMetadata.SaveVia]).
+     */
+    suspend fun insertActivity(activity: ActivitySession, metadataJson: String? = null): Long {
         val id = idCounter.incrementAndGet()
         val activityWithId = activity.copy(id = id)
         // Room primary write — observeAllActivities Flow 즉시 emit → UI 즉각 갱신
@@ -86,7 +90,8 @@ class ActivityRepository(context: Context) {
             eventLogRepository.log(
                 eventType = EventType.ACTIVITY_SAVED,
                 entityType = EntityType.ACTIVITY,
-                entityId = id.toString()
+                entityId = id.toString(),
+                metadataJson = metadataJson
             )
         }
         return id
@@ -110,23 +115,42 @@ class ActivityRepository(context: Context) {
                 eventLogRepository.log(
                     eventType = EventType.ACTIVITY_SAVED,
                     entityType = EntityType.ACTIVITY,
-                    entityId = activity.id.toString()
+                    entityId = activity.id.toString(),
+                    metadataJson = EventMetadata.activitySaved(EventMetadata.SaveVia.IMPORT)
                 )
             }
         }
         return inserted
     }
 
+    /**
+     * User edits only (this screen's calls). ACTIVITY_UPDATED carries the fields that changed,
+     * read against the stored row before the write ([EventMetadata.activityChanged]; the note
+     * as lengths only). Rows changed by a pull from the web do not come through here.
+     */
     suspend fun updateActivity(activity: ActivitySession) {
+        val before = runCatching { roomDataSource.getRowForUpdate(activity) }.getOrNull()
         runCatching { roomDataSource.update(activity, userId) }
         runCatching {
             eventLogRepository.log(
                 eventType = EventType.ACTIVITY_UPDATED,
                 entityType = EntityType.ACTIVITY,
-                entityId = activity.id.toString()
+                entityId = activity.id.toString(),
+                metadataJson = EventMetadata.activityChanged(before?.eventFields(), activity.eventFields())
             )
         }
     }
+
+    private fun ActivitySession.eventFields() = EventMetadata.ActivityFields(
+        title = title,
+        category = category,
+        note = note,
+        startTime = startTime,
+        endTime = endTime,
+        isFavorite = isFavorite,
+        linkedTodoId = linkedTodoId,
+        exerciseSetCount = exerciseSets.size
+    )
 
     suspend fun deleteActivity(activity: ActivitySession) {
         runCatching { roomDataSource.softDeleteByLegacyId(activity.id) }

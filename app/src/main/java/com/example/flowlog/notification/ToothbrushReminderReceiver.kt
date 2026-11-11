@@ -13,8 +13,17 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.flowlog.MainActivity
 import com.example.flowlog.R
+import com.example.flowlog.data.constants.EntityType
+import com.example.flowlog.data.constants.EventSource
+import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.local.FocusModeStore
 import com.example.flowlog.data.local.TimerStateStore
+import com.example.flowlog.data.repository.EventLogRepository
+import com.example.flowlog.data.repository.EventMetadata
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class ToothbrushReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -70,6 +79,19 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val notificationId = intent.getLongExtra(
+            EXTRA_ACTIVITY_ID,
+            System.currentTimeMillis()
+        ).toInt()
+        val shownAt = System.currentTimeMillis()
+        val deletePendingIntent = NotificationDismissReceiver.deleteIntent(
+            context = context,
+            type = EventMetadata.NotificationType.TOOTHBRUSH_REMINDER,
+            notificationId = notificationId.toString(),
+            notificationIntId = notificationId,
+            shownAt = shownAt
+        )
+
         val channelId = if (shouldSilence) SleepAlarmGuard.SILENT_CHANNEL_ID else FlowlogAlertChannel.ID
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_notification)
@@ -77,6 +99,7 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
             .setContentTitle(title)
             .setContentText(message)
             .setContentIntent(openPendingIntent)
+            .setDeleteIntent(deletePendingIntent)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -96,11 +119,33 @@ class ToothbrushReminderReceiver : BroadcastReceiver() {
                 .setVibrate(FlowlogVibrationPatterns.alert())
         }
 
-        val notificationId = intent.getLongExtra(
-            EXTRA_ACTIVITY_ID,
-            System.currentTimeMillis()
-        ).toInt()
         notifySafely(context, notificationId, builder.build())
+
+        val pendingResult = goAsync()
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try {
+                runCatching {
+                    EventLogRepository(context).log(
+                        eventType = EventType.NOTIFICATION_SHOWN,
+                        entityType = EntityType.NOTIFICATION,
+                        source = EventSource.NOTIFICATION,
+                        metadataJson = EventMetadata.notificationShown(
+                            type = EventMetadata.NotificationType.TOOTHBRUSH_REMINDER,
+                            notificationId = notificationId.toString(),
+                            shownAt = shownAt,
+                            extra = mapOf(
+                                "reminderType" to reminderType.ifBlank { null },
+                                "category" to category.ifBlank { null },
+                                "silenced" to shouldSilence,
+                                "timeoutMs" to ALERT_NOTIFICATION_TIMEOUT_MILLIS
+                            )
+                        )
+                    )
+                }
+            } finally {
+                pendingResult.finish()
+            }
+        }
     }
 
     private fun canPostNotifications(context: Context): Boolean {

@@ -47,6 +47,7 @@ import com.example.flowlog.data.repository.DailyGoalRepository
 import com.example.flowlog.data.repository.DailyCueRecord
 import com.example.flowlog.data.repository.DailyCueRepository
 import com.example.flowlog.data.repository.EventLogRepository
+import com.example.flowlog.data.repository.EventMetadata
 import com.example.flowlog.data.repository.OrganizedPetiteRepository
 import com.example.flowlog.data.repository.TodoRepository
 import com.example.flowlog.data.remote.FirestoreSyncRepository
@@ -56,7 +57,6 @@ import com.example.flowlog.notification.ActivityTimerNotifier
 import com.example.flowlog.notification.AutoButtonScheduler
 import com.example.flowlog.notification.FocusDndController
 import com.example.flowlog.notification.FocusModeScheduler
-import com.example.flowlog.notification.InactivityReminderReceiver
 import com.example.flowlog.notification.InactivityReminderScheduler
 import com.example.flowlog.notification.PlannedTodoReminderScheduler
 import com.example.flowlog.notification.ReminderScheduler
@@ -155,11 +155,22 @@ data class ActivityUiState(
     val sourceType: String = ActivitySourceType.MANUAL,
     val sourceId: String? = null,
     val pendingTitle: String? = null,
+    /**
+     * Where the running timer's title came from ([EventMetadata.TitleSource]), for the
+     * ACTIVITY_SAVED event. Valid only while [titleChoiceStartTime] equals [startTime];
+     * [pendingTitleSourceTitle] is the title it was recorded for.
+     */
+    val pendingTitleSource: String? = null,
+    val pendingTitleSourceTitle: String? = null,
+    /** Suggestion chip index (0-based) when [pendingTitleSource] is a suggestion. */
+    val pendingTitleSlot: Int? = null,
+    /** The title suggestion chips last shown for the running timer (TITLE_SUGGESTION_SHOWN). */
+    val shownTitleSlots: List<String> = emptyList(),
+    val titleChoiceStartTime: Long = 0L,
     val pendingNote: String? = null,
     val dailyCueId: Long? = null,
     val dailyCueTargetDateKey: Long? = null,
     val completedDailyCueGoalIds: Set<Long> = emptySet(),
-    val pendingSavedActivity: ActivitySession? = null,
     val lastAddedActivity: ActivitySession? = null,
     val editingActivity: ActivitySession? = null,
     val selectedCategory: String? = null,
@@ -542,11 +553,12 @@ class ActivityViewModel(
                 durationMillis = 0L,
                 sourceType = ActivitySourceType.DAILY_CUE_CHECK,
                 sourceId = sourceId
-            )
+            ),
+            EventMetadata.activitySaved(EventMetadata.SaveVia.DAILY_CUE_CHECK)
         )
     }
 
-    fun startActivity(category: String) {
+    fun startActivity(category: String, via: String = EventMetadata.StartVia.MANUAL_BUTTON) {
         when (category) {
             "SNACK" -> {
                 scheduleSnackReminder()
@@ -587,14 +599,16 @@ class ActivityViewModel(
             )
         }
         saveActiveSession(category = category, startTime = startTime, goalMillis = goalMillis)
+        logActivityStarted(
+            via = via,
+            category = category,
+            startTime = startTime,
+            sourceType = ActivitySourceType.MANUAL
+        )
         if (category != "SLEEP") {
             activityTimerNotifier.showRunningTimer(category, startTime)
         }
         startTimer()
-    }
-
-    fun restartActivity(activity: ActivitySession) {
-        startActivity(activity.category)
     }
 
     fun startScheduledAutoButtonNow(block: ScheduledAutoButtonBlock) {
@@ -611,6 +625,15 @@ class ActivityViewModel(
                 sourceId = block.scheduleId
             )
             FlowStatusWidgetProvider.updateAll(appContext)
+            logActivityStarted(
+                via = EventMetadata.StartVia.SCHEDULED_AUTO_BUTTON_NOW,
+                category = block.category,
+                startTime = startTime,
+                sourceType = ActivitySourceType.AUTO_BUTTON,
+                sourceId = block.scheduleId,
+                pendingTitle = block.title,
+                pinned = true
+            )
             return
         }
 
@@ -649,6 +672,14 @@ class ActivityViewModel(
             sourceType = ActivitySourceType.AUTO_BUTTON,
             sourceId = block.scheduleId
         )
+        logActivityStarted(
+            via = EventMetadata.StartVia.SCHEDULED_AUTO_BUTTON_NOW,
+            category = block.category,
+            startTime = startTime,
+            sourceType = ActivitySourceType.AUTO_BUTTON,
+            sourceId = block.scheduleId,
+            pendingTitle = block.title
+        )
         activityTimerNotifier.showRunningTimer(block.category, startTime)
         startTimer()
     }
@@ -673,6 +704,13 @@ class ActivityViewModel(
             goalMillis = goalMillisForTimer(cleanCategory, startTime)
         )
         FlowStatusWidgetProvider.updateAll(appContext)
+        logActivityStarted(
+            via = EventMetadata.StartVia.OVERLAPPING,
+            category = cleanCategory,
+            startTime = startTime,
+            sourceType = ActivitySourceType.MANUAL,
+            pinned = true
+        )
     }
 
     fun saveOverlappingActivity(category: String, startTime: Long, endTime: Long = System.currentTimeMillis()) {
@@ -695,7 +733,10 @@ class ActivityViewModel(
             sourceId = pinnedTimer?.sourceId
         )
         viewModelScope.launch {
-            val newId = repository.insertActivity(activity)
+            val newId = repository.insertActivity(
+                activity,
+                EventMetadata.activitySaved(EventMetadata.SaveVia.OVERLAPPING_STOP)
+            )
             val savedActivity = activity.copy(id = newId)
             rememberLastAddedActivity(savedActivity)
             inactivityReminderScheduler.scheduleAfterActivityEnded(endTime)
@@ -716,7 +757,10 @@ class ActivityViewModel(
             sourceType = ActivitySourceType.MANUAL
         )
         viewModelScope.launch {
-            val newId = repository.insertActivity(activity)
+            val newId = repository.insertActivity(
+                activity,
+                EventMetadata.activitySaved(EventMetadata.SaveVia.FILL_SLEEP)
+            )
             val savedActivity = activity.copy(id = newId)
             rememberLastAddedActivity(savedActivity)
             inactivityReminderScheduler.scheduleAfterActivityEnded(endTime)
@@ -763,7 +807,9 @@ class ActivityViewModel(
             sourceType = ActivitySourceType.MANUAL
         )
         viewModelScope.launch {
-            val newId = runCatching { repository.insertActivity(activity) }.getOrNull()
+            val newId = runCatching {
+                repository.insertActivity(activity, EventMetadata.activitySaved(EventMetadata.SaveVia.MANUAL_ADD))
+            }.getOrNull()
             if (newId == null) {
                 onSaved(false)
                 return@launch
@@ -813,6 +859,15 @@ class ActivityViewModel(
                 sessions.size
             }
             result.exceptionOrNull()?.let { Log.w("ActivityExport", "export failed", it) }
+            result.getOrNull()?.let { count ->
+                runCatching {
+                    eventLogRepository.log(
+                        eventType = EventType.EXPORT_CREATED,
+                        entityType = EntityType.ACTIVITY,
+                        metadataJson = EventMetadata.exportCreated(format.name, count)
+                    )
+                }
+            }
             onDone(result.getOrNull())
         }
     }
@@ -861,11 +916,103 @@ class ActivityViewModel(
     }
 
     fun setRunningActivityTitle(title: String) {
+        applyRunningActivityTitle(title, suggestionSlot = null)
+    }
+
+    /**
+     * A title suggestion chip was tapped: TITLE_SUGGESTION_PICKED, then the title is applied
+     * like a typed one but remembered as `suggestion` with its [slot] for ACTIVITY_SAVED.
+     */
+    fun pickTitleSuggestion(slot: Int, title: String) {
+        val state = _uiState.value
+        if (!state.isRunning) return
+        val category = state.currentCategory
+        viewModelScope.launch {
+            runCatching {
+                eventLogRepository.log(
+                    eventType = EventType.TITLE_SUGGESTION_PICKED,
+                    entityType = EntityType.ACTIVITY,
+                    metadataJson = EventMetadata.titleSuggestionPicked(category, slot, title),
+                    algorithmVersion = EventMetadata.TITLE_RANKER_ALGORITHM
+                )
+            }
+        }
+        applyRunningActivityTitle(title, suggestionSlot = slot)
+    }
+
+    /**
+     * The timer screen shows the title suggestion chips [slots] for [category]. Logged once
+     * per running timer and list: the same list for the same timer (recomposition, or the
+     * card coming back on screen) adds no row; a changed list does.
+     */
+    fun recordTitleSuggestionsShown(category: String, slots: List<String>) {
+        val state = _uiState.value
+        if (!state.isRunning || slots.isEmpty()) return
+        val sameTimer = state.titleChoiceStartTime == state.startTime
+        if (sameTimer && state.shownTitleSlots == slots) return
+        _uiState.update {
+            if (it.titleChoiceStartTime == it.startTime) {
+                it.copy(shownTitleSlots = slots)
+            } else {
+                it.copy(
+                    shownTitleSlots = slots,
+                    pendingTitleSource = null,
+                    pendingTitleSourceTitle = null,
+                    pendingTitleSlot = null,
+                    titleChoiceStartTime = it.startTime
+                )
+            }
+        }
+        viewModelScope.launch {
+            runCatching {
+                eventLogRepository.log(
+                    eventType = EventType.TITLE_SUGGESTION_SHOWN,
+                    entityType = EntityType.ACTIVITY,
+                    metadataJson = EventMetadata.titleSuggestionShown(category, slots),
+                    algorithmVersion = EventMetadata.TITLE_RANKER_ALGORITHM
+                )
+            }
+        }
+    }
+
+    /**
+     * Sets the running timer's title. [suggestionSlot] non-null means a picked chip. A title
+     * equal to the current one keeps its recorded source (the stop button re-applies the
+     * shown title before saving); any other text counts as typed; blank clears it.
+     */
+    private fun applyRunningActivityTitle(title: String, suggestionSlot: Int?) {
         if (!_uiState.value.isRunning) return
         val cleanTitle = title.trim().takeIf { it.isNotBlank() }
         val state = _uiState.value
         _uiState.update {
-            it.copy(pendingTitle = cleanTitle)
+            val sameTimer = it.titleChoiceStartTime == it.startTime
+            when {
+                suggestionSlot != null && cleanTitle != null -> it.copy(
+                    pendingTitle = cleanTitle,
+                    pendingTitleSource = EventMetadata.TitleSource.SUGGESTION,
+                    pendingTitleSourceTitle = cleanTitle,
+                    pendingTitleSlot = suggestionSlot,
+                    shownTitleSlots = if (sameTimer) it.shownTitleSlots else emptyList(),
+                    titleChoiceStartTime = it.startTime
+                )
+                cleanTitle == it.pendingTitle -> it.copy(pendingTitle = cleanTitle)
+                cleanTitle == null -> it.copy(
+                    pendingTitle = null,
+                    pendingTitleSource = null,
+                    pendingTitleSourceTitle = null,
+                    pendingTitleSlot = null,
+                    shownTitleSlots = if (sameTimer) it.shownTitleSlots else emptyList(),
+                    titleChoiceStartTime = it.startTime
+                )
+                else -> it.copy(
+                    pendingTitle = cleanTitle,
+                    pendingTitleSource = EventMetadata.TitleSource.TYPED,
+                    pendingTitleSourceTitle = cleanTitle,
+                    pendingTitleSlot = null,
+                    shownTitleSlots = if (sameTimer) it.shownTitleSlots else emptyList(),
+                    titleChoiceStartTime = it.startTime
+                )
+            }
         }
         saveActiveSession(
             category = state.currentCategory,
@@ -882,7 +1029,12 @@ class ActivityViewModel(
         )
     }
 
-    fun startTodoActivity(todoId: Long, title: String, calendarSourceId: String? = null) {
+    fun startTodoActivity(
+        todoId: Long,
+        title: String,
+        calendarSourceId: String? = null,
+        via: String = EventMetadata.StartVia.TODO
+    ) {
         if (_uiState.value.isRunning) return
 
         val startTime = System.currentTimeMillis()
@@ -918,6 +1070,14 @@ class ActivityViewModel(
             linkedTodoCalendarSourceId = calendarSourceId,
             linkedTodoTitle = title
         )
+        logActivityStarted(
+            via = via,
+            category = "TODO",
+            startTime = startTime,
+            sourceType = ActivitySourceType.MANUAL,
+            linkedTodoId = todoId,
+            pendingTitle = title
+        )
         activityTimerNotifier.showRunningTimer("TODO", startTime)
         startTimer()
     }
@@ -927,7 +1087,8 @@ class ActivityViewModel(
         title: String,
         goalMillis: Long,
         category: String,
-        targetDateKey: Long? = null
+        targetDateKey: Long? = null,
+        via: String = EventMetadata.StartVia.DAILY_CUE_ROUTINE
     ) {
         if (_uiState.value.isRunning) return
         val cleanTitle = title.trim()
@@ -972,6 +1133,14 @@ class ActivityViewModel(
             sourceId = cueId.toString(),
             routineGoalMillis = routineGoalMillis
         )
+        logActivityStarted(
+            via = via,
+            category = cleanCategory,
+            startTime = startTime,
+            sourceType = ActivitySourceType.DAILY_CUE_ROUTINE,
+            sourceId = cueId.toString(),
+            pendingTitle = cleanTitle
+        )
         if (routineGoalMillis > 0L) {
             routineGoalAlarmScheduler.schedule(
                 cueId = cueId,
@@ -987,7 +1156,10 @@ class ActivityViewModel(
         startTimer()
     }
 
-    fun startCalendarPetiteActivity(item: OrganizedPetite) {
+    fun startCalendarPetiteActivity(
+        item: OrganizedPetite,
+        via: String = EventMetadata.StartVia.CALENDAR_PETITE
+    ) {
         if (_uiState.value.isRunning) return
 
         val category = item.activityCategory?.takeIf { isTimedCategory(it) } ?: "TODO"
@@ -1028,6 +1200,14 @@ class ActivityViewModel(
             sourceType = ActivitySourceType.MANUAL,
             sourceId = item.id
         )
+        logActivityStarted(
+            via = via,
+            category = category,
+            startTime = startTime,
+            sourceType = ActivitySourceType.MANUAL,
+            sourceId = item.id,
+            pendingTitle = item.title
+        )
         activityTimerNotifier.showRunningTimer(category, startTime)
         startTimer()
     }
@@ -1045,7 +1225,8 @@ class ActivityViewModel(
                     cueId = routine.id,
                     title = routine.title,
                     goalMillis = routine.timerDurationMillis ?: 0L,
-                    category = routine.timerCategory
+                    category = routine.timerCategory,
+                    via = EventMetadata.StartVia.FLOW_RECOMMENDATION
                 )
                 viewModelScope.launch {
                     logFlowRecommendationEvent(EventType.FLOW_RECOMMENDATION_STARTED, recommendation)
@@ -1054,7 +1235,7 @@ class ActivityViewModel(
             }
             FlowRecommendationSource.TIMETABLE_TODO -> {
                 val block = recommendation.timetableTodo ?: return
-                startRecommendedTodoActivity(block)
+                startRecommendedTodoActivity(block, via = EventMetadata.StartVia.FLOW_RECOMMENDATION)
                 viewModelScope.launch {
                     dailyGoalRepository.markPlannedItemStarted(block.itemId)
                     logFlowRecommendationEvent(EventType.FLOW_RECOMMENDATION_STARTED, recommendation)
@@ -1063,7 +1244,12 @@ class ActivityViewModel(
             }
             FlowRecommendationSource.TODAY_TODO -> {
                 val todo = recommendation.todayTodo ?: return
-                startTodoActivity(todo.id, todo.title, todo.calendarSourceId)
+                startTodoActivity(
+                    todo.id,
+                    todo.title,
+                    todo.calendarSourceId,
+                    via = EventMetadata.StartVia.FLOW_RECOMMENDATION
+                )
                 viewModelScope.launch {
                     logFlowRecommendationEvent(EventType.FLOW_RECOMMENDATION_STARTED, recommendation)
                 }
@@ -1072,13 +1258,16 @@ class ActivityViewModel(
             FlowRecommendationSource.PETITE -> Unit
         }
         val petite = recommendation.petite ?: return
-        startCalendarPetiteActivity(petite)
+        startCalendarPetiteActivity(petite, via = EventMetadata.StartVia.FLOW_RECOMMENDATION)
         if (logEvent) viewModelScope.launch {
             logFlowRecommendationEvent(EventType.FLOW_RECOMMENDATION_STARTED, recommendation)
         }
     }
 
-    fun startRecommendedTodoActivity(block: RecommendedTodoBlock) {
+    fun startRecommendedTodoActivity(
+        block: RecommendedTodoBlock,
+        via: String = EventMetadata.StartVia.RECOMMENDED_TODO
+    ) {
         if (_uiState.value.isRunning) return
 
         val startTime = System.currentTimeMillis()
@@ -1118,6 +1307,15 @@ class ActivityViewModel(
             linkedTodoTitle = block.title,
             sourceType = ActivitySourceType.MANUAL,
             sourceId = block.itemId
+        )
+        logActivityStarted(
+            via = via,
+            category = "TODO",
+            startTime = startTime,
+            sourceType = ActivitySourceType.MANUAL,
+            sourceId = block.itemId,
+            linkedTodoId = linkedTodoId,
+            pendingTitle = block.title
         )
         activityTimerNotifier.showRunningTimer("TODO", startTime)
         startTimer()
@@ -1218,19 +1416,6 @@ class ActivityViewModel(
         }
     }
 
-    fun stopActivity(): Long {
-        if (!_uiState.value.isRunning) return -1L
-
-        timerJob?.cancel()
-        val elapsedTime = currentElapsedTime()
-        _uiState.update { it.copy(isRunning = false) }
-        TimerStateStore.pauseActiveTimer(appContext, elapsedTime)
-        routineGoalAlarmScheduler.cancel()
-        FlowStatusWidgetProvider.updateAll(appContext)
-        activityTimerNotifier.clearRunningTimer()
-        return elapsedTime
-    }
-
     fun stopActivityAndSave(
         titleOverride: String? = null,
         noteOverride: String? = null,
@@ -1249,6 +1434,19 @@ class ActivityViewModel(
             ?.takeIf { it.isNotBlank() }
             ?: state.pendingTitle
             ?: defaultTitle(cleanCategory)
+        val titleChoiceValid = state.titleChoiceStartTime == state.startTime
+        val titleSource = EventMetadata.titleSource(
+            finalTitle = cleanTitle,
+            choiceTitle = state.pendingTitleSourceTitle.takeIf { titleChoiceValid },
+            choiceSource = state.pendingTitleSource.takeIf { titleChoiceValid },
+            defaultTitle = defaultTitle(cleanCategory)
+        )
+        val savedMetadata = EventMetadata.activitySaved(
+            via = EventMetadata.SaveVia.TIMER_STOP,
+            titleSource = titleSource,
+            slot = state.pendingTitleSlot.takeIf { titleChoiceValid },
+            shownSlots = if (titleChoiceValid) state.shownTitleSlots else emptyList()
+        )
         val activity = ActivitySession(
             category = cleanCategory,
             title = cleanTitle,
@@ -1283,6 +1481,11 @@ class ActivityViewModel(
                 sourceType = ActivitySourceType.MANUAL,
                 sourceId = null,
                 pendingTitle = null,
+                pendingTitleSource = null,
+                pendingTitleSourceTitle = null,
+                pendingTitleSlot = null,
+                shownTitleSlots = emptyList(),
+                titleChoiceStartTime = 0L,
                 pendingNote = null,
                 dailyCueId = null,
                 dailyCueTargetDateKey = null,
@@ -1295,7 +1498,7 @@ class ActivityViewModel(
         resetTimerDisplayState()
 
         viewModelScope.launch {
-            val newId = repository.insertActivity(activity)
+            val newId = repository.insertActivity(activity, savedMetadata)
             val savedActivity = activity.copy(id = newId)
             if (markLinkedAsComplete) {
                 if (state.linkedPetiteId != null) {
@@ -1389,106 +1592,7 @@ class ActivityViewModel(
             syncAfterActivitySaveIfNeeded(savedActivity)
             _uiState.update {
                 it.copy(
-                    pendingSavedActivity = null,
                     statusMessage = "활동이 저장되었습니다."
-                )
-            }
-        }
-    }
-
-    fun saveActivity(category: String, title: String, note: String? = null) {
-        val state = _uiState.value
-        if (state.currentCategory.isEmpty() || state.startTime == 0L) return
-
-        val endTime = System.currentTimeMillis()
-        val elapsedTime = currentElapsedTime()
-        val durationMillis = if (elapsedTime > 0L) elapsedTime else endTime - state.startTime
-        val cleanCategory = category.ifBlank { state.currentCategory }
-        val cleanTitle = title.trim().ifBlank { state.pendingTitle ?: defaultTitle(cleanCategory) }
-        val activity = ActivitySession(
-            category = cleanCategory,
-            title = cleanTitle,
-            startTime = state.startTime,
-            endTime = endTime,
-            durationMillis = durationMillis,
-            note = note?.takeIf { it.isNotBlank() } ?: state.pendingNote?.takeIf { it.isNotBlank() },
-            tags = emptyList(),
-            linkedTodoId = state.linkedTodoId,
-            linkedPetiteId = state.linkedPetiteId ?: state.linkedTodoCalendarSourceId,
-            sourceType = state.sourceType,
-            sourceId = state.sourceId
-        )
-
-        viewModelScope.launch {
-            val newId = repository.insertActivity(activity)
-            val savedActivity = activity.copy(id = newId)
-            if (state.linkedPetiteId != null) {
-                if (state.sourceId != null) {
-                    dailyGoalRepository.markPlannedItemCompleted(state.sourceId, 0L, newId)
-                }
-            } else {
-                state.linkedTodoId?.let { todoId ->
-                    val todo = linkedTodoForState(state, todoId)
-                    if (todo != null) {
-                        todoRepository.addAccumulatedSeconds(todo, durationMillis / 1000L)
-                    } else if (state.linkedTodoCalendarSourceId != null) {
-                        todoRepository.addAccumulatedSecondsByCalendarSourceId(
-                            state.linkedTodoCalendarSourceId,
-                            durationMillis / 1000L
-                        )
-                    } else {
-                        todoRepository.addAccumulatedSeconds(todoId, durationMillis / 1000L)
-                    }
-                    if (state.sourceId != null) {
-                        dailyGoalRepository.markPlannedItemCompleted(state.sourceId, todoId, newId)
-                    } else if (todoId != 0L) {
-                        dailyGoalRepository.markOpenPlannedItemCompleted(todoId, newId)
-                    }
-                }
-            }
-            dailyGoalRepository.ensureTodayTimePlan(
-                activities = _uiState.value.allActivities + savedActivity,
-                forceRefresh = false
-            )
-            val mealTimerEndsAt = runCatching {
-                reminderScheduler.scheduleToothbrushReminder(savedActivity)
-            }.getOrNull()
-            if (mealTimerEndsAt != null) {
-                rememberSnackButtonTimerState(mealTimerEndsAt)
-                _uiState.update { it.copy(snackButtonEndsAtMillis = mealTimerEndsAt) }
-            }
-            rememberLastAddedActivity(savedActivity)
-            inactivityReminderScheduler.scheduleAfterActivityEnded(endTime)
-            syncAfterActivitySaveIfNeeded(savedActivity)
-            clearPendingActivity()
-        }
-    }
-
-    fun cancelPendingActivity() {
-        clearPendingActivity()
-    }
-
-    fun dismissPendingSavedActivity() {
-        _uiState.update { it.copy(pendingSavedActivity = null) }
-    }
-
-    fun updatePendingSavedActivity(category: String, title: String, note: String?) {
-        viewModelScope.launch {
-            val savedActivity = _uiState.value.pendingSavedActivity ?: return@launch
-            val cleanCategory = category.ifBlank { savedActivity.category }
-            val updatedActivity = savedActivity.copy(
-                category = cleanCategory,
-                title = title.trim().ifBlank { defaultTitle(cleanCategory) },
-                note = note?.takeIf { it.isNotBlank() },
-                tags = emptyList(),
-                modifiedTime = System.currentTimeMillis()
-            )
-            repository.updateActivity(updatedActivity)
-            rememberLastAddedActivity(updatedActivity)
-            _uiState.update {
-                it.copy(
-                    pendingSavedActivity = null,
-                    statusMessage = "활동 내용이 업데이트되었습니다."
                 )
             }
         }
@@ -1514,7 +1618,6 @@ class ActivityViewModel(
                     addAccumulatedSecondsForActivityTodo(existingActivity, -existingActivity.durationMillis / 1000L)
                     _uiState.update {
                         it.copy(
-                            pendingSavedActivity = null,
                             statusMessage = "최근 추가한 활동을 삭제했습니다."
                         )
                     }
@@ -1523,7 +1626,10 @@ class ActivityViewModel(
                         id = 0L,
                         modifiedTime = System.currentTimeMillis()
                     )
-                    val restoredId = repository.insertActivity(restoreDraft)
+                    val restoredId = repository.insertActivity(
+                        restoreDraft,
+                        EventMetadata.activitySaved(EventMetadata.SaveVia.UNDO_RESTORE)
+                    )
                     val restoredActivity = restoreDraft.copy(id = restoredId)
                     addAccumulatedSecondsForActivityTodo(restoredActivity, restoredActivity.durationMillis / 1000L)
                     rememberLastAddedActivity(restoredActivity)
@@ -1539,12 +1645,21 @@ class ActivityViewModel(
 
     fun toggleFavorite(activity: ActivitySession) {
         viewModelScope.launch {
+            val isFavorite = !activity.isFavorite
             repository.updateActivity(
                 activity.copy(
-                    isFavorite = !activity.isFavorite,
+                    isFavorite = isFavorite,
                     modifiedTime = System.currentTimeMillis()
                 )
             )
+            runCatching {
+                eventLogRepository.log(
+                    eventType = EventType.ACTIVITY_FAVORITE_TOGGLED,
+                    entityType = EntityType.ACTIVITY,
+                    entityId = activity.id.toString(),
+                    metadataJson = EventMetadata.favoriteToggled(isFavorite)
+                )
+            }
         }
     }
 
@@ -1811,6 +1926,17 @@ class ActivityViewModel(
     fun setAutoButtonEnabled(scheduleId: String, isEnabled: Boolean) {
         viewModelScope.launch {
             autoButtonScheduleRepository.setEnabled(scheduleId, isEnabled)
+            runCatching {
+                eventLogRepository.log(
+                    eventType = EventType.SETTING_CHANGED,
+                    entityType = EntityType.SETTING,
+                    entityId = scheduleId,
+                    metadataJson = EventMetadata.settingChanged(
+                        EventMetadata.SettingKey.AUTO_BUTTON_SCHEDULE,
+                        isEnabled
+                    )
+                )
+            }
             autoButtonScheduler.reschedule(scheduleId)
             autoButtonScheduleRepository.getSchedule(scheduleId)?.let { schedule ->
                 syncCalendarAutoButtonSchedule(schedule.copy(isEnabled = isEnabled))
@@ -2362,6 +2488,21 @@ class ActivityViewModel(
                     hasUnread = s.hasUnread || !s.showSheet
                 )
             }
+            // SHOWN = the message was created (added to the messenger list), not drawn on screen.
+            newMessages.forEach { message ->
+                logButtonRecommendation(EventType.BUTTON_RECOMMENDATION_SHOWN, message)
+            }
+        }
+    }
+
+    private suspend fun logButtonRecommendation(eventType: String, message: AiMessage.MainButtonRecommendation) {
+        runCatching {
+            eventLogRepository.log(
+                eventType = eventType,
+                entityId = message.id,
+                metadataJson = EventMetadata.buttonRecommendation(message.category, message.id),
+                algorithmVersion = EventMetadata.BUTTON_ENGINE_ALGORITHM
+            )
         }
     }
 
@@ -2391,6 +2532,7 @@ class ActivityViewModel(
                 else msg
             })
         }
+        viewModelScope.launch { logButtonRecommendation(EventType.BUTTON_RECOMMENDATION_ACCEPTED, message) }
     }
 
     fun dismissMainButtonRecommendation(messageId: String) {
@@ -2407,6 +2549,7 @@ class ActivityViewModel(
                 else msg
             })
         }
+        viewModelScope.launch { logButtonRecommendation(EventType.BUTTON_RECOMMENDATION_DISMISSED, message) }
     }
 
     // region existing button recommendations (SCHOOL / MOVE)
@@ -2801,7 +2944,8 @@ class ActivityViewModel(
                         endTime = endTime,
                         durationMillis = endTime - startTime,
                         modifiedTime = endTime
-                    )
+                    ),
+                    EventMetadata.activitySaved(EventMetadata.SaveVia.SEED_SLEEP)
                 )
             }
 
@@ -2875,36 +3019,6 @@ class ActivityViewModel(
         }
     }
 
-    private fun clearPendingActivity() {
-        timerJob?.cancel()
-        timerJob = null
-        activityTimerNotifier.clearRunningTimer()
-        clearActiveSession()
-        finishFocusMode(reason = "activity_cleared")
-        resetTimerDisplayState()
-        _uiState.update {
-            it.copy(
-                isRunning = false,
-                currentCategory = "",
-                isRoutineActive = false,
-                routineGoalMillis = 0L,
-                startTime = 0L,
-                linkedTodoId = null,
-                linkedTodoCalendarSourceId = null,
-                linkedPetiteId = null,
-                sourceType = ActivitySourceType.MANUAL,
-                sourceId = null,
-                pendingTitle = null,
-                pendingNote = null,
-                dailyCueId = null,
-                dailyCueTargetDateKey = null,
-                isFocusModeActive = false,
-                focusModeEndsAtMillis = 0L,
-                statusMessage = null
-            )
-        }
-    }
-
     private suspend fun syncAllPendingChanges() {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
         FirebaseSyncCoordinator(appContext).syncAll(uid)
@@ -2956,7 +3070,6 @@ class ActivityViewModel(
             routineGoalMillis = routineGoalMillis
         )
         inactivityReminderScheduler.cancel()
-        recordInactivityReminderResponseIfNeeded(startTime, category)
         FlowStatusWidgetProvider.updateAll(appContext)
     }
 
@@ -3159,12 +3272,26 @@ class ActivityViewModel(
         val next = !_isNotificationSoundEnabled.value
         FocusModeStore.setNotificationSoundEnabled(appContext, next)
         _isNotificationSoundEnabled.value = next
+        logSettingChanged(EventMetadata.SettingKey.NOTIFICATION_SOUND, next)
+    }
+
+    private fun logSettingChanged(key: String, value: Boolean) {
+        viewModelScope.launch {
+            runCatching {
+                eventLogRepository.log(
+                    eventType = EventType.SETTING_CHANGED,
+                    entityType = EntityType.SETTING,
+                    metadataJson = EventMetadata.settingChanged(key, value)
+                )
+            }
+        }
     }
 
     fun toggleInactivityReminder() {
         val next = !_isInactivityReminderEnabled.value
         InactivityReminderStore.setEnabled(appContext, next)
         _isInactivityReminderEnabled.value = next
+        logSettingChanged(EventMetadata.SettingKey.INACTIVITY_REMINDER, next)
         if (next) {
             inactivityReminderScheduler.rescheduleFromLastActivityIfNeeded()
         } else {
@@ -3207,31 +3334,66 @@ class ActivityViewModel(
         val next = !_isTimetableAutoPlaceEnabled.value
         TimetablePlanSettingsStore.setAutoPlaceEnabled(appContext, next)
         _isTimetableAutoPlaceEnabled.value = next
+        logSettingChanged(EventMetadata.SettingKey.TIMETABLE_AUTO_PLACE, next)
     }
 
     fun toggleTimetableReminder() {
         val next = !_isTimetableReminderEnabled.value
         TimetablePlanSettingsStore.setReminderEnabled(appContext, next)
         _isTimetableReminderEnabled.value = next
+        logSettingChanged(EventMetadata.SettingKey.TIMETABLE_REMINDER, next)
         viewModelScope.launch {
             plannedTodoReminderScheduler.rescheduleAll()
         }
     }
 
-    private fun recordInactivityReminderResponseIfNeeded(startedAt: Long, category: String) {
-        val pendingClick = InactivityReminderStore.consumePendingClick(appContext) ?: return
+    /**
+     * ACTIVITY_STARTED for a start made on this screen, one row per start; [via] names the
+     * caller. A start right after a click on the inactivity reminder takes that click
+     * (InactivityReminderStore) into the same row as `afterInactivityReminder`. A main-slot
+     * start also resets the title-source state for the new timer.
+     */
+    private fun logActivityStarted(
+        via: String,
+        category: String,
+        startTime: Long,
+        sourceType: String,
+        sourceId: String? = null,
+        linkedTodoId: Long? = null,
+        pendingTitle: String? = null,
+        pinned: Boolean = false
+    ) {
+        val pendingClick = if (pinned) null else InactivityReminderStore.consumePendingClick(appContext)
+        if (!pinned) {
+            _uiState.update {
+                it.copy(
+                    pendingTitleSource = pendingTitle?.takeIf { t -> t.isNotBlank() }
+                        ?.let { EventMetadata.TitleSource.PRESET },
+                    pendingTitleSourceTitle = pendingTitle?.takeIf { t -> t.isNotBlank() },
+                    pendingTitleSlot = null,
+                    shownTitleSlots = emptyList(),
+                    titleChoiceStartTime = startTime
+                )
+            }
+        }
+        val metadata = EventMetadata.activityStarted(
+            via = via,
+            category = category,
+            startTime = startTime,
+            sourceType = sourceType,
+            sourceId = sourceId,
+            linkedTodoId = linkedTodoId,
+            pendingTitle = pendingTitle,
+            pinned = pinned,
+            reminderNotificationId = pendingClick?.notificationId,
+            reminderClickedAt = pendingClick?.clickedAt
+        )
         viewModelScope.launch {
             runCatching {
                 eventLogRepository.log(
                     eventType = EventType.ACTIVITY_STARTED,
-                    source = EventSource.NOTIFICATION,
-                    metadataJson = JSONObject()
-                        .put("type", InactivityReminderReceiver.TYPE)
-                        .put("notificationId", pendingClick.notificationId)
-                        .put("clickedAt", pendingClick.clickedAt)
-                        .put("activityStartedAt", startedAt)
-                        .put("category", category)
-                        .toString()
+                    entityType = EntityType.ACTIVITY,
+                    metadataJson = metadata
                 )
             }
         }

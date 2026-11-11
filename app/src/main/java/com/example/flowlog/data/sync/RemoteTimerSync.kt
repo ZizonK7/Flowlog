@@ -3,10 +3,15 @@ package com.example.flowlog.data.sync
 import android.content.Context
 import android.util.Log
 import com.example.flowlog.data.constants.ActivitySourceType
+import com.example.flowlog.data.constants.EntityType
+import com.example.flowlog.data.constants.EventSource
+import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.local.ActiveTimerState
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
 import com.example.flowlog.data.remote.awaitResult
+import com.example.flowlog.data.repository.EventLogRepository
+import com.example.flowlog.data.repository.EventMetadata
 import com.example.flowlog.notification.ActivityTimerNotifier
 import com.example.flowlog.notification.RoutineGoalAlarmScheduler
 import com.example.flowlog.widget.FlowStatusWidgetProvider
@@ -16,6 +21,10 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 
@@ -122,11 +131,11 @@ object RemoteTimerSync {
         when (action) {
             is TimerSyncAction.Ignore -> Unit
             is TimerSyncAction.StartRemote -> {
-                if (action.replacesLocal) endLocalWithoutRecord(context)
+                if (action.replacesLocal) endLocalWithoutRecord(context, activeTimer, reason = "web_replaced")
                 startFromRemote(context, action.remote)
             }
             is TimerSyncAction.UpdateFromRemote -> activeTimer?.let { updateFromRemote(context, it, action.remote) }
-            TimerSyncAction.CancelLocal -> endLocalWithoutRecord(context)
+            TimerSyncAction.CancelLocal -> endLocalWithoutRecord(context, activeTimer, reason = "web_stopped")
             TimerSyncAction.Republish -> republish(uid, context, activeTimer, remote)
         }
     }
@@ -147,6 +156,25 @@ object RemoteTimerSync {
         ActivityTimerNotifier(context).apply {
             clearRunningTimer()
             if (remote.category != "SLEEP") showRunningTimer(remote.category, remote.startTime)
+        }
+        val appContext = context.applicationContext
+        val metadata = EventMetadata.activityStarted(
+            via = EventMetadata.StartVia.WEB_START,
+            category = remote.category,
+            startTime = remote.startTime,
+            sourceType = ActivitySourceType.MANUAL,
+            linkedTodoId = remote.linkedTodoId?.toLongOrNull(),
+            pendingTitle = remote.title.ifBlank { null }
+        )
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching {
+                EventLogRepository(appContext).log(
+                    eventType = EventType.ACTIVITY_STARTED,
+                    entityType = EntityType.ACTIVITY,
+                    source = EventSource.WEB,
+                    metadataJson = metadata
+                )
+            }
         }
     }
 
@@ -179,11 +207,23 @@ object RemoteTimerSync {
     }
 
     /** Ends the phone's timer without saving a record (the web saved it, or replaced it). */
-    private fun endLocalWithoutRecord(context: Context) {
+    private fun endLocalWithoutRecord(context: Context, ended: ActiveTimerState?, reason: String) {
+        val elapsedMs = ended?.elapsedMillis
         runCatching { RoutineGoalAlarmScheduler(context).cancel() }
         TimerStateStore.clearActiveTimer(context, publish = false)
         ActivityTimerNotifier(context).clearRunningTimer()
         FlowStatusWidgetProvider.updateAll(context)
+        val appContext = context.applicationContext
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching {
+                EventLogRepository(appContext).log(
+                    eventType = EventType.ACTIVITY_STOPPED,
+                    entityType = EntityType.ACTIVITY,
+                    source = EventSource.WEB,
+                    metadataJson = EventMetadata.activityStopped(reason, ended?.category, elapsedMs)
+                )
+            }
+        }
     }
 
     private fun republish(uid: String, context: Context, local: ActiveTimerState?, remote: RemoteTimer?) {

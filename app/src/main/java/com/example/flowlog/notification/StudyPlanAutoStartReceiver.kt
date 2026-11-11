@@ -5,11 +5,16 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.example.flowlog.data.constants.ActivitySourceType
+import com.example.flowlog.data.constants.EntityType
+import com.example.flowlog.data.constants.EventSource
+import com.example.flowlog.data.constants.EventType
 import com.example.flowlog.data.constants.SyncStatus
 import com.example.flowlog.data.local.TimerStateStore
 import com.example.flowlog.data.local.TimerStatus
 import com.example.flowlog.data.local.db.FlowlogDatabase
 import com.example.flowlog.data.local.entity.ActivityEntity
+import com.example.flowlog.data.repository.EventLogRepository
+import com.example.flowlog.data.repository.EventMetadata
 import com.example.flowlog.widget.FlowStatusWidgetProvider
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CoroutineScope
@@ -73,6 +78,21 @@ class StudyPlanAutoStartReceiver : BroadcastReceiver() {
             sourceType = ActivitySourceType.STUDY_PLAN,
             sourceId = item.id
         )
+        runCatching {
+            EventLogRepository(context).log(
+                eventType = EventType.ACTIVITY_STARTED,
+                entityType = EntityType.ACTIVITY,
+                source = EventSource.SYSTEM,
+                metadataJson = EventMetadata.activityStarted(
+                    via = EventMetadata.StartVia.STUDY_PLAN_AUTO_START,
+                    category = category,
+                    startTime = startAt,
+                    sourceType = ActivitySourceType.STUDY_PLAN,
+                    sourceId = item.id,
+                    pendingTitle = item.title
+                )
+            )
+        }
         FlowStatusWidgetProvider.updateAll(context)
         ActivityTimerNotifier(context).apply {
             clearRunningTimer()
@@ -92,10 +112,11 @@ class StudyPlanAutoStartReceiver : BroadcastReceiver() {
             .coerceAtLeast(active.startTime + 1L)
             .coerceAtMost(System.currentTimeMillis())
         val userId = FirebaseAuth.getInstance().currentUser?.uid ?: "anonymous"
+        val activityId = UUID.randomUUID().toString()
 
         db.activityDao().insertActivity(
             ActivityEntity(
-                activityId = UUID.randomUUID().toString(),
+                activityId = activityId,
                 userId = userId,
                 title = item.title,
                 category = active.category,
@@ -118,6 +139,17 @@ class StudyPlanAutoStartReceiver : BroadcastReceiver() {
                 syncStatus = SyncStatus.PENDING
             )
         )
+        // Written straight to the DAO (not ActivityRepository), so ACTIVITY_SAVED is logged
+        // here; entityId is the Room activityId because this row has no legacy id.
+        runCatching {
+            EventLogRepository(context).log(
+                eventType = EventType.ACTIVITY_SAVED,
+                entityType = EntityType.ACTIVITY,
+                entityId = activityId,
+                source = EventSource.SYSTEM,
+                metadataJson = EventMetadata.activitySaved(EventMetadata.SaveVia.STUDY_PLAN_AUTO_END)
+            )
+        }
         TimerStateStore.clearActiveTimer(context)
         FlowStatusWidgetProvider.updateAll(context)
         ActivityTimerNotifier(context).clearRunningTimer()

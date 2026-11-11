@@ -123,6 +123,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -221,6 +222,8 @@ internal fun TimerPage(
     onStop: (String, String?, List<ExerciseSetRecord>) -> Unit,
     onStopAndComplete: (String, String?, List<ExerciseSetRecord>) -> Unit = onStop,
     onApplyTitle: (String) -> Unit,
+    onTitleSuggestionsShown: (category: String, slots: List<String>) -> Unit = { _, _ -> },
+    onTitleSuggestionPicked: (slot: Int, title: String) -> Unit = { _, title -> onApplyTitle(title) },
     exerciseSets: List<ExerciseSetRecord> = emptyList(),
     exerciseMemo: String = "",
     onExerciseSetsChanged: (List<ExerciseSetRecord>) -> Unit = {},
@@ -334,15 +337,17 @@ internal fun TimerPage(
             Spacer(modifier = Modifier.height(16.dp))
         } else {
             TitleInputSection(
+                category = currentCategory,
                 titleSuggestions = titleSuggestions,
                 title = titleState.value,
                 isFocusFireActive = isFocusFireActive,
                 focusManager = focusManager,
                 onTitleChange = { titleState.value = it },
-                onSuggestionSelected = { suggestion ->
+                onSuggestionsShown = onTitleSuggestionsShown,
+                onSuggestionSelected = { slot, suggestion ->
                     titleState.value = suggestion
                     appliedTitleState.value = suggestion
-                    onApplyTitle(suggestion)
+                    onTitleSuggestionPicked(slot, suggestion)
                 },
                 onApply = {
                     val cleanTitle = titleState.value.trim()
@@ -595,12 +600,14 @@ internal fun TimerRingSection(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun TitleInputSection(
+    category: String,
     titleSuggestions: List<String>,
     title: String,
     isFocusFireActive: Boolean,
     focusManager: FocusManager,
     onTitleChange: (String) -> Unit,
-    onSuggestionSelected: (String) -> Unit,
+    onSuggestionsShown: (category: String, slots: List<String>) -> Unit,
+    onSuggestionSelected: (slot: Int, title: String) -> Unit,
     onApply: () -> Unit
 ) {
     val accentColor by animateColorAsState(
@@ -614,14 +621,20 @@ internal fun TitleInputSection(
         label = "title-input-accent-soft-color"
     )
     if (titleSuggestions.isNotEmpty()) {
+        // TITLE_SUGGESTION_SHOWN once per category and list, not on every recomposition;
+        // the ViewModel also skips a list it already logged for the same timer.
+        val currentOnSuggestionsShown by rememberUpdatedState(onSuggestionsShown)
+        LaunchedEffect(category, titleSuggestions) {
+            currentOnSuggestionsShown(category, titleSuggestions)
+        }
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            titleSuggestions.forEach { suggestion ->
+            titleSuggestions.forEachIndexed { slot, suggestion ->
                 SuggestionChip(
-                    onClick = { onSuggestionSelected(suggestion) },
+                    onClick = { onSuggestionSelected(slot, suggestion) },
                     label = {
                         Text(
                             text = suggestion,

@@ -270,6 +270,7 @@ users/{uid}/flowlog/data/dailyGoalItems
 users/{uid}/flowlog/data/dailyCues
 users/{uid}/flowlog/data/calendarEvents
 users/{uid}/flowlog/data/assistantSnapshots
+users/{uid}/flowlog/data/externalSamples   (Health Connect and app usage samples, see below)
 users/{uid}/flowlog/config          (main button configuration)
 users/{uid}/flowlog/timer           (running timer shared with the PC web app)
 users/{uid}/flowlog/metadata        (last sync time; older builds only, no longer written)
@@ -279,6 +280,148 @@ users/{uid}/interactionDecisions
 ```
 
 The last two live directly under `users/{uid}`, outside `flowlog/`.
+
+### External samples (Health Connect, app usage)
+
+Off by default. Settings > 외부 데이터 > "건강 데이터(Health Connect)" asks for
+read access to sleep, steps, and exercise (Android 9 or later; on Android 13
+and below the Health Connect app must be installed, and the row links to the
+Play Store). The row shows the state (not installed / no permission /
+connected, last fetch time, samples in the last 7 days) and turns collection
+off again. Nothing is written to Health Connect, and exercise routes (location)
+and every other data type are not read. Notifications, location, and contacts
+are not collected at all.
+
+What is read (`data/external/HealthConnectCollector.kt`): sleep sessions (with
+their stages), one total per local day of steps (Health Connect's own
+aggregate, which removes steps several apps wrote twice), and exercise sessions
+(type id and title). The window is the last 7 days from local midnight (the
+first fetch: 30, Health Connect's limit before the first grant). Each sample is
+one row of the Room table `external_samples` (v25). Sleep and exercise
+sessions are keyed by Health Connect's record id (`health_connect:<kind>:<id>`),
+so a session whose times were edited in the source app still overwrites its own
+row; everything else (and a session without an id) by
+`<provider>:<kind>:<start>:<end>:<source app>` (steps: `aggregate` instead of
+the app). A re-read overwrites its row and changed ones upload again; a session
+deleted in Health Connect is not deleted here. Rows
+are uploaded with the other pending changes to
+`users/{uid}/flowlog/data/externalSamples/{sampleId}` (samples that started
+before today in the midnight run). They are not pulled back on reinstall: the
+phone reads Health Connect again.
+
+When: every 6 hours in WorkManager while it is on, right after turning it on,
+and when the app comes to the foreground 6 hours after the last try. Each fetch
+leaves an `EXTERNAL_SAMPLES_FETCHED` event, failures included. The 6-hour
+background fetch needs Health Connect's "read in background" permission (asked
+together with the others); without it only the foreground fetch reads.
+
+App usage (`data/external/UsageStatsCollector.kt`) is a second switch in the
+same place, "앱 사용 통계", also off by default. It needs the system's "사용 정보
+접근" (usage access, `PACKAGE_USAGE_STATS`), which only the user can turn on in
+system settings; the row opens that screen and shows no permission / connected
+(last fetch, samples in the last 7 days). It reads the system usage events over
+the same window (the system may keep fewer days and then gives what it has) and
+builds two kinds itself (`UsageStatsAggregation.kt`, unit tested) instead of
+using the system's daily buckets, whose day boundaries differ between devices:
+`app_foreground_daily`, one row per app package and local day (0:00 to the next
+day's 0:00) with the milliseconds an activity of that app was in front
+(resume/pause pairs, cut at midnight, overlapping activities of one app counted
+once, `{sessions}` in the payload); and `screen_interactive`, one row per
+screen-on → screen-off interval (Android 9+, not cut at midnight; a screen still
+on is read on the next fetch). Package names are stored as they are, not app
+names, and Flowlog itself is a row like any other. Today's rows are always
+partial and are overwritten by each fetch until the day ends. No notification
+listener, notification contents, or locations. Each provider leaves its own
+`EXTERNAL_SAMPLES_FETCHED` per fetch, and one failing does not stop the other.
+
+The samples are only stored: sleep is not turned into an activity (the existing
+"fill a gap as sleep" stays as it is) and nothing here feeds a recommendation.
+They are not part of the CSV/JSON export. Turning collection off keeps the
+stored samples; to remove them, delete the account (server copy, after 14 days)
+or clear the app's data (phone). Before the app is offered to other users, the
+privacy policy and the Play data-safety form must list these (see
+`docs/RELEASE_CHECKLIST.md`).
+
+### Event log
+
+The app also keeps a raw log of what happens, one Room row per action
+(`event_logs`, uploaded to `eventLogs` with the other pending changes). It is
+not a feature users see; it exists so recommendation and reminder behaviour can
+be checked later against what was actually done. Metadata holds plain facts
+(times, kinds, counts, what was shown or chosen), built in
+`data/repository/EventMetadata.kt`. `EventTypeCoverageTest` fails when a kind in
+`EventType.kt` is logged nowhere and not listed with a reason. Logged kinds:
+
+- `ACTIVITY_STARTED`: every timer start, one row each, with `via` naming the
+  path (`manual_button`, `app_shortcut`, `existing_button_recommendation`,
+  `scheduled_auto_button_now`, `overlapping`, `todo`, `daily_cue_routine`,
+  `calendar_petite`, `flow_recommendation`, `recommended_todo`,
+  `auto_button_alarm`, `study_plan_auto_start`, `web_start`) plus category,
+  source, linked Todo, preset title and start time; `pinned: true` for the
+  second (overlapping) timer slot. `auto_button_undo_restore` is not a new
+  start: the timer an auto button replaced comes back. A start right after
+  tapping the inactivity reminder carries `afterInactivityReminder: true` and the
+  reminder's id in the same row.
+- `ACTIVITY_SAVED`: a record written, with `via` (`timer_stop`, `manual_add`,
+  `import`, `fill_sleep`, `overlapping_stop`, `daily_cue_check`,
+  `undo_restore`, `auto_button_end`, `auto_button_preempt`,
+  `study_plan_auto_end`, `seed_sleep`). Timer saves also carry `titleSource`
+  (`suggestion`, `typed`, `default`, `preset` = came with the start, `unknown` =
+  e.g. changed on the web or after an app restart), the chip `slot` when a
+  suggestion was kept, and `shownSlots`.
+- `ACTIVITY_UPDATED`: an edit on the phone, with only the fields that changed
+  as `{from, to}`; the note is never copied, only `{fromLen, toLen}`. Changes
+  pulled from the web are not logged here.
+- `ACTIVITY_DELETED`: deleted records.
+- `TITLE_SUGGESTION_SHOWN`: the title chips on the running timer (up to five,
+  `slots` in order), once per timer and list; `TITLE_SUGGESTION_PICKED`: the
+  chip tapped (`slot` from 0, `title`). Both with algorithm `title_ranker_v1`.
+- `BUTTON_RECOMMENDATION_SHOWN`, `_ACCEPTED`, `_DISMISSED`: the AI messenger's
+  "add this main button" suggestion (`category`, `messageId`, algorithm
+  `button_engine_v1`). SHOWN is written when the message is created, not when
+  it is drawn on screen. The SCHOOL/MOVE existing-button suggestions are not
+  logged here; their decisions are already kept in `study_decisions`
+  (uploaded as `interactionDecisions`).
+- `ACTIVITY_STOPPED`: a running timer ended without a record — the web replaced
+  or stopped it, or an auto-button start was undone.
+- `ACTIVITY_FAVORITE_TOGGLED`: the star on a record, with the new value.
+- `TODO_*`: Todos created, edited, completed, uncompleted, deleted, work time
+  added, review stage advanced.
+- `DAILY_GOAL_GENERATED`, `DAILY_GOAL_REFRESHED`, `DAILY_GOAL_ITEM_REPLACED`:
+  today's goal list made, remade, or one item swapped.
+- `DAILY_GOAL_ITEM_CLICKED`, `DAILY_GOAL_ITEM_COMPLETED`: a goal item started
+  or completed (only when a row actually changed; `via` names the call).
+- `DAILY_GOAL_ITEM_SKIPPED`: a past day's item never started that day, marked
+  when past recommendations are reconciled.
+- `NOTIFICATION_SHOWN`, `NOTIFICATION_CLICKED`, `NOTIFICATION_DISMISSED`: the
+  inactivity, planned-Todo, and toothbrush reminders (clicks for the first two;
+  the toothbrush alert removes itself after 3 s, which may also count as a
+  dismissal — `dismissedAt - shownAt` tells the two apart).
+- `FOCUS_MODE_STARTED`, `FOCUS_MODE_STOPPED`: focus mode on and off.
+- `FLOW_RECOMMENDATION_*`: a flow recommendation shown, opened, started, or
+  completed.
+- `DEVELOPER_MODE_ENABLED`, `DEVELOPER_MODE_DISABLED`: the developer switch,
+  including the automatic switch-off for non-developer accounts.
+- `SETTING_CHANGED`: notification sound, inactivity reminder, timetable
+  auto-place, timetable reminder, per-schedule auto-button, Health Connect
+  (`external_data_health_connect_enabled`), and app usage
+  (`external_data_usage_stats_enabled`) switches (`key`, `value`).
+- `EXTERNAL_SAMPLES_FETCHED`: one fetch of one provider (`health_connect` or
+  `usage_stats`), success or failure (`provider`, `window_start`, `window_end`,
+  `fetched`, `inserted`, `updated`, `error` when it failed, `trigger`, `kinds`
+  read; `screen_events_supported: false` for usage below Android 9).
+- `APP_FOREGROUNDED`: the main screen came to the foreground.
+- `EXPORT_CREATED`: a CSV/JSON export written, with the record count.
+- `SYNC_STARTED`, `SYNC_SUCCEEDED`, `SYNC_FAILED`: each upload/pull run with
+  its counts (these rows go up with the next sync).
+- `MIGRATION_COMPLETED`: the first open after a database version change.
+  `MIGRATION_STARTED` and `MIGRATION_FAILED` are not logged: nothing can be
+  written to the database before or during a migration.
+
+Every row also has `installationId`: a random id made once per app install
+(the same one the shared timer uses to tell this phone's writes apart). It says
+which install wrote the row; it is not a hardware or advertising id, and a
+reinstall or account wipe makes a new one.
 
 ## Title Suggestion Scoring
 
@@ -309,6 +452,8 @@ rules are documented in the ranker source.
 - Kotlin Coroutines and StateFlow
 - Kotlin Serialization
 - WorkManager
+- Health Connect client (read only; sleep, steps, exercise)
+- UsageStatsManager usage events (app foreground time, screen on/off)
 - Credential Manager with Google ID (Google sign-in)
 - Firebase Authentication
 - Cloud Firestore

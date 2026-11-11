@@ -105,6 +105,9 @@ dependencies {
     // WorkManager (reliable background delete-sync retry)
     implementation(libs.androidx.work.runtime.ktx)
 
+    // Health Connect (read sleep, steps, exercise into external_samples; API 28+ at runtime)
+    implementation(libs.androidx.health.connect.client)
+
     // Kotlin Serialization
     implementation(libs.kotlinx.serialization.json)
 
